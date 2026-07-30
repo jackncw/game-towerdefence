@@ -15,16 +15,47 @@ const SETTINGS := "res://scenes/Settings.tscn"
 const GALLERY := "res://scenes/Gallery.tscn"
 const BESTIARY := "res://scenes/Bestiary.tscn"
 
+## Subset of Noto Sans TC (SIL OFL 1.1) covering the game's on-screen characters.
+## Rebuild with tools/subset_font.py after adding text with new characters.
+const UI_FONT := preload("res://assets/fonts/NotoSansTC-Subset.ttf")
+
 func _ready() -> void:
-	# Global CJK-capable font so all 繁體中文 renders (picks an installed system
-	# font; falls back gracefully across platforms).
-	var sf := SystemFont.new()
-	sf.font_names = PackedStringArray([
-		"Microsoft JhengHei", "微軟正黑體", "PMingLiU", "Microsoft YaHei",
-		"Noto Sans CJK TC", "Noto Sans CJK SC", "Source Han Sans", "sans-serif"])
-	sf.allow_system_fallback = true
-	ThemeDB.fallback_font = sf
+	# Global CJK-capable font so all 繁體中文 renders.
+	if OS.has_feature("web"):
+		_install_web_cjk_font()
+	else:
+		var sf := SystemFont.new()
+		sf.font_names = PackedStringArray([
+			"Microsoft JhengHei", "微軟正黑體", "PMingLiU", "Microsoft YaHei",
+			"Noto Sans CJK TC", "Noto Sans CJK SC", "Source Han Sans", "sans-serif"])
+		sf.allow_system_fallback = true
+		ThemeDB.fallback_font = sf
 	ThemeDB.fallback_font_size = 28
+
+
+## Browsers expose no system fonts, so the built-in Open Sans has nothing to fall
+## back on and every CJK glyph draws as a tofu box.
+##
+## Setting ThemeDB.fallback_font is NOT enough: the built-in theme assigns Open
+## Sans to Label/Button explicitly, so the fallback_font is never consulted. The
+## bundled subset has to be hung off those fonts' own `fallbacks` chains instead.
+## Doing it this way keeps Latin text in Open Sans exactly as on desktop.
+func _install_web_cjk_font() -> void:
+	var theme := ThemeDB.get_default_theme()
+	for type_name in theme.get_font_type_list():
+		for font_name in theme.get_font_list(type_name):
+			_chain_fallback(theme.get_font(font_name, type_name))
+	_chain_fallback(theme.default_font)
+	_chain_fallback(ThemeDB.fallback_font)
+
+
+func _chain_fallback(f: Font) -> void:
+	if f == null or f == UI_FONT:
+		return
+	var chain := f.fallbacks
+	if not chain.has(UI_FONT):
+		chain.append(UI_FONT)
+		f.fallbacks = chain
 
 ## Headless harnesses instantiate Battle directly and own their own navigation.
 ## A finished battle queues Flow.goto on a 0.2-0.6s timer, and that timer keeps

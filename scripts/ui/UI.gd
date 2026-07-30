@@ -222,8 +222,21 @@ static func toast(root: Control, msg: String, col := DANGER) -> void:
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 	l.add_theme_constant_override("outline_size", 5)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# a Panel is not a container, so without this the Label kept its own minimum
+	# size at (0,0) and the text drew off the top-left of the plate
+	l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	p.add_child(l)
-	var w := maxf(360.0, msg.length() * 24.0 + 80.0)
+	# measure instead of assuming a fixed advance per character: a 繁中 glyph is
+	# ~1 em wide and a Latin one ~0.55 em, so the old length*24 sized the English
+	# toast half again too wide
+	var fnt: Font = l.get_theme_font("font")
+	var w := 360.0
+	if fnt != null:
+		w = maxf(w, fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x + 80.0)
+	else:
+		w = maxf(w, msg.length() * 24.0 + 80.0)
+	w = minf(w, 1000.0)
 	p.size = Vector2(w, 78)
 	p.position = Vector2((1080.0 - w) * 0.5, 300)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE

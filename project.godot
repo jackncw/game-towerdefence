@@ -36,6 +36,11 @@ window/handheld/orientation=1
 
 pointing/emulate_touch_from_mouse=true
 
+[internationalization]
+
+locale/translations=PackedStringArray("res://i18n/game.en.translation", "res://i18n/game.zh_TW.translation")
+locale/fallback="zh_TW"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

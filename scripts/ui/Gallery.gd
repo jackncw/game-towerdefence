@@ -4,10 +4,10 @@ extends Control
 
 func _ready() -> void:
 	UI.fullscreen_bg(self, Color(0.11, 0.085, 0.065))
-	var title := UI.title("美術畫廊 — 辨識度審查", 40)
+	var title := UI.title(tr("GALLERY_TITLE"), 40)
 	title.position = Vector2(0, 30); title.size = Vector2(1080, 56)
 	add_child(title)
-	var back := UI.button("← 返回", Vector2(200, 80), UI.PANEL, 28)
+	var back := UI.button(tr("NAV_BACK"), Vector2(200, 80), UI.PANEL, 28)
 	back.position = Vector2(20, 34)
 	back.pressed.connect(func(): Flow.goto(Flow.MAIN_MENU))
 	add_child(back)
@@ -21,10 +21,10 @@ func _ready() -> void:
 	vb.add_theme_constant_override("separation", 10)
 	scroll.add_child(vb)
 
-	vb.add_child(_section("怪物 (每族 Lv1-5 + Boss)"))
+	vb.add_child(_section(tr("GALLERY_MONSTERS")))
 	for fam in GameData.family_ids():
 		var famdef: Dictionary = GameData.FAMILIES[fam]
-		vb.add_child(UI.label(famdef.name, 28, UI.ACCENT))
+		vb.add_child(UI.label(tr(famdef.name), 28, UI.ACCENT))
 		var grid := GridContainer.new()
 		grid.columns = 6
 		grid.add_theme_constant_override("h_separation", 8)
@@ -34,22 +34,22 @@ func _ready() -> void:
 		grid.add_child(_cell(Assets.monster_boss(fam), "Boss"))
 		vb.add_child(grid)
 
-	vb.add_child(_section("守城武器 (20)"))
+	vb.add_child(_section(tr("GALLERY_TOWERS")))
 	var tg := GridContainer.new()
 	tg.columns = 6
 	tg.add_theme_constant_override("h_separation", 8)
 	tg.add_theme_constant_override("v_separation", 8)
 	for t in GameData.TOWERS:
-		tg.add_child(_cell(Assets.tower(t.id), t.name))
+		tg.add_child(_cell(Assets.tower(t.id), tr(t.name)))
 	vb.add_child(tg)
 
-	vb.add_child(_section("魔法 (15)"))
+	vb.add_child(_section(tr("GALLERY_SPELLS")))
 	var sg := GridContainer.new()
 	sg.columns = 6
 	sg.add_theme_constant_override("h_separation", 8)
 	sg.add_theme_constant_override("v_separation", 8)
 	for s in GameData.SPELLS:
-		sg.add_child(_cell(Assets.spell(s.id), s.name))
+		sg.add_child(_cell(Assets.spell(s.id), tr(s.name)))
 	vb.add_child(sg)
 
 func _section(txt: String) -> Control:
@@ -71,7 +71,12 @@ func _cell(tex: Texture2D, label: String) -> Control:
 	hb.add_child(UI.tex_rect(tex, sz))          # 1x
 	hb.add_child(UI.tex_rect(tex, sz * 2.0))    # 2x
 	vb.add_child(hb)
+	# English tower/spell names are ~2x the width of the 繁中 ones and overran the
+	# 160px cell, so the caption wraps inside the cell instead of bleeding into
+	# its neighbour
 	var l := UI.label(label, 20, Color(0.8, 0.85, 0.9))
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.custom_minimum_size = Vector2(156, 46)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(l)
 	return vb

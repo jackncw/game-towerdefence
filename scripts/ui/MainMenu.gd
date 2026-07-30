@@ -12,11 +12,11 @@ func _ready() -> void:
 	plate.size = Vector2(840, 190)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(plate)
-	var title := UI.title("塔 防 要 塞", 84)
+	var title := UI.title(tr("MENU_TITLE"), 84)
 	title.position = Vector2(120, 230)
 	title.size = Vector2(840, 110)
 	add_child(title)
-	var sub := UI.title("Tower Fortress", 32)
+	var sub := UI.title(tr("MENU_SUBTITLE"), 32)
 	sub.position = Vector2(120, 336)
 	sub.size = Vector2(840, 46)
 	sub.add_theme_color_override("font_color", Color(0.82, 0.74, 0.55))
@@ -39,31 +39,31 @@ func _ready() -> void:
 	add_child(vb)
 
 	var next_n: int = Meta.next_level()
-	var play := UI.button("開始遊戲  (第 %d 關)" % next_n, Vector2(600, 120), UI.ACCENT, 40)
+	var play := UI.button(tr("MENU_PLAY").format({"n": next_n}), Vector2(600, 120), UI.ACCENT, 40)
 	play.pressed.connect(func(): Flow.play_level(next_n))
 	vb.add_child(play)
 
-	var sel := UI.button("選擇關卡", Vector2(600, 110))
+	var sel := UI.button(tr("NAV_LEVEL_SELECT"), Vector2(600, 110))
 	sel.pressed.connect(func(): Flow.goto(Flow.LEVEL_SELECT))
 	vb.add_child(sel)
 
-	var shop := UI.button("商店  (解鎖塔 / 魔法)", Vector2(600, 110))
+	var shop := UI.button(tr("MENU_SHOP"), Vector2(600, 110))
 	shop.pressed.connect(func(): Flow.goto(Flow.SHOP))
 	vb.add_child(shop)
 
-	var up := UI.button("升級介面", Vector2(600, 110))
+	var up := UI.button(tr("MENU_UPGRADE"), Vector2(600, 110))
 	up.pressed.connect(func(): Flow.goto(Flow.UPGRADE))
 	vb.add_child(up)
 
-	var bestiary := UI.button("怪物圖鑑", Vector2(600, 110))
+	var bestiary := UI.button(tr("NAV_BESTIARY"), Vector2(600, 110))
 	bestiary.pressed.connect(func(): Flow.goto(Flow.BESTIARY))
 	vb.add_child(bestiary)
 
-	var settings := UI.button("設定", Vector2(600, 110))
+	var settings := UI.button(tr("NAV_SETTINGS"), Vector2(600, 110))
 	settings.pressed.connect(func(): Flow.goto(Flow.SETTINGS))
 	vb.add_child(settings)
 
-	var gallery := UI.button("美術畫廊 (Debug)", Vector2(600, 90), UI.PANEL, 30)
+	var gallery := UI.button(tr("MENU_GALLERY"), Vector2(600, 90), UI.PANEL, 30)
 	gallery.pressed.connect(func(): Flow.goto(Flow.GALLERY))
 	vb.add_child(gallery)
 
@@ -73,4 +73,4 @@ func _ready() -> void:
 		var amount: int = Meta.rework_refund
 		Meta.rework_refund = 0
 		await get_tree().process_frame
-		UI.toast(self, "詛咒塔已重造,已退還 %d 魔晶" % amount, UI.GOLD)
+		UI.toast(self, tr("TOAST_CURSE_REFUND").format({"n": amount}), UI.GOLD)

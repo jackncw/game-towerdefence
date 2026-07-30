@@ -17,6 +17,9 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="):
 			OUTDIR = a.substr(6)
+		elif a.begins_with("--locale="):
+			# shoot the whole game in one language: --locale=en / --locale=zh_TW
+			TranslationServer.set_locale(a.substr(9))
 	if not OUTDIR.ends_with("/"):
 		OUTDIR += "/"
 	# safety: never hang a CI/local run
@@ -194,7 +197,7 @@ func _shoot_upgrades() -> void:
 	await _grab("06e_upgrade_maxed")
 	Meta.crystals = 12
 	up.crystal_label.text = "12"
-	UI.toast(up, "魔晶不足!還差 88")
+	UI.toast(up, tr("TOAST_NEED_CRYSTALS").format({"n": 88}))
 	for i in 8:
 		await get_tree().process_frame
 	await _grab("06f_upgrade_toast")
@@ -262,7 +265,7 @@ func _shoot_mech_sheet() -> void:
 		d.size = Vector2(400, 272)
 		d.position = Vector2((i % 4) * 425, (i / 4) * 316)
 		holder.add_child(d)
-		var l := UI.label("%d %s (%s)" % [tid, def.name, kind], 30, UI.TEXT)
+		var l := UI.label("%d %s (%s)" % [tid, tr(def.name), kind], 30, UI.TEXT)
 		l.position = Vector2((i % 4) * 425 + 6, (i / 4) * 316 + 272)
 		l.size = Vector2(400, 40)
 		holder.add_child(l)

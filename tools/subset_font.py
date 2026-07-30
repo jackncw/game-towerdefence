@@ -26,8 +26,10 @@ from fontTools import subset
 PROJECT = pathlib.Path(__file__).resolve().parent.parent
 OUT = PROJECT / "assets" / "fonts" / "NotoSansTC-Subset.ttf"
 
-# Files whose string literals can reach the screen.
-SCAN_SUFFIXES = {".gd", ".tscn", ".tres", ".godot", ".cfg"}
+# Files whose string literals can reach the screen. .csv matters most since the
+# i18n pass: every 繁體中文 string now lives in i18n/game.csv, not in the .gd
+# sources, so dropping it here would strip the whole CJK set out of the subset.
+SCAN_SUFFIXES = {".gd", ".tscn", ".tres", ".godot", ".cfg", ".csv"}
 SKIP_DIRS = {".godot", "docs", "build", "art_export", "art_export_round6"}
 
 # Always include these regardless of what the sources happen to use today, so

@@ -71,3 +71,16 @@ func goto(path: String) -> void:
 func play_level(n: int) -> void:
 	selected_level = n
 	goto(BATTLE)
+
+## Switch language and make it visible immediately, including on the screen the
+## player is standing on. Every screen in this game builds its whole Control tree
+## from tr() in _ready(), so nothing observes TranslationServer after the fact —
+## Godot's automatic Control re-translation only covers text left AS a raw key,
+## which is almost nothing here. Reloading the current scene re-runs those
+## _ready()s and is the one refresh path that cannot miss a label.
+func set_locale(code: String) -> void:
+	if code == Meta.current_locale():
+		return
+	Meta.set_locale(code)
+	if nav_enabled:
+		get_tree().reload_current_scene()

@@ -12,7 +12,7 @@ var tower_up: Dictionary = {}
 var spell_up: Dictionary = {}
 var highest_level: int = 0            # highest cleared level (0 = none)
 var cleared: Dictionary = {}          # "N": true for cleared levels
-var settings: Dictionary = {"volume": 0.8, "muted": false}
+var settings: Dictionary = {"volume": 0.8, "muted": false, "locale": ""}
 var seen: Dictionary = {}             # bestiary: "fam_1".."fam_5","fam_boss" => true
 var save_version: int = SAVE_VERSION   # migrations already applied to this save
 
@@ -36,6 +36,7 @@ func _ready() -> void:
 	load_game()
 	_migrate()
 	apply_audio_settings()
+	apply_locale()
 
 ## Runs once per save, right after load_game().
 func _migrate() -> void:
@@ -322,6 +323,10 @@ func load_game() -> void:
 		settings["volume"] = 0.8
 	if not settings.has("muted"):
 		settings["muted"] = false
+	# "" = never chosen -> follow the system locale on this and every later launch
+	# until the player picks one in 設定.
+	if not settings.has("locale"):
+		settings["locale"] = ""
 
 func _to_int(v) -> int:
 	return int(v) if typeof(v) in [TYPE_INT, TYPE_FLOAT, TYPE_STRING] else 0
@@ -349,6 +354,38 @@ func _to_lv_dict(d) -> Dictionary:
 			out[str(k)] = arr
 	return out
 
+# --- language ---------------------------------------------------------------
+## The two shipping locales, in the order the settings screen lists them.
+## `label` is deliberately NOT translated — a language picker has to read in the
+## language it selects, or the player who cannot read the current one is stuck.
+const LOCALES := [
+	{"code": "zh_TW", "label": "中文"},
+	{"code": "en", "label": "English"},
+]
+
+## Locale to use when the save has never recorded a choice: follow the system,
+## with anything non-Chinese landing on English.
+func default_locale() -> String:
+	return "zh_TW" if OS.get_locale().begins_with("zh") else "en"
+
+func current_locale() -> String:
+	var code: String = str(settings.get("locale", ""))
+	for l in LOCALES:
+		if l.code == code:
+			return code
+	return default_locale()
+
+## Push the persisted (or system-derived) language into the TranslationServer.
+func apply_locale() -> void:
+	TranslationServer.set_locale(current_locale())
+
+## Change language and persist it. Callers are responsible for redrawing whatever
+## is on screen — see Flow.set_locale(), which reloads the current scene.
+func set_locale(code: String) -> void:
+	settings["locale"] = code
+	apply_locale()
+	save_game()
+
 ## Push the persisted audio settings into the bus. Without this the saved
 ## 靜音 / 音量 only ever took effect if you re-toggled them in 設定 this session.
 func apply_audio_settings() -> void:
@@ -364,7 +401,10 @@ func reset_save() -> void:
 	spell_up = {}
 	highest_level = 0
 	cleared = {}
-	settings = {"volume": 0.8, "muted": false}
+	# language is a device preference, not progress — a save wipe must not throw
+	# the player back into a language they may not read
+	var keep_locale = settings.get("locale", "")
+	settings = {"volume": 0.8, "muted": false, "locale": keep_locale}
 	seen = {}
 	save_version = SAVE_VERSION   # a fresh save needs no migration
 	rework_refund = 0

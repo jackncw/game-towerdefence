@@ -2,9 +2,9 @@ extends Control
 
 func _ready() -> void:
 	UI.menu_backdrop(self)
-	add_child(UI.banner_title("選擇關卡", 26, 520, 50))
+	add_child(UI.banner_title(tr("NAV_LEVEL_SELECT"), 26, 520, 50))
 
-	var back := UI.button("← 返回", Vector2(200, 88), UI.PANEL, 30)
+	var back := UI.button(tr("NAV_BACK"), Vector2(200, 88), UI.PANEL, 30)
 	back.position = Vector2(24, 40)
 	back.pressed.connect(func(): Flow.goto(Flow.MAIN_MENU))
 	add_child(back)
@@ -47,17 +47,18 @@ func _level_card(n: int) -> Control:
 	vb.size = Vector2(254, 160)
 	vb.add_theme_constant_override("separation", 6)
 	vb.alignment = BoxContainer.ALIGNMENT_CENTER
-	var l := UI.label("第 %d 關" % n, 42, UI.TEXT)
+	var l := UI.label(tr("COMMON_LEVEL_N").format({"n": n}), 42, UI.TEXT)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(l)
-	var status := "★ 已通關" if cleared else ("可挑戰" if unlocked else "未解鎖")
+	var status := tr("LEVELSEL_CLEARED") if cleared else (
+		tr("LEVELSEL_AVAILABLE") if unlocked else tr("LEVELSEL_LOCKED"))
 	var s := UI.label(status, 26, UI.ACCENT if cleared else UI.TEXT_DIM)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	s.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(s)
 	if cleared:
-		var half := UI.label("重玩魔晶減半", 20, UI.CRYSTAL.darkened(0.15))
+		var half := UI.label(tr("LEVELSEL_REPLAY_HALF"), 20, UI.CRYSTAL.darkened(0.15))
 		half.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		half.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		vb.add_child(half)

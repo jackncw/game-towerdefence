@@ -17,10 +17,10 @@ const SLOT_LABELS := ["Lv1", "Lv2", "Lv3", "Lv4", "Lv5", "BOSS"]
 
 func _ready() -> void:
 	UI.fullscreen_bg(self, Color(0.11, 0.085, 0.065))
-	var title := UI.title("怪 物 圖 鑑", 52)
+	var title := UI.title(tr("BESTIARY_TITLE"), 52)
 	title.position = Vector2(0, 30); title.size = Vector2(1080, 70)
 	add_child(title)
-	var back := UI.button("← 返回", Vector2(200, 80), UI.PANEL, 30)
+	var back := UI.button(tr("NAV_BACK"), Vector2(200, 80), UI.PANEL, 30)
 	back.position = Vector2(24, 40)
 	back.pressed.connect(_go_back)
 	add_child(back)
@@ -71,7 +71,9 @@ func _rebuild() -> void:
 	var any_seen: bool = Meta.family_any_seen(fam)
 
 	# family header
-	var nm := UI.title("%s   (%d / %d)" % [famdef.name if any_seen else "？？？族", fam_idx + 1, GameData.FAMILY_ORDER.size()], 40)
+	var nm := UI.title("%s   (%d / %d)" % [
+		tr(famdef.name) if any_seen else tr("BESTIARY_UNKNOWN_FAM"),
+		fam_idx + 1, GameData.FAMILY_ORDER.size()], 40)
 	nm.position = Vector2(140, 160); nm.size = Vector2(800, 56)
 	page_root.add_child(nm)
 
@@ -97,7 +99,7 @@ func _rebuild() -> void:
 	page_root.add_child(_detail_panel(fam, sel_slot))
 
 	# hint
-	var hint := UI.label("左右滑動或用 ‹ › 翻頁 · 於戰鬥中見過的怪物才會解鎖", 22, Color(0.6, 0.65, 0.72))
+	var hint := UI.label(tr("BESTIARY_HINT"), 22, Color(0.6, 0.65, 0.72))
 	hint.position = Vector2(60, 1700); hint.size = Vector2(960, 40)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	page_root.add_child(hint)
@@ -155,26 +157,29 @@ func _detail_panel(fam: String, slot: int) -> Control:
 		big.modulate = Color(0, 0, 0, 1)
 	panel.add_child(big)
 
-	var title := UI.label("%s %s" % [famdef.name, SLOT_LABELS[slot]] if seen else "？？？", 44, UI.ACCENT if seen else Color(0.6, 0.62, 0.7))
+	var title := UI.label("%s %s" % [tr(famdef.name), SLOT_LABELS[slot]] if seen else tr("BESTIARY_UNKNOWN"),
+		40, UI.ACCENT if seen else Color(0.6, 0.62, 0.7))
 	title.position = Vector2(360, 66); title.size = Vector2(600, 60)
 	panel.add_child(title)
 
 	if not seen:
-		var q := UI.label("尚未在戰鬥中遇見\n擊退牠即可解鎖圖鑑", 30, Color(0.6, 0.63, 0.7))
-		q.position = Vector2(360, 150); q.size = Vector2(600, 120)
+		var q := UI.label("%s\n%s" % [tr("BESTIARY_LOCKED_1"), tr("BESTIARY_LOCKED_2")],
+			28, Color(0.6, 0.63, 0.7))
+		q.position = Vector2(360, 150); q.size = Vector2(600, 130)
+		q.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		panel.add_child(q)
 		return panel
 
 	# stats
 	var st: Dictionary = GameData.boss_stats(fam, 1.0) if boss else GameData.creature_stats(fam, lvl, 1.0)
-	var gold_line: String = "擊敗獎勵:水晶" if boss else "%d" % int(st.gold)
+	var gold_line: String = tr("BESTIARY_BOSS_DROP") if boss else "%d" % int(st.gold)
 	var rows := [
-		["生命 HP", "%d" % int(round(st.hp))],
-		["移動速度", "%d" % int(round(st.speed))],
-		["護甲", "%d" % int(round(st.armor))],
-		["魔法抗性", "%d" % int(round(st.mres))],
-		["金幣掉落", gold_line],
-		["類型", "飛行" if famdef.flying else "地面"],
+		[tr("STAT_HP"), "%d" % int(round(st.hp))],
+		[tr("STAT_SPEED"), "%d" % int(round(st.speed))],
+		[tr("STAT_ARMOR"), "%d" % int(round(st.armor))],
+		[tr("STAT_MRES"), "%d" % int(round(st.mres))],
+		[tr("STAT_GOLD_DROP"), gold_line],
+		[tr("STAT_TYPE"), tr("TYPE_FLYING") if famdef.flying else tr("TYPE_GROUND")],
 	]
 	var y := 160
 	for r in rows:
@@ -194,30 +199,30 @@ func _detail_panel(fam: String, slot: int) -> Control:
 		y += 62
 
 	# mechanic / boss skill
-	var mech_title := UI.label("族群特性", 32, UI.GOLD)
+	var mech_title := UI.label(tr("BESTIARY_TRAIT"), 32, UI.GOLD)
 	mech_title.position = Vector2(66, 600); mech_title.size = Vector2(880, 44)
 	panel.add_child(mech_title)
 	var mbox := Control.new()
 	mbox.position = Vector2(66, 652); mbox.size = Vector2(872, 120)
 	mbox.clip_contents = true
 	panel.add_child(mbox)
-	var mech := UI.label(lore.mech, 29, UI.TEXT)
+	var mech := UI.label(tr(lore.mech), 28, UI.TEXT)
 	mech.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	mech.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	mech.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	mech.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	mbox.add_child(mech)
 
 	if boss:
-		var bt := UI.label("首領技能", 32, UI.DANGER.lightened(0.25))
+		var bt := UI.label(tr("BESTIARY_BOSS_SKILL"), 32, UI.DANGER.lightened(0.25))
 		bt.position = Vector2(66, 790); bt.size = Vector2(880, 44)
 		panel.add_child(bt)
 		var bbox := Control.new()
 		bbox.position = Vector2(66, 842); bbox.size = Vector2(872, 120)
 		bbox.clip_contents = true
 		panel.add_child(bbox)
-		var bd := UI.label(lore.boss, 29, Color(0.96, 0.84, 0.82))
+		var bd := UI.label(tr(lore.boss), 28, Color(0.96, 0.84, 0.82))
 		bd.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		bd.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+		bd.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		bd.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 		bbox.add_child(bd)
 	return panel

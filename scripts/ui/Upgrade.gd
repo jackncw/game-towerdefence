@@ -29,44 +29,45 @@ const ELEM_COL := {
 }
 
 # --- mechanic lore + schematic-diagram kind (drives zone 3) -----------------
+# [diagram_kind, lore TRANSLATION KEY] — the lore text lives in i18n/game.csv.
 const TOWER_MECH := {
-	"arrow": ["range", "箭塔以穩定節奏鎖定射程圈內最近的單一敵人放箭,是可靠的基礎輸出。強化暴擊與雙重射擊後,單體爆發顯著提升。"],
-	"cannon": ["splash", "加農砲台拋射砲彈,落點造成範圍爆炸傷害,適合清理成群小怪。攻速較慢,講求預判落點;破甲與擊退進一步強化控場。"],
-	"lightning": ["chain", "雷電塔射出閃電,在鄰近敵人之間連鎖跳躍,每跳一次傷害衰減。密集路段可同時削弱多個目標;提升連鎖數與降低衰減後覆蓋更廣。"],
-	"fireball": ["burn", "火球塔直射火焰,命中後附加持續燃燒傷害,對高血量目標尤其有效。燃燒可延長時間;爆燃機率觸發時瞬間引爆剩餘燃燒。"],
-	"frost": ["slow", "冰霜塔攻擊附帶減速,令敵人更久停留在火網內;命中有機率完全冰凍目標。減速幅度與冰凍率是它的控場核心。"],
-	"poison": ["dot", "毒液塔疊加毒層造成持續傷害,並無視敵人護甲;毒層越高傷害越猛。敵人死亡時毒素向周圍擴散,引發連環中毒。"],
-	"sniper": ["snipe", "狙擊塔擁有全場最遠射程,優先狙擊高血量目標並打出高額單發傷害。血量低於處決線可被即殺;貫穿讓子彈洞穿多個目標。"],
-	"gatling": ["ramp", "機槍塔持續鎖定同一目標時攻速不斷攀升,越打越快;切換目標會重置熱度。是對付單一厚血敵人的利器。"],
-	"mortar": ["mortar", "迫擊砲超遠程曲射,對落點大範圍轟炸,但有最小射程死角。彈片分裂可波及更多敵人;燒灼地面造成殘留傷害。"],
-	"beam": ["beam", "光束塔發射持續光束,鎖定同一目標越久傷害越高。融甲讓後續傷害穿透護甲;雙光束可同時照射兩個目標。"],
-	"slowfield": ["aura", "緩速力場塔本身不造成傷害,以光環大幅減速範圍內所有敵人;脆弱效果令其受到額外傷害。可強化為對 boss 同樣有效。"],
-	"alchemy": ["gold", "鍊金塔不攻擊,定期自動產出金幣,是經濟核心。範圍內擊殺可獲得額外賞金,開場更提供一筆啟動資金。"],
-	"barracks": ["soldiers", "兵營塔派出士兵駐守路面,以肉身阻擋敵人前進並近身纏鬥;士兵陣亡後定期重生。增兵與護甲讓防線更穩固。"],
-	"boomerang": ["pierce", "迴旋鏢塔擲出迴旋鏢,去程與回程都會貫穿路徑上所有敵人。回程可附加額外傷害;多鏢齊發覆蓋更廣路段。"],
-	"thorn": ["segment", "荊棘塔對鄰近路段持續造成傷害,但對飛行敵人無效;流血可疊加。對重型敵人有額外加成,是近戰路段的穩定消耗。"],
-	"missile": ["homing", "導彈塔以全場第二遠的射程發射追蹤導彈,飛彈全程鎖定目標。對 boss 與大型敵人有巨幅加成,是點名首領的專職武器;但爆炸範圍細,清雜兵海遠不如加農砲台與迫擊砲。"],
-	"curse": ["curseaura", "詛咒塔不攻擊,以常駐光環籠罩路段:圈內敵人(含 boss)受到的傷害大幅加深,走出光環後仍殘留片刻。被詛咒者陣亡時額外掉金,所以它同時是放大器與經濟塔 —— 但必須擺在已有輸出塔的位置。多座光環的放大不疊加(取最高)。"],
-	"holy": ["buff", "聖光塔造成聖屬傷害,並以光環提升周圍友方塔的攻速;淨化可移除敵人增益。是輔助與輸出兼備的核心塔。"],
-	"magnet": ["knock", "磁力塔週期性釋放脈衝,將範圍內敵人擊退拉回,延緩其推進;擊退後附帶減速。對重型敵人亦有一定效果。"],
-	"teleport": ["teleport", "傳送塔有機率將敵人傳送回後方路段,大幅拖延其行程;傳送後可附帶暈眩。對同一目標的傳送次數設有上限。"],
+	"arrow": ["range", "TOWER_ARROW_LORE"],
+	"cannon": ["splash", "TOWER_CANNON_LORE"],
+	"lightning": ["chain", "TOWER_LIGHTNING_LORE"],
+	"fireball": ["burn", "TOWER_FIREBALL_LORE"],
+	"frost": ["slow", "TOWER_FROST_LORE"],
+	"poison": ["dot", "TOWER_POISON_LORE"],
+	"sniper": ["snipe", "TOWER_SNIPER_LORE"],
+	"gatling": ["ramp", "TOWER_GATLING_LORE"],
+	"mortar": ["mortar", "TOWER_MORTAR_LORE"],
+	"beam": ["beam", "TOWER_BEAM_LORE"],
+	"slowfield": ["aura", "TOWER_SLOWFIELD_LORE"],
+	"alchemy": ["gold", "TOWER_ALCHEMY_LORE"],
+	"barracks": ["soldiers", "TOWER_BARRACKS_LORE"],
+	"boomerang": ["pierce", "TOWER_BOOMERANG_LORE"],
+	"thorn": ["segment", "TOWER_THORN_LORE"],
+	"missile": ["homing", "TOWER_MISSILE_LORE"],
+	"curse": ["curseaura", "TOWER_CURSE_LORE"],
+	"holy": ["buff", "TOWER_HOLY_LORE"],
+	"magnet": ["knock", "TOWER_MAGNET_LORE"],
+	"teleport": ["teleport", "TOWER_TELEPORT_LORE"],
 }
 const SPELL_MECH := {
-	"meteor": ["splash", "在指定位置召喚隕石,對大範圍造成瞬間傷害,最適合砸向密集的敵群。"],
-	"stormbolt": ["fullscreen", "全場隨機落下多道閃電,每道造成單體傷害;落雷數越多,清場越快。"],
-	"freezenova": ["fullscreen", "凍結全場敵人一段時間,解凍後仍殘留減速,是危急時的保命大招。"],
-	"miasma": ["splash", "在指定區域釋放毒瘴,持續對範圍內敵人造成每秒毒傷。"],
-	"summon": ["segment", "在路面召喚民兵堵路,以肉身拖住敵人推進的節奏。"],
-	"midas": ["fullscreen", "立即獲得一筆金幣,持續期間擊殺敵人還可額外生財。"],
-	"timewarp": ["fullscreen", "扭曲時間,令全場敵人大幅減速一段時間。"],
-	"warcry": ["fullscreen", "鼓舞全軍,短時間內所有塔的攻速一同提升。"],
-	"barrier": ["single", "為基地張開結界,可抵擋數次入侵,並附帶反傷。"],
-	"tornado": ["segment", "沿路捲起龍捲風,將途經的敵人一併推回後方。"],
-	"quake": ["fullscreen", "地震撼動全場,對地面敵人造成當前生命值百分比傷害,對 boss 造成固定重傷。"],
-	"firewall": ["segment", "在指定路段生成火牆,對經過的敵人持續灼燒。"],
-	"smite": ["single", "對單一目標降下天雷造成巨大傷害,對 boss 有額外加成。"],
-	"emp": ["splash", "在指定範圍釋放磁暴,暈眩其中所有敵人。"],
-	"blackhole": ["splash", "在指定位置製造黑洞,吸住並持續傷害範圍內的敵人。"],
+	"meteor": ["splash", "SPELL_METEOR_LORE"],
+	"stormbolt": ["fullscreen", "SPELL_STORMBOLT_LORE"],
+	"freezenova": ["fullscreen", "SPELL_FREEZENOVA_LORE"],
+	"miasma": ["splash", "SPELL_MIASMA_LORE"],
+	"summon": ["segment", "SPELL_SUMMON_LORE"],
+	"midas": ["fullscreen", "SPELL_MIDAS_LORE"],
+	"timewarp": ["fullscreen", "SPELL_TIMEWARP_LORE"],
+	"warcry": ["fullscreen", "SPELL_WARCRY_LORE"],
+	"barrier": ["single", "SPELL_BARRIER_LORE"],
+	"tornado": ["segment", "SPELL_TORNADO_LORE"],
+	"quake": ["fullscreen", "SPELL_QUAKE_LORE"],
+	"firewall": ["segment", "SPELL_FIREWALL_LORE"],
+	"smite": ["single", "SPELL_SMITE_LORE"],
+	"emp": ["splash", "SPELL_EMP_LORE"],
+	"blackhole": ["splash", "SPELL_BLACKHOLE_LORE"],
 }
 
 func _ready() -> void:
@@ -111,12 +112,12 @@ func _build_topbar() -> void:
 	add_child(back)
 
 	# category tabs (塔 / 魔法)
-	tab_tower = UI.button("塔", Vector2(150, 88), UI.GOLD, 34)
-	tab_tower.position = Vector2(300, 18)
+	tab_tower = UI.button(tr("UPG_TAB_TOWER"), Vector2(190, 88), UI.GOLD, 34)
+	tab_tower.position = Vector2(240, 18)
 	tab_tower.pressed.connect(func(): _switch_type("tower"))
 	add_child(tab_tower)
-	tab_spell = UI.button("魔法", Vector2(180, 88), UI.PANEL_HI, 34)
-	tab_spell.position = Vector2(462, 18)
+	tab_spell = UI.button(tr("COMMON_SPELLS"), Vector2(190, 88), UI.PANEL_HI, 34)
+	tab_spell.position = Vector2(442, 18)
 	tab_spell.pressed.connect(func(): _switch_type("spell"))
 	add_child(tab_spell)
 
@@ -218,7 +219,7 @@ func _rebuild() -> void:
 	tab_spell.modulate = Color.WHITE if sel_type == "spell" else Color(0.7, 0.7, 0.7)
 	var def := _def()
 	_refresh_kind_map(def)
-	nav_name.text = def.name
+	nav_name.text = tr(def.name)
 	var keep_scroll: int = scroll.scroll_vertical
 	for c in content.get_children():
 		c.queue_free()
@@ -258,13 +259,13 @@ func _zone_showcase(def: Dictionary) -> Control:
 	strip.position = Vector2(0, 430)
 	strip.size = Vector2(948, 86)
 	clip.add_child(strip)
-	var nm := UI.title(def.name, 46)
+	var nm := UI.title(tr(def.name), 46)
 	nm.position = Vector2(24, 428)
 	nm.size = Vector2(900, 52)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	nm.add_theme_color_override("font_color", ELEM_COL[_elem()].lightened(0.35))
 	clip.add_child(nm)
-	var ds := UI.label(def.desc, 26, UI.TEXT)
+	var ds := UI.label(tr(def.desc), 24, UI.TEXT)
 	ds.position = Vector2(26, 484)
 	ds.size = Vector2(900, 32)
 	clip.add_child(ds)
@@ -279,36 +280,41 @@ func _zone_stats(def: Dictionary) -> Control:
 	box.position = Vector2(30, 20)
 	box.custom_minimum_size = Vector2(940, 0)
 	z.add_child(box)
-	box.add_child(_section_head("性能面板", "ic_stats"))
+	box.add_child(_section_head(tr("UPG_PERF"), "ic_stats"))
 	var is_spell := sel_type == "spell"
 	var stats: Dictionary = Meta.tower_stats(sel_id) if not is_spell else Meta.spell_stats(sel_id)
 	var mx: Dictionary = STAT_MAX if not is_spell else SPELL_STAT_MAX
 	if not is_spell:
-		box.add_child(UI.stat_bar("ic_sword", "攻擊", _fmt(stats.get("dmg", 0.0), "dmg"),
+		box.add_child(UI.stat_bar("ic_sword", tr("UP_ATK"), _fmt(stats.get("dmg", 0.0), "dmg"),
 			_frac("dmg", stats.get("dmg", 0.0), mx), "bar_gold9", 940))
-		box.add_child(UI.stat_bar("ic_speed", "攻速", _fmt(stats.get("rate", 0.0), "rate") + " /秒",
+		box.add_child(UI.stat_bar("ic_speed", tr("UP_RATE"),
+			tr("UPG_RATE_VALUE").format({"v": _fmt(stats.get("rate", 0.0), "rate")}),
 			_frac("rate", stats.get("rate", 0.0), mx), "bar_gold9", 940))
-		box.add_child(UI.stat_bar("ic_scope", "射程", _fmt(stats.get("range", 0.0), "range"),
+		box.add_child(UI.stat_bar("ic_scope", tr("UP_RANGE"), _fmt(stats.get("range", 0.0), "range"),
 			_frac("range", stats.get("range", 0.0), mx), "bar_gold9", 940))
 		var dps: float = float(stats.get("dmg", 0.0)) * float(stats.get("rate", 0.0))
-		box.add_child(UI.stat_bar("ic_star", "綜合輸出", _fmt(dps, "dmg") + " DPS",
+		box.add_child(UI.stat_bar("ic_star", tr("UPG_DPS_LABEL"),
+			tr("UPG_DPS_VALUE").format({"v": _fmt(dps, "dmg")}),
 			clampf(dps / DPS_MAX, 0.03, 1.0), "bar_green9", 940))
 		# the tower's signature special (first non-core upgrade direction)
 		var sp := _signature_stat(def)
 		if sp != "":
-			box.add_child(UI.stat_bar("ic_spark", STAT_LABEL.get(sp, sp),
+			box.add_child(UI.stat_bar("ic_spark", tr(STAT_LABEL.get(sp, sp)),
 				_fmt(stats.get(sp, 0.0), sp), _frac(sp, stats.get(sp, 0.0), mx), "bar_crystal9", 940))
-		box.add_child(_kv_row("造價", "ic_coin", "%d 金" % int(def.place_cost), UI.GOLD))
+		box.add_child(_kv_row(tr("UPG_COST"), "ic_coin",
+			tr("UPG_GOLD_VALUE").format({"n": int(def.place_cost)}), UI.GOLD))
 	else:
 		var has_cd := false
 		for up in def.ups:
 			var st: String = up.stat
 			if st == "cd":
 				has_cd = true
-			box.add_child(UI.stat_bar(_stat_icon(st), up.name, _fmt(stats.get(st, 0.0), st),
+			box.add_child(UI.stat_bar(_stat_icon(st), tr(up.name), _fmt(stats.get(st, 0.0), st),
 				_frac(st, stats.get(st, 0.0), mx), "bar_gold9", 940))
 		if not has_cd:
-			box.add_child(_kv_row("冷卻", "ic_speed", _fmt(stats.get("cd", def.cd), "cd") + " 秒", UI.CRYSTAL.lightened(0.2)))
+			box.add_child(_kv_row(tr("UP_CD"), "ic_speed",
+				tr("UPG_SEC_VALUE").format({"v": _fmt(stats.get("cd", def.cd), "cd")}),
+				UI.CRYSTAL.lightened(0.2)))
 	return z
 
 func box_height(def: Dictionary) -> float:
@@ -327,14 +333,17 @@ func _signature_stat(def: Dictionary) -> String:
 # --- ZONE 3: mechanics ------------------------------------------------------
 func _zone_mech(def: Dictionary) -> Control:
 	var z := UI.panel_rect()
-	z.custom_minimum_size = Vector2(1000, 400)
-	var head := _section_head("機制說明", "ic_skull")
+	# taller than the round-4 zone: the English mechanic blurbs run roughly 3x the
+	# character count of the 繁中 ones and the longest (詛咒塔 / 導彈塔) overflowed
+	# the old 276px text column outright
+	z.custom_minimum_size = Vector2(1000, 512)
+	var head := _section_head(tr("UPG_MECH"), "ic_skull")
 	head.position = Vector2(30, 20)
 	z.add_child(head)
 	var entry: Array = (TOWER_MECH.get(def.mech, ["range", def.desc]) if sel_type == "tower"
 		else SPELL_MECH.get(def.mech, ["splash", def.desc]))
 	var kind: String = entry[0]
-	var lore: String = entry[1]
+	var lore: String = tr(entry[1])
 	# diagram (left) + text (right)
 	var diag := _MechDiagram.new()
 	diag.kind = kind
@@ -346,17 +355,19 @@ func _zone_mech(def: Dictionary) -> Control:
 	# text in a fixed-size clip box so CJK wraps reliably to the column width
 	var tbox := Control.new()
 	tbox.position = Vector2(460, 100)
-	tbox.size = Vector2(504, 276)
-	tbox.custom_minimum_size = Vector2(504, 276)
+	tbox.size = Vector2(504, 392)
+	tbox.custom_minimum_size = Vector2(504, 392)
 	tbox.clip_contents = true
 	z.add_child(tbox)
-	var txt := UI.label(lore, 27, UI.TEXT)
+	# WORD_SMART, not ARBITRARY: ARBITRARY reads fine in 繁中 but chops English
+	# mid-word ("everyt / hing"), and it still grapheme-breaks a space-less CJK run
+	var txt := UI.label(lore, 22, UI.TEXT)
 	txt.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	txt.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+	txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	txt.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	tbox.add_child(txt)
 	var pad := Control.new()
-	pad.custom_minimum_size = Vector2(940, 392)
+	pad.custom_minimum_size = Vector2(940, 504)
 	z.add_child(pad)
 	return z
 
@@ -370,7 +381,7 @@ func _zone_upgrades(def: Dictionary) -> Control:
 	box.position = Vector2(28, 22)
 	box.custom_minimum_size = Vector2(944, 0)
 	z.add_child(box)
-	box.add_child(_section_head("升級方向", "ic_up"))
+	box.add_child(_section_head(tr("UPG_PATHS"), "ic_up"))
 	var levels := _levels()
 	for i in def.ups.size():
 		box.add_child(_up_row(def, i, levels))
@@ -386,11 +397,12 @@ func _up_row(def: Dictionary, dir: int, levels: Array) -> Control:
 	var ic := UI.tex_rect(Assets.ui(_stat_icon(up.stat)), Vector2(56, 56))
 	ic.position = Vector2(24, 22)
 	row.add_child(ic)
-	var nm := UI.label(up.name, 30, UI.TEXT)
+	var nm := UI.label(tr(up.name), 28, UI.TEXT)
 	nm.position = Vector2(92, 16)
 	nm.size = Vector2(360, 38)
+	nm.clip_text = true
 	row.add_child(nm)
-	var lvl := UI.label("等級 %d/%d" % [lv, GameData.MAX_UP_LV], 24, UI.PARCH)
+	var lvl := UI.label(tr("UPG_LEVEL").format({"lv": lv, "max": GameData.MAX_UP_LV}), 24, UI.PARCH)
 	lvl.position = Vector2(92, 58)
 	row.add_child(lvl)
 	# level pip bar
@@ -422,8 +434,10 @@ func _up_row(def: Dictionary, dir: int, levels: Array) -> Control:
 		var afford: bool = Meta.can_afford(cost)
 		var btn := UI.button("", Vector2(240, 112), UI.GOLD, 30)
 		btn.position = Vector2(700, 14)
-		var lbl := UI.label("升級", 28, Color(0.28, 0.18, 0.05))
-		lbl.position = Vector2(78, 20)
+		var lbl := UI.label(tr("UPG_BUY"), 28, Color(0.28, 0.18, 0.05))
+		lbl.position = Vector2(0, 18)
+		lbl.size = Vector2(240, 36)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		btn.add_child(lbl)
 		var crow := HBoxContainer.new()
 		crow.position = Vector2(64, 58)
@@ -441,7 +455,7 @@ func _up_row(def: Dictionary, dir: int, levels: Array) -> Control:
 
 func _try_buy(dir: int, cost: int, row: Control) -> void:
 	if not Meta.can_afford(cost):
-		UI.toast(self, "魔晶不足!還差 %d" % (cost - Meta.crystals))
+		UI.toast(self, tr("TOAST_NEED_CRYSTALS").format({"n": cost - Meta.crystals}))
 		UI.shake(row)
 		return
 	var ok: bool = Meta.buy_tower_upgrade(sel_id, dir) if sel_type == "tower" else Meta.buy_spell_upgrade(sel_id, dir)

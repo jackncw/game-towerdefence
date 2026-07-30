@@ -55,12 +55,12 @@ func _build_top() -> void:
 	banner.size = Vector2(384, 104)
 	add_child(banner)
 
-	level_label = UI.title("第 %d 關" % battle.level, 40)
+	level_label = UI.title(tr("COMMON_LEVEL_N").format({"n": battle.level}), 40)
 	level_label.position = Vector2(348, 12)
 	level_label.size = Vector2(384, 48)
 	add_child(level_label)
 
-	boss_timer_label = UI.label("BOSS 60s", 27, Color(1, 0.86, 0.5))
+	boss_timer_label = UI.label("", 27, Color(1, 0.86, 0.5))
 	boss_timer_label.position = Vector2(348, 64)
 	boss_timer_label.size = Vector2(384, 40)
 	boss_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -188,7 +188,7 @@ func _make_spell_card(id: int) -> Control:
 	btn.add_theme_stylebox_override("normal", UI.frame_box("slot9", 14, 6, 6))
 	btn.add_theme_stylebox_override("hover", UI.frame_box("slot9", 14, 6, 6, Color(1.2, 1.2, 1.2)))
 	btn.add_theme_stylebox_override("pressed", UI.frame_box("slot9", 14, 6, 6, Color(0.8, 0.8, 0.8)))
-	btn.tooltip_text = "%s\n%s" % [def.name, def.desc]
+	btn.tooltip_text = "%s\n%s" % [tr(def.name), tr(def.desc)]
 	# same drag-from-card path as tower cards; card_press handles instant vs
 	# targeted spells and ignores presses while on cooldown.
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, true))
@@ -215,8 +215,8 @@ func _make_spell_card(id: int) -> Control:
 
 func _build_buildbar() -> void:
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(10, 1716)
-	scroll.size = Vector2(1060, 190)
+	scroll.position = Vector2(10, 1710)
+	scroll.size = Vector2(1060, 202)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
@@ -229,12 +229,12 @@ func _build_buildbar() -> void:
 func _make_build_card(id: int) -> Control:
 	var def := GameData.tower_by_id(id)
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(128, 178)
+	btn.custom_minimum_size = Vector2(128, 196)
 	btn.add_theme_stylebox_override("normal", UI.frame_box("card9", 16, 6, 6))
 	btn.add_theme_stylebox_override("hover", UI.frame_box("card9", 16, 6, 6, Color(1.18, 1.18, 1.18)))
 	btn.add_theme_stylebox_override("pressed", UI.frame_box("card9", 16, 6, 6, Color(0.7, 1.1, 0.8)))
 	btn.add_theme_stylebox_override("disabled", UI.frame_box("card9", 16, 6, 6, Color(0.42, 0.42, 0.46)))
-	btn.tooltip_text = "%s\n%s" % [def.name, def.desc]
+	btn.tooltip_text = "%s\n%s" % [tr(def.name), tr(def.desc)]
 	# Drag-from-card is the primary path: the press is captured by this Button so
 	# the whole gesture (drag onto the map + release) arrives here at gui_input,
 	# never at Battle._unhandled_input. We forward it to card_press/drag/release.
@@ -245,14 +245,26 @@ func _make_build_card(id: int) -> Control:
 	var icon := UI.tex_rect(Assets.tower(id), Vector2(88, 88))
 	icon.position = Vector2(20, 8)
 	btn.add_child(icon)
-	var nm := UI.label(def.name, 22, UI.TEXT)
-	nm.position = Vector2(4, 96)
-	nm.size = Vector2(120, 30)
+	# Two-line wrapping box: an English tower name is roughly twice the width of
+	# the 繁中 one and ran straight off the 128px card on a single fixed line.
+	# A free Label with a manual size wraps unreliably here — the second line
+	# silently vanished — so the Label sits FULL_RECT inside a fixed clip box.
+	var nbox := Control.new()
+	# inset past the card9 frame ring so a long name never sits on the bevel
+	nbox.position = Vector2(11, 92)
+	nbox.size = Vector2(106, 56)
+	nbox.clip_contents = true
+	nbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(nbox)
+	var nm := UI.label(tr(def.name), 19, UI.TEXT)
+	nm.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(nm)
+	nbox.add_child(nm)
 	var costrow := HBoxContainer.new()
-	costrow.position = Vector2(24, 132)
+	costrow.position = Vector2(24, 150)
 	costrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	costrow.add_child(UI.tex_rect(Assets.coin(), Vector2(34, 34)))
 	var cost := UI.label(str(def.place_cost), 30, UI.GOLD)
@@ -273,10 +285,10 @@ func _build_tower_panel() -> void:
 	tower_panel_name.position = Vector2(20, 14)
 	tower_panel_name.size = Vector2(360, 40)
 	tower_panel.add_child(tower_panel_name)
-	var info := UI.label("點擊空地建塔", 22, Color(0.7, 0.75, 0.8))
+	var info := UI.label(tr("HUD_HINT_BUILD"), 22, Color(0.7, 0.75, 0.8))
 	info.position = Vector2(20, 58)
 	tower_panel.add_child(info)
-	sell_btn = UI.button("賣塔", Vector2(200, 90), UI.DANGER, 30)
+	sell_btn = UI.button(tr("HUD_SELL"), Vector2(200, 90), UI.DANGER, 30)
 	sell_btn.position = Vector2(388, 10)
 	sell_btn.pressed.connect(func():
 		if battle.selected_tower:
@@ -333,9 +345,9 @@ func refresh(delta: float) -> void:
 	# boss timer
 	if not battle.boss_spawned:
 		var remain: int = int(ceil(maxf(0.0, battle.boss_time - battle.elapsed)))
-		boss_timer_label.text = "BOSS 倒數 %d 秒" % remain
+		boss_timer_label.text = tr("HUD_BOSS_COUNTDOWN").format({"n": remain})
 	else:
-		boss_timer_label.text = "BOSS 出場!"
+		boss_timer_label.text = tr("HUD_BOSS_HERE")
 	# boss bar
 	if battle.boss_ref != null and is_instance_valid(battle.boss_ref) and battle.boss_ref.alive:
 		boss_box.visible = true
@@ -378,15 +390,15 @@ func refresh(delta: float) -> void:
 
 func show_boss(m) -> void:
 	boss_box.visible = true
-	boss_name.text = "%s BOSS" % GameData.FAMILIES[m.fam].name
+	boss_name.text = tr("HUD_BOSS_NAME").format({"fam": tr(GameData.FAMILIES[m.fam].name)})
 
 func show_tower_panel(t) -> void:
 	if t == null:
 		tower_panel.visible = false
 		return
 	tower_panel.visible = true
-	tower_panel_name.text = "%s" % t.def.name
-	sell_btn.text = "賣塔 +%d" % t.sell_value()
+	tower_panel_name.text = tr(t.def.name)
+	sell_btn.text = tr("HUD_SELL_VALUE").format({"n": t.sell_value()})
 
 func _flash_card(btn: Button) -> void:
 	var fl := ColorRect.new()
@@ -417,16 +429,16 @@ func _build_pause_menu() -> void:
 	box.position = Vector2(240, 620)
 	box.size = Vector2(600, 0)
 	pause_menu.add_child(box)
-	var t := UI.title("暫停", 60)
+	var t := UI.title(tr("HUD_PAUSED"), 60)
 	t.size = Vector2(600, 90)
 	box.add_child(t)
-	var resume := UI.button("繼續遊戲", Vector2(600, 120), UI.ACCENT, 40)
+	var resume := UI.button(tr("HUD_RESUME"), Vector2(600, 120), UI.ACCENT, 40)
 	resume.pressed.connect(_toggle_pause)
 	box.add_child(resume)
-	var bes := UI.button("怪物圖鑑", Vector2(600, 110))
+	var bes := UI.button(tr("NAV_BESTIARY"), Vector2(600, 110))
 	bes.pressed.connect(_open_bestiary_overlay)
 	box.add_child(bes)
-	var quit := UI.button("返回主選單", Vector2(600, 110), UI.DANGER, 36)
+	var quit := UI.button(tr("NAV_MAIN_MENU"), Vector2(600, 110), UI.DANGER, 36)
 	quit.pressed.connect(func():
 		get_tree().paused = false
 		Flow.goto(Flow.MAIN_MENU))

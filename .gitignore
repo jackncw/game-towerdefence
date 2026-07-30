@@ -1,0 +1,21 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# build artifacts (not needed for rollback)
+/build/
+*.apk
+*.aab
+
+# generated art exports / screenshots (re-renderable via tools/art_export.gd)
+/art_export/
+/art_export_round6/
+/Claude art self improve/
+
+# run logs and profiling output
+*.log
+
+# local editor / tooling state
+.claude/settings.local.json
+__pycache__/
+*.pyc

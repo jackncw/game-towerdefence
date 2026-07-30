@@ -7,10 +7,30 @@
 *.apk
 *.aab
 
+# Web export dropped in the project root. The published build lives in /docs;
+# the Web preset used to default to ./index.html and littered a 38 MB duplicate
+# here every time it was exported without an explicit path.
+/index.html
+/index.js
+/index.wasm
+/index.pck
+/index.png
+/index.icon.png
+/index.apple-touch-icon.png
+/index.audio.worklet.js
+/index.audio.position.worklet.js
+/index.*.import
+/index.side.wasm
+
 # generated art exports / screenshots (re-renderable via tools/art_export.gd)
 /art_export/
 /art_export_round6/
+/art_i18n_zh/
+/art_i18n_en/
 /Claude art self improve/
+
+# translation resources compiled from i18n/*.csv by the Godot importer
+*.translation
 
 # run logs and profiling output
 *.log

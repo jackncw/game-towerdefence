@@ -218,6 +218,31 @@ func _case_e_feedback() -> void:
 	_check(b.dmg_pool.live_count() > before_live, "回血有浮動數字彈出")
 	await _end(b)
 
+	# The one that actually got missed the first time: a boss's heal is METERED
+	# to ~1.25%/s, i.e. ~0.02% of the bar per frame. A frame-to-frame comparison
+	# never clears any sane threshold, so slow regen stayed completely silent on
+	# the boss bar. The band is measured from a low-water mark instead.
+	b = await _start(7)
+	boss = _spawn_boss(b, "treant")
+	if b.hud == null:
+		_check(false, "Battle 有 HUD 可以驗 boss 血條")
+	else:
+		boss.hp = boss.max_hp * 0.55
+		_step(b, DT)
+		_check(not b.hud.boss_heal_rect.visible, "冇回血時冇綠色條")
+		var t := 0.0
+		while t < 3.0:
+			_step(b, DT)              # nothing but the metered regen
+			t += DT
+		_check(b.hud.boss_heal_rect.visible,
+			"慢速再生都睇得見:boss 血條有綠色回復段 (寬 %.1fpx)"
+			% b.hud.boss_heal_rect.size.x)
+		# and it resets the moment the player lands a hit
+		boss.take_true(boss.max_hp * 0.05)
+		_step(b, DT)
+		_check(not b.hud.boss_heal_rect.visible, "再受傷之後綠色段清零")
+	await _end(b)
+
 # ---------------------------------------------------------------------------
 func _start(level: int):
 	Flow.selected_level = level

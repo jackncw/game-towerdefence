@@ -22,8 +22,10 @@
 /index.*.import
 /index.side.wasm
 
-# generated art exports / screenshots (re-renderable via tools/art_export.gd)
+# generated art exports / screenshots (re-renderable via tools/art_export.gd,
+# tools/heal_shots.gd)
 /art_export/
+/heal_shots/
 /art_export_round6/
 /art_i18n_zh/
 /art_i18n_en/

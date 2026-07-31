@@ -15,10 +15,16 @@ var boss_bar: ProgressBar
 var boss_heal_rect: ColorRect     # green rebound band over the boss HP bar
 var boss_name: Label
 var _boss_frac: float = -1.0      # HP fraction shown last frame
-var _boss_heal_t: float = 0.0     # rebound animation timer
+## Lowest fraction the bar has reached since the boss last took damage. The green
+## band spans low-water -> now, so healing shows up even when it arrives as a
+## trickle. Comparing frame to frame instead was tried and is WRONG: the heal
+## ceiling meters regen down to ~0.02% of the bar per frame, far under any
+## sensible threshold, so the band never appeared and slow regen stayed exactly
+## as silent as before the rework.
+var _boss_low: float = -1.0
+var _boss_heal_t: float = 0.0     # pulse timer, re-armed each time the band grows
 const BOSS_HEAL_FLASH := 0.55
-## Below this the bar has not visibly moved, so do not fire the animation for
-## per-frame regen dribble; Monster banks those into readable lumps anyway.
+## Band must be at least this wide to be worth drawing (0.4% of the bar).
 const BOSS_HEAL_MIN := 0.004
 var spell_cards: Array = []      # {id, btn, cover, cd_label}
 var build_cards: Array = []      # {id, btn, cost}
@@ -370,27 +376,34 @@ func refresh(delta: float) -> void:
 	if battle.boss_ref != null and is_instance_valid(battle.boss_ref) and battle.boss_ref.alive:
 		boss_box.visible = true
 		var frac: float = clampf(battle.boss_ref.hp / battle.boss_ref.max_hp, 0, 1)
-		if _boss_frac >= 0.0 and frac - _boss_frac >= BOSS_HEAL_MIN:
-			# the bar went UP: show exactly which stretch was clawed back
-			_boss_heal_t = BOSS_HEAL_FLASH
-			boss_heal_rect.position.x = 10.0 + 940.0 * _boss_frac
-			boss_heal_rect.size.x = 940.0 * (frac - _boss_frac)
+		if _boss_low < 0.0 or frac < _boss_low:
+			_boss_low = frac                       # damage: the band resets here
+		var band: float = frac - _boss_low
+		if band >= BOSS_HEAL_MIN:
+			boss_heal_rect.visible = true
+			boss_heal_rect.position.x = 10.0 + 940.0 * _boss_low
+			boss_heal_rect.size.x = 940.0 * band
+			if frac > _boss_frac:
+				_boss_heal_t = BOSS_HEAL_FLASH     # still climbing: keep pulsing
+		elif boss_heal_rect.visible:
+			boss_heal_rect.visible = false
 		_boss_frac = frac
 		boss_bar.value = frac
 	else:
 		boss_box.visible = false
+		boss_heal_rect.visible = false
 		_boss_frac = -1.0
+		_boss_low = -1.0
 		_boss_heal_t = 0.0
+	# the band is solid while it exists; the pulse on top makes a fresh gain
+	# unmissable even when the slice is thin
 	if _boss_heal_t > 0.0:
 		_boss_heal_t -= delta
 		var k: float = clampf(_boss_heal_t / BOSS_HEAL_FLASH, 0.0, 1.0)
-		boss_heal_rect.visible = true
-		boss_heal_rect.color.a = k
-		# the whole bar pulses green too, so the rebound is unmissable even when
-		# the healed slice is thin
-		boss_bar.modulate = Color.WHITE.lerp(Color(0.55, 1.35, 0.55), k)
-	elif boss_heal_rect.visible:
-		boss_heal_rect.visible = false
+		boss_heal_rect.color.a = 0.55 + 0.45 * k
+		boss_bar.modulate = Color.WHITE.lerp(Color(0.55, 1.35, 0.55), k * 0.8)
+	elif boss_bar.modulate != Color.WHITE:
+		boss_heal_rect.color.a = 0.55
 		boss_bar.modulate = Color.WHITE
 	# spell cooldowns (+ ready flash when a CD finishes)
 	for c in spell_cards:

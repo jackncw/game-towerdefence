@@ -144,6 +144,9 @@ func _build_scroll() -> void:
 	scroll.size = Vector2(1040, 1666)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
+	# upgrade rows are Buttons (MOUSE_FILTER_STOP), which swallow the drag before
+	# the container can see it — see TouchScroll
+	TouchScroll.attach(scroll)
 	content = VBoxContainer.new()
 	content.add_theme_constant_override("separation", 20)
 	content.custom_minimum_size = Vector2(1000, 0)

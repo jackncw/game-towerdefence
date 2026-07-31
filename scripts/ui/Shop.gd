@@ -22,6 +22,9 @@ func _ready() -> void:
 	scroll.size = Vector2(1020, 1700)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
+	# every card here is a Panel full of Buttons, all MOUSE_FILTER_STOP, so the
+	# container never sees the finger — see TouchScroll
+	TouchScroll.attach(scroll)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 16)
 	scroll.add_child(vb)

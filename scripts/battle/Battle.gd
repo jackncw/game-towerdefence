@@ -623,15 +623,21 @@ func _tick_curse_auras() -> void:
 		if slow > 0.0:
 			m.apply_slow(slow, maxf(0.3, linger))
 
-func heal_all(frac: float) -> void:
+## `except` is the caster: a boss heals ITSELF out of its capped heal budget
+## (Monster.request_heal, metered by the ceiling), not out of the full group
+## heal, so its own bar can never
+## outrun the player's damage. Minions are unaffected.
+func heal_all(frac: float, except = null) -> void:
 	for m in monsters:
+		if m == except:
+			continue
 		m.heal(frac)
 
 func cultist_aura(src, radius: float, heal_amt: float, haste: float) -> void:
 	for m in monsters_in_radius(src.global_position, radius, true):
 		if m == src:
 			continue
-		m.hp = minf(m.max_hp, m.hp + heal_amt)
+		m.request_heal(heal_amt)
 		m.apply_haste(haste, 0.7)
 
 func holy_haste_at(pos: Vector2) -> float:
@@ -723,14 +729,16 @@ func spawn_hazard(pos: Vector2, radius: float, dps: float, dur: float, kind: int
 const DMG_SOFT_CAP := 90
 const DMG_HARD_CAP := 150
 
-func spawn_damage(pos: Vector2, amount: int, col: Color, big := false) -> void:
+## `prefix` lets a heal read as "+140" in green next to the red damage numbers —
+## the 視覺誠實 half of the boss-heal rework.
+func spawn_damage(pos: Vector2, amount: int, col: Color, big := false, prefix := "") -> void:
 	var live: int = dmg_pool.live_count()
 	if live >= DMG_HARD_CAP:
 		return
 	if not big and live >= DMG_SOFT_CAP and (live % 3) != 0:
 		return
 	var d: DamageNumber = dmg_pool.acquire()
-	d.setup(pos, str(amount), col, dmg_pool, big)
+	d.setup(pos, prefix + str(amount), col, dmg_pool, big)
 
 # --- cosmetic FX budget -----------------------------------------------------
 # Under a saturated 5x fight the fx pool used to grow past NINE HUNDRED live

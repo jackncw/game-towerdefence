@@ -85,6 +85,56 @@ var BOSS_SPAWN := {
 func boss_spawn_profile(fam: String) -> Dictionary:
 	return BOSS_SPAWN.get(fam, {"rate": BOSS_SPAWN_BASE_RATE})
 
+# ---------------------------------------------------------------------------
+# BOSS 回復上限. Applies to EVERY boss with a heal element, present or future —
+# Monster routes all self-healing through one budget, so a new mechanic cannot
+# quietly reintroduce the problem.
+#
+# "預期玩家 DPS" is measured, not guessed: in the 20-level balance playthrough
+# the bosses WITHOUT any heal resolve in a median of ~16s, so the firepower a
+# level expects of the player is boss_max_hp / BOSS_FIGHT_REF_SECONDS. A boss may
+# claw back at most BOSS_HEAL_DPS_SHARE of that, which is exactly the condition
+# that keeps the blood bar strictly falling for a player who is on curve
+# (net progress = (1 - share) x DPS > 0).
+#
+# What this replaced: 遠古樹妖 regenerated 2%/s AND healed a flat 25% at 40% HP
+# (3.5%/s equivalent, ~2.9x the ceiling) and 大祭司 healed ITSELF 12% every 7s
+# (1.7%/s). Levels 3/13 and 17 ran 38-45s against a 16s median.
+# ---------------------------------------------------------------------------
+const BOSS_FIGHT_REF_SECONDS := 16.0
+const BOSS_HEAL_DPS_SHARE := 0.20
+## Sustained self-heal ceiling as a fraction of the boss's own max HP per second
+## (0.20 / 16s = 1.25%/s).
+const BOSS_HEAL_CAP_FRAC := BOSS_HEAL_DPS_SHARE / BOSS_FIGHT_REF_SECONDS
+## A boss's heal mechanics REQUEST healing; the request is queued and paid out at
+## no more than the ceiling per second. Banking the allowance and paying it as a
+## lump was tried first and broke the actual promise: 大祭司's 7-second group heal
+## dumped 8 seconds of budget in one frame, so the blood bar jumped up 3.4% even
+## though the AVERAGE rate was legal. Metering makes "永遠淨向下" true frame by
+## frame, not just on average. This is the most a boss may have queued.
+const BOSS_HEAL_QUEUE_SECONDS := 8.0
+
+func boss_heal_cap_per_sec(max_hp: float) -> float:
+	return max_hp * BOSS_HEAL_CAP_FRAC
+
+# --- 遠古樹妖: 低血自療 -> 有反制窗口嘅詠唱 ---------------------------------
+## Cast time. Long enough to see, react and answer; short enough that it is a
+## moment rather than a lull.
+const TREANT_CHANNEL_TIME := 2.5
+## Heal paid if the cast is never answered, as a fraction of max HP. Exempt from
+## the per-second ceiling ON PURPOSE: it is not silent sustain, it is a telegraph
+## the player is invited to beat, and damage dealt during the cast cancels it 1:1.
+## Sized just UNDER the damage an on-curve player lands during the cast
+## (TREANT_CHANNEL_TIME / BOSS_FIGHT_REF_SECONDS = 2.5/16 = 15.6% of max HP), so
+## keeping up your expected DPS denies it completely and the blood bar still only
+## goes down — while falling short of curve costs you the difference.
+const TREANT_CHANNEL_HEAL := 0.15
+## 骷髏君主嘅復活光環: how many times the aura may bring one minion back. Was
+## UNBOUNDED, which is what made level 3/13 feel like damage simply did not
+## count. HP restored per revive, first then subsequent.
+const AURA_REVIVE_MAX := 2
+const REVIVE_HP := [0.30, 0.15]
+
 # per creature-level multipliers (index 1..5)
 const LVL_HP := [0.0, 1.0, 1.35, 1.8, 2.4, 3.2]
 const LVL_SPEED := [0.0, 1.0, 1.04, 1.08, 1.12, 1.16]
@@ -394,18 +444,24 @@ func level_config(n: int) -> Dictionary:
 # 魔晶 (meta currency) payouts. All three payout paths live here so the balance
 # can be tuned in one place: 通關獎勵 / 首次通關獎勵 / 失敗按進度獎勵.
 # ---------------------------------------------------------------------------
+## Global multiplier on every 魔晶 payout. All three payout paths (通關 / 首通 /
+## 失敗按進度) are expressed as base × this, so the ratios between them — and the
+## rules layered on top (重玩減半, 失敗上限 40%, 10 秒內唔派) — are untouched by
+## changing it. 3.0 = the round-7 "魔晶獎勵 ×3" pass.
+const CRYSTAL_REWARD_MULT := 3.0
+
 func level_crystal_reward(n: int) -> int:
 	## 通關獎勵. Meta.on_level_cleared halves this on a replay.
 	## Raised from the old 30+6n: it is also the base the 40% loss cap is taken
 	## from, and at the old rate a stuck player earned too little per attempt to
 	## afford even the cheapest upgrade level (35) after two tries.
-	return 36 + n * 8
+	return int(round((36 + n * 8) * CRYSTAL_REWARD_MULT))
 
 func level_first_clear_bonus(n: int) -> int:
 	## 首次通關獎勵 — paid ONCE per level, on top of the clear reward. Kept
 	## clearly bigger than the clear reward and growing faster with n so that
 	## pushing into a NEW level always beats re-farming an old one.
-	return 40 + n * 10
+	return int(round((40 + n * 10) * CRYSTAL_REWARD_MULT))
 
 # --- loss payout ------------------------------------------------------------
 # Losing pays a small progress-based amount so a failed run still feeds the

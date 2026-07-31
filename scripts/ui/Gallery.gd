@@ -17,6 +17,7 @@ func _ready() -> void:
 	scroll.size = Vector2(1040, 1760)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
+	TouchScroll.attach(scroll)   # see TouchScroll
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	scroll.add_child(vb)

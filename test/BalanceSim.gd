@@ -47,6 +47,8 @@ func _ready() -> void:
 		await _bench_spells()
 	elif "--rework" in args:
 		await _bench_rework()
+	elif "--econ10" in args:
+		await _econ_table()
 	else:
 		await _playthrough()
 	get_tree().paused = false
@@ -259,15 +261,132 @@ const CORE_COUNT := 3            # workhorse towers we keep investing in
 const UNLOCK_TARGET := 6         # breadth we want before going deep
 const CORE_DIRS := ["dmg", "rate", "range"]
 
-func _spend_crystals() -> void:
+## Returns what it spent, split by kind, so the 收支表 can book it.
+func _spend_crystals() -> Dictionary:
+	var out := {"unlock": 0, "upgrade": 0}
 	var guard := 0
 	while guard < 400:
 		guard += 1
+		var before: int = Meta.crystals
 		if Meta.unlocked_towers.size() < UNLOCK_TARGET and _buy_best_unlock():
+			out.unlock += before - Meta.crystals
 			continue
 		if _buy_core_upgrade():
+			out.upgrade += before - Meta.crystals
 			continue
-		return
+		return out
+	return out
+
+# ===========================================================================
+# MODE 5 — 頭 10 關魔晶收支表
+# ===========================================================================
+## Answers the one question a payout multiplier has to answer: does the player
+## still have something left to want? Plays levels 1..10 with the same
+## reasonable player as the playthrough, and books every 魔晶 in and out.
+const ECON_LEVELS := 10
+
+func _econ_table() -> void:
+	Meta.reset_save()
+	print("SIM 魔晶收支表 (第 1-%d 關, CRYSTAL_REWARD_MULT=%.1f)"
+		% [ECON_LEVELS, GameData.CRYSTAL_REWARD_MULT])
+	print("SIM  lv | 嘗試 | 本關收入 | 其中通關 | 其中首通 | 其中敗方 | 解鎖支出 | 升級支出 | 期末餘額 | 已解鎖塔 | 升級總級數")
+	var t_in := 0
+	var t_unlock := 0
+	var t_up := 0
+	for lv in range(1, ECON_LEVELS + 1):
+		var attempt := 0
+		var won := false
+		var inc_clear := 0
+		var inc_first := 0
+		var inc_lose := 0
+		var sp_unlock := 0
+		var sp_up := 0
+		while attempt < MAX_ATTEMPTS and not won:
+			attempt += 1
+			var c0: int = Meta.crystals
+			var r: Dictionary = await _play_attempt(lv)
+			won = r.win
+			# Battle already paid out through Meta; recover the split from the
+			# result Flow recorded rather than re-deriving it here.
+			var res: Dictionary = Flow.last_result
+			if won:
+				inc_clear += int(res.get("base", 0))
+				inc_first += int(res.get("first", 0))
+			else:
+				inc_lose += Meta.crystals - c0
+			var sp: Dictionary = _spend_crystals()
+			sp_unlock += int(sp.unlock)
+			sp_up += int(sp.upgrade)
+		if not won:
+			Meta.on_level_cleared(lv)     # force through, same as the playthrough
+			var sp2: Dictionary = _spend_crystals()
+			sp_unlock += int(sp2.unlock)
+			sp_up += int(sp2.upgrade)
+		var income := inc_clear + inc_first + inc_lose
+		t_in += income
+		t_unlock += sp_unlock
+		t_up += sp_up
+		print("SIM  %2d | %4d | %8d | %8d | %8d | %8d | %8d | %8d | %8d | %7d/%d | %10d"
+			% [lv, attempt, income, inc_clear, inc_first, inc_lose, sp_unlock, sp_up,
+			Meta.crystals, Meta.unlocked_towers.size(), GameData.TOWERS.size(),
+			_total_up_levels()])
+	print("SIM ---- 合計 ----")
+	print("SIM 總收入 %d,解鎖用咗 %d,升級用咗 %d,剩低 %d" % [t_in, t_unlock, t_up, Meta.crystals])
+	# The harness player only ever unlocks UNLOCK_TARGET towers and only ever
+	# deepens CORE_DIRS on CORE_COUNT towers — that is a POLICY, not a budget
+	# limit. So state the budget question directly: could 10 levels of income buy
+	# out the shop, which is the "第3關買晒嘢就冇癮" failure mode.
+	var shop_all := 0
+	for t in GameData.TOWERS:
+		shop_all += maxi(0, int(t.unlock))
+	var spells_all := 0
+	for s in GameData.SPELLS:
+		spells_all += maxi(0, Meta.spell_unlock_cost(s.id))
+	print("SIM 全解鎖成本:塔 %d + 魔法 %d = %d;頭 %d 關總收入 %d = 其中 %.0f%%"
+		% [shop_all, spells_all, shop_all + spells_all, ECON_LEVELS, t_in,
+		100.0 * float(t_in) / maxf(1.0, float(shop_all + spells_all))])
+	var owned: int = Meta.unlocked_towers.size()
+	print("SIM 第%d關完:解鎖 %d/%d 座塔,升級 %d 級,下一個最平解鎖仲要 %s"
+		% [ECON_LEVELS, owned, GameData.TOWERS.size(), _total_up_levels(),
+		("冇嘢可解鎖" if _cheapest_locked() < 0 else str(_cheapest_locked()))])
+	# Inflation check: crystals sitting idle with nothing worth buying is the
+	# failure mode a x3 payout can create.
+	# Inflation reads as "money with nothing left to want": a big idle balance
+	# next to cheap remaining purchases.
+	print("SIM 通脹指標:期末餘額 %d,最平未解鎖 %s,最平核心升級 %d -> %s"
+		% [Meta.crystals,
+		("冇" if _cheapest_locked() < 0 else str(_cheapest_locked())),
+		_cheapest_core_upgrade(),
+		("有嘢想買,唔算通脹" if Meta.crystals < _cheapest_core_upgrade() else "餘額買得起下一級,注意")])
+
+func _total_up_levels() -> int:
+	var n := 0
+	for t in GameData.TOWERS:
+		for l in Meta.tower_levels(int(t.id)):
+			n += int(l)
+	return n
+
+func _cheapest_locked() -> int:
+	var best := -1
+	for t in GameData.TOWERS:
+		if Meta.is_tower_unlocked(t.id) or int(t.unlock) <= 0:
+			continue
+		if best < 0 or int(t.unlock) < best:
+			best = int(t.unlock)
+	return best
+
+func _cheapest_core_upgrade() -> int:
+	var best := 1 << 30
+	for id in _core_towers():
+		var def := GameData.tower_by_id(id)
+		var levels: Array = Meta.tower_levels(int(id))
+		for d in def.ups.size():
+			if not (String(def.ups[d].stat) in CORE_DIRS):
+				continue
+			if int(levels[d]) >= GameData.MAX_UP_LV:
+				continue
+			best = mini(best, Meta.tower_up_cost(int(id), d))
+	return 0 if best == (1 << 30) else best
 
 func _buy_best_unlock() -> bool:
 	var best := 0

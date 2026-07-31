@@ -29,7 +29,12 @@ window/size/viewport_height=1920
 window/size/window_width_override=486
 window/size/window_height_override=864
 window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+; "keep", not "expand": the whole UI is laid out in absolute 1080x1920
+; coordinates (nav bars pinned at y=1800, cards at fixed x), so an expanded
+; viewport pushed those off the design rect. "keep" scales the 9:16 frame
+; uniformly and letterboxes the remainder with default_clear_color, which is
+; the only setting that cannot distort at any window aspect.
+window/stretch/aspect="keep"
 window/handheld/orientation=1
 
 [input_devices]
@@ -48,5 +53,11 @@ locale/fallback="zh_TW"
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0
+; Viewport clear colour, matched to UI.BG. NOTE: this is NOT the letterbox — the
+; bars stretch/aspect=keep leaves are drawn black by the engine, outside the
+; viewport, and there is no setting for them. This only matters if a screen ever
+; fails to paint its own full-screen background, where warm dark beats Godot's
+; default grey.
+environment/defaults/default_clear_color=Color(0.11, 0.085, 0.065, 1)
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true

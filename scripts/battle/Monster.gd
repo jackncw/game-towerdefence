@@ -63,6 +63,22 @@ var regen_rate: float = 0.0
 var phase_time: float = 0.0      # currently phased (untargetable) while > 0
 var phase_cd: float = 5.0
 var did_rootheal: bool = false
+## How many times the 復活光環 has already brought this minion back.
+var revive_count: int = 0
+## Healing a BOSS has asked for but not yet been paid, in HP. It drains at
+## GameData.boss_heal_cap_per_sec, so no boss — whatever its mechanic, now or
+## later — can out-heal 20% of the level's expected player DPS, and no single
+## frame can push the blood bar upward.
+var heal_pending: float = 0.0
+# --- telegraphed heal cast (遠古樹妖) ---------------------------------------
+var channel_time: float = 0.0    # seconds of cast left
+var channel_total: float = 0.0   # cast length, for the progress ring
+var channel_heal: float = 0.0    # HP still pending; damage taken eats into it
+var channel_heal0: float = 0.0   # what it started at, for the ring colour
+# --- heal feedback ----------------------------------------------------------
+var _heal_flash: float = 0.0     # green rebound on the HP bar
+var _heal_bank: float = 0.0      # healed but not yet shown as a number
+var _heal_bank_t: float = 0.0
 var boss_timer: float = 0.0
 var burn_tick: float = 0.0
 var _walk: float = 0.0            # walk-cycle phase (procedural bob/step)
@@ -108,7 +124,13 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	serial = _next_serial
 	_next_serial += 1
 	enrage_time = 0.0; dive_time = 0.0; haste_time = 0.0; haste_amp = 0.0
+	# authored rate; for a boss the ceiling meters it on the way out, so there is
+	# one enforcement point instead of a clamp per mechanic
 	regen_rate = (max_hp * 0.02) if mech == "regen" else 0.0
+	heal_pending = 0.0
+	revive_count = 0
+	channel_time = 0.0; channel_total = 0.0; channel_heal = 0.0; channel_heal0 = 0.0
+	_heal_flash = 0.0; _heal_bank = 0.0; _heal_bank_t = 0.0
 	phase_time = 0.0; phase_cd = 5.0; did_rootheal = false; boss_timer = 3.0
 	poison_tick = 0.0; burn_tick = 0.0; _flash_t = 0.0; _drawn_frac = -1.0
 	_drawn_cursed = false
@@ -224,8 +246,108 @@ func _tick_status(delta: float) -> void:
 			poison_tick = 0.0
 		if poison_time <= 0.0:
 			poison_stacks = 0
+	if _heal_flash > 0.0:
+		_heal_flash -= delta
+	_tick_channel(delta)
 	if regen_rate > 0.0 and hp < max_hp:
-		hp = minf(max_hp, hp + regen_rate * delta)
+		request_heal(regen_rate * delta)
+	_drain_heal(delta)
+	_flush_heal_number(delta)
+
+## Pay out queued healing at no more than the ceiling. Bosses only — everything
+## else is healed the moment it is asked for.
+func _drain_heal(delta: float) -> void:
+	if heal_pending <= 0.0:
+		return
+	var step: float = minf(heal_pending, GameData.boss_heal_cap_per_sec(max_hp) * delta)
+	heal_pending -= step
+	_apply_heal(step)
+
+## The telegraphed heal cast: the boss stands still, glows and fills a ring while
+## `channel_heal` is on the table. Damage taken during the cast is subtracted
+## from it 1:1 (see take_hit / _deal_dot) and a stun cancels it outright, so this
+## is a moment the player can answer instead of HP appearing out of nowhere.
+func _tick_channel(delta: float) -> void:
+	if channel_time <= 0.0:
+		return
+	if stun_time > 0.0:
+		# 打斷: the cast is broken, nothing is paid
+		channel_time = 0.0
+		channel_heal = 0.0
+		rooted_time = 0.0
+		battle.spawn_fx_ring(global_position, 70, Color(0.9, 0.9, 0.4))
+		queue_redraw()
+		return
+	rooted_time = maxf(rooted_time, channel_time)   # held in place for the cast
+	channel_time -= delta
+	queue_redraw()                                  # the ring animates
+	if channel_time > 0.0:
+		return
+	if channel_heal > 0.0:
+		# a designed, telegraphed payout — deliberately outside the per-second
+		# ceiling, because the player was given a window to deny it
+		request_heal(channel_heal, true)
+		battle.spawn_fx_ring(global_position, 90, Color(0.4, 0.9, 0.35))
+	else:
+		battle.spawn_fx_ring(global_position, 70, Color(0.9, 0.9, 0.4))
+	channel_heal = 0.0
+
+## Start a telegraphed heal cast for `frac` of max HP over `secs`.
+func begin_heal_channel(frac: float, secs: float) -> void:
+	channel_total = secs
+	channel_time = secs
+	channel_heal = max_hp * frac
+	channel_heal0 = channel_heal
+	# rooted from the very first frame: _tick_boss runs AFTER _tick_channel, so
+	# without this the cast's first frame still moved
+	rooted_time = maxf(rooted_time, secs)
+	battle.spawn_fx_ring(global_position, 60, Color(0.5, 1.0, 0.45))
+	queue_redraw()
+
+## The single door every heal in the game goes through, so the ceiling and the
+## on-screen feedback can never be bypassed by accident. For a boss the request
+## is QUEUED and metered by _drain_heal; for anything else it lands at once.
+## `immediate` is for telegraphed casts and resurrections, which are events the
+## player was given a way to answer rather than silent sustain.
+func request_heal(amount: float, immediate := false) -> float:
+	if not alive or amount <= 0.0 or hp >= max_hp:
+		return 0.0
+	if is_boss and not immediate:
+		var room: float = GameData.boss_heal_cap_per_sec(max_hp) * GameData.BOSS_HEAL_QUEUE_SECONDS
+		heal_pending = minf(heal_pending + amount, room)
+		return 0.0
+	return _apply_heal(amount)
+
+## Actually restore HP and announce it. Returns what was restored.
+func _apply_heal(amount: float) -> float:
+	if not alive or amount <= 0.0 or hp >= max_hp:
+		return 0.0
+	amount = minf(amount, max_hp - hp)
+	hp += amount
+	_heal_bank += amount
+	_heal_flash = HEAL_FLASH_DUR
+	_drawn_frac = -1.0          # force the bar to repaint on the way up too
+	queue_redraw()
+	return amount
+
+const HEAL_FLASH_DUR := 0.45
+## Heal is shown as a floating green number like damage is. Trickle regen is
+## banked and emitted in readable lumps rather than one label per frame.
+const HEAL_NUMBER_MIN_FRAC := 0.01
+const HEAL_NUMBER_MAX_WAIT := 0.9
+
+func _flush_heal_number(delta: float) -> void:
+	if _heal_bank <= 0.0:
+		return
+	_heal_bank_t += delta
+	if _heal_bank < max_hp * HEAL_NUMBER_MIN_FRAC and _heal_bank_t < HEAL_NUMBER_MAX_WAIT:
+		return
+	var n := int(round(_heal_bank))
+	if n >= 1:
+		battle.spawn_damage(global_position + Vector2(randf_range(-8, 8), -size * 0.75),
+			n, Color(0.45, 1.0, 0.45), is_boss, "+")
+	_heal_bank = 0.0
+	_heal_bank_t = 0.0
 
 func _tick_family(delta: float) -> void:
 	match mech:
@@ -268,7 +390,11 @@ func _tick_boss(delta: float) -> void:
 			boss_timer -= delta
 			if boss_timer <= 0.0:
 				boss_timer = 7.0
-				battle.heal_all(0.12)
+				# the minions still get the full 12%; the 大祭司's own share is
+				# queued and metered, so its bar cannot outrun the player's
+				# damage the way it used to (12% / 7s = 1.7%/s, over the ceiling)
+				battle.heal_all(0.12, self)
+				request_heal(max_hp * 0.12)
 				battle.spawn_fx_ring(global_position, 120, Color(0.9, 0.5, 0.9))
 		"split_birth":
 			boss_timer -= delta
@@ -276,11 +402,11 @@ func _tick_boss(delta: float) -> void:
 				boss_timer = 3.0
 				battle.spawn_add(fam, 1, dist)
 		"root_heal":
+			# was: instant +25% max HP, nothing the player could do about it.
+			# now: a 2.5s cast with a visible ring that damage cancels 1:1.
 			if not did_rootheal and hp < max_hp * 0.4:
 				did_rootheal = true
-				rooted_time = 1.5
-				hp = minf(max_hp, hp + max_hp * 0.25)
-				battle.spawn_fx_ring(global_position, 90, Color(0.4, 0.8, 0.3))
+				begin_heal_channel(GameData.TREANT_CHANNEL_HEAL, GameData.TREANT_CHANNEL_TIME)
 
 # --- combat -----------------------------------------------------------------
 func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
@@ -305,6 +431,7 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	# wolf enrage on hit
 	if boss_mech == "enrage":
 		enrage_time = 2.0
+	_spend_channel(d)
 	hp -= d
 	battle.damage_dealt += minf(d, maxf(0.0, hp + d))
 	_flash()
@@ -318,6 +445,14 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 func take_true(dmg: float) -> void:
 	take_hit(dmg, "true")
 
+## Damage landed while a heal is being cast is subtracted from the pending heal
+## 1:1 — out-damage the cast and it pays nothing.
+func _spend_channel(d: float) -> void:
+	if channel_time <= 0.0 or channel_heal <= 0.0:
+		return
+	channel_heal = maxf(0.0, channel_heal - d)
+	queue_redraw()
+
 func _deal_dot(amount: float, _col: Color) -> void:
 	if not alive:
 		return
@@ -325,6 +460,7 @@ func _deal_dot(amount: float, _col: Color) -> void:
 	# invuln, so letting burn/poison through made "短暫無敵" a lie.
 	if invuln_time > 0.0:
 		return
+	_spend_channel(amount)
 	battle.damage_dealt += minf(amount, maxf(0.0, hp))
 	hp -= amount
 	if hp <= 0.0:
@@ -342,16 +478,26 @@ func try_execute(threshold_frac: float) -> bool:
 func _die(force: bool) -> void:
 	if not alive:
 		return
-	# revive
+	# revive. The 復活光環 used to be UNBOUNDED — while the 骷髏君主 lived, every
+	# skeleton came back at 30% every single time it died, so the level 3/13 boss
+	# fight ran 38-45s against a 16s median and the player's damage read as if it
+	# simply did not count. It is now capped at AURA_REVIVE_MAX with the second
+	# revive returning half as much HP, which bounds one minion's effective HP at
+	# 1 + 0.30 + 0.15 = 1.45x instead of infinity.
 	if not force and mech == "revive":
-		var can_revive := not revived
+		var limit := 0
 		if is_boss:
-			can_revive = false
+			limit = 0
 		elif battle.skeleton_boss_alive and battle.skeleton_boss_alive != self:
-			can_revive = true  # aura: repeated revive
-		if can_revive:
+			limit = GameData.AURA_REVIVE_MAX
+		else:
+			limit = 1
+		if revive_count < limit:
+			var frac: float = GameData.REVIVE_HP[mini(revive_count, GameData.REVIVE_HP.size() - 1)]
+			revive_count += 1
 			revived = true
-			hp = max_hp * 0.3
+			hp = 0.0
+			request_heal(max_hp * frac, true)   # shows the green number + rebound
 			battle.spawn_fx_ring(global_position, size, Color(0.8, 0.8, 0.7))
 			return
 	alive = false
@@ -381,6 +527,8 @@ func apply_freeze(dur: float) -> void:
 
 func apply_stun(dur: float) -> void:
 	stun_time = maxf(stun_time, dur)
+	# a stun is the spell answer to a telegraphed heal cast; _tick_channel breaks
+	# the cast on the next frame
 
 func apply_burn(dps: float, dur: float) -> void:
 	burn_dps = maxf(burn_dps, dps)
@@ -410,7 +558,7 @@ func apply_haste(amp: float, dur: float) -> void:
 	haste_time = maxf(haste_time, dur)
 
 func heal(frac: float) -> void:
-	hp = minf(max_hp, hp + max_hp * frac)
+	request_heal(max_hp * frac)
 
 func displace(amount: float) -> void:
 	## push back along route; bosses 80% resist
@@ -442,10 +590,12 @@ func _tick_flash(delta: float) -> void:
 func _draw() -> void:
 	if curse_amp > 0.0:
 		_draw_curse_mark()
+	if channel_time > 0.0:
+		_draw_heal_cast()
 	if is_boss:
 		return
 	var frac := clampf(hp / max_hp, 0.0, 1.0)
-	if frac >= 0.999:
+	if frac >= 0.999 and _heal_flash <= 0.0:
 		return
 	var w := size
 	var y := -size * 0.62
@@ -453,7 +603,29 @@ func _draw() -> void:
 	var col := Color(0.3, 0.9, 0.3)
 	if frac < 0.3: col = Color(0.9, 0.25, 0.2)
 	elif frac < 0.6: col = Color(0.95, 0.8, 0.2)
+	# 視覺誠實: HP that came BACK is painted as a bright green cap on the bar that
+	# fades out, so healing is never silent. Without it the bar just crept right
+	# and the player read it as "my damage is doing nothing".
+	if _heal_flash > 0.0:
+		var k: float = _heal_flash / HEAL_FLASH_DUR
+		var lift: float = 3.0 * k
+		draw_rect(Rect2(-w * 0.5, y - lift, w * frac, 5 + lift * 2.0),
+			Color(0.55, 1.0, 0.5, 0.35 + 0.45 * k))
 	draw_rect(Rect2(-w * 0.5, y, w * frac, 5), col)
+
+## The 詠唱 tell: a glowing ring that fills over the cast, drawn in green while
+## the heal is still on the table and washing out to grey as damage eats it. A
+## fully greyed ring means the cast will pay nothing.
+func _draw_heal_cast() -> void:
+	var r: float = size * 0.85
+	var k: float = 1.0 - clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
+	var left: float = clampf(channel_heal / maxf(1.0, channel_heal0), 0.0, 1.0)
+	var live := Color(0.45, 1.0, 0.42)
+	var dead := Color(0.65, 0.65, 0.6)
+	var col: Color = dead.lerp(live, left)
+	draw_circle(Vector2.ZERO, r + 6.0, Color(live.r, live.g, live.b, 0.10 * left))
+	draw_arc(Vector2.ZERO, r, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 7.0)
+	draw_arc(Vector2.ZERO, r, -PI * 0.5, -PI * 0.5 + TAU * k, 40, col, 5.0)
 
 ## A small violet wisp + hex sigil over anything standing in a 詛咒塔 aura, so it
 ## is obvious at a glance WHICH monsters are currently taking amplified damage

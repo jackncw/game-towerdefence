@@ -23,6 +23,7 @@ func _ready() -> void:
 	scroll.size = Vector2(1000, 1680)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
+	TouchScroll.attach(scroll)   # level tiles are Buttons; see TouchScroll
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 20)

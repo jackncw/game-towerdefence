@@ -447,10 +447,11 @@ func level_config(n: int) -> Dictionary:
 ## Global multiplier on every 魔晶 payout. All three payout paths (通關 / 首通 /
 ## 失敗按進度) are expressed as base × this, so the ratios between them — and the
 ## rules layered on top (重玩減半, 失敗上限 40%, 10 秒內唔派) — are untouched by
-## changing it. Round 7 shipped 3.0; dialled back to 2.0 the same day because
-## ×3 made 魔晶 feel too plentiful in play (the 10-level sim also had a pure
-## unlock-buyer clearing the whole shop by level 10 — see BALANCE_CHANGELOG).
-const CRYSTAL_REWARD_MULT := 2.0
+## changing it. Round 7 tried 3.0 then 2.0; both played too rich, so the dial is
+## back at 1.0 — i.e. the payouts are exactly the pre-round-7 numbers, and the
+## multiplier now only exists as the one place to turn if that judgement changes
+## again. See BALANCE_CHANGELOG for the ×1 / ×2 / ×3 measurements.
+const CRYSTAL_REWARD_MULT := 1.0
 
 func level_crystal_reward(n: int) -> int:
 	## 通關獎勵. Meta.on_level_cleared halves this on a replay.

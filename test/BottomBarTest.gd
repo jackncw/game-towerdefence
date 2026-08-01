@@ -36,6 +36,8 @@ func _ready() -> void:
 	await _case_open_close()
 	await _case_place()
 	await _case_quick_persist()
+	await _case_quick_layout()
+	await _case_one_gesture()
 	_restore_save()
 	Meta.load_game()
 	print("BOTTOMBAR %s fails=%d" % ["PASS" if fails == 0 else "FAIL", fails])
@@ -112,7 +114,7 @@ func _case_drawer_layout() -> void:
 func _case_open_close() -> void:
 	var b = await _start(4, 12)
 	var hud = b.hud
-	await _tap(hud.HANDLE_RECT.position + hud.HANDLE_RECT.size * 0.5)
+	await _tap(hud.more_btn.global_position + hud.more_btn.size * 0.5)
 	_ok("O 撳把手開面板", hud._drawer_open and hud.drawer.visible, "drawer did not open")
 	_ok("O 遮罩出現", hud.drawer_scrim.visible, "scrim hidden while open")
 	_ok("O 開面板唔暫停", not _tree.paused, "tree paused while drawer open")
@@ -122,8 +124,8 @@ func _case_open_close() -> void:
 		hud.SPELL_AREA.position.y])
 	await _tap(Vector2(540, 300))          # anywhere outside the panel
 	_ok("O 撳面板外收埋", not hud._drawer_open, "drawer stayed open")
-	await _tap(hud.HANDLE_RECT.position + hud.HANDLE_RECT.size * 0.5)
-	await _tap(hud.HANDLE_RECT.position + hud.HANDLE_RECT.size * 0.5)
+	await _tap(hud.more_btn.global_position + hud.more_btn.size * 0.5)
+	await _tap(hud.more_btn.global_position + hud.more_btn.size * 0.5)
 	_ok("O 再撳把手收埋", not hud._drawer_open, "handle did not toggle shut")
 	await _end(b)
 
@@ -257,6 +259,109 @@ func _case_quick_persist() -> void:
 		and int(Meta.quick_slot_ids()[0]) > 0,
 		"got %s" % str(Meta.quick_slot_ids()))
 
+# ---------------------------------------------------------------------------
+# Q — 快捷列佈局
+# ---------------------------------------------------------------------------
+func _case_quick_layout() -> void:
+	# 最迫嘅情況:15 個魔法 + 6 個塔槽 + 更多掣同場
+	var b = await _start(15, 20)
+	var hud = b.hud
+	_ok("Q 六格都起咗", hud.quick_cards.size() + _empty_slots(hud) == Meta.QUICK_SLOTS,
+		"%d 張卡 + %d 個空格" % [hud.quick_cards.size(), _empty_slots(hud)])
+	_ok("Q 有更多掣", hud.more_btn != null, "more_btn is null")
+	var rects: Array = []
+	for c in hud.quick_cards:
+		rects.append(Rect2(c.btn.position, c.btn.size))
+	rects.append(Rect2(hud.more_btn.position, hud.more_btn.size))
+	for r in rects:
+		_ok("Q 觸控目標 %.0fx%.0f" % [r.size.x, r.size.y],
+			minf(r.size.x, r.size.y) >= 88.0,
+			"min side %.1f < 88" % minf(r.size.x, r.size.y))
+		_ok("Q 喺畫面內 @%.0f,%.0f" % [r.position.x, r.position.y],
+			r.position.x >= 0.0 and r.end.x <= 1080.0 and r.end.y <= 1920.0,
+			"rect %s escapes the screen" % str(r))
+	var overlaps := 0
+	for i in rects.size():
+		for j in range(i + 1, rects.size()):
+			if rects[i].intersects(rects[j]):
+				overlaps += 1
+	_ok("Q 七格冇重疊", overlaps == 0, "%d overlapping pairs" % overlaps)
+	# 快捷列同魔法 grid 唔可以撞 —— 呢個係最迫佈局嘅真正風險
+	for r in rects:
+		_ok("Q 唔撞魔法列 @%.0f" % r.position.y,
+			r.end.y <= hud.SPELL_AREA.position.y,
+			"quick cell bottom %.0f overlaps spells at %.0f"
+			% [r.end.y, hud.SPELL_AREA.position.y])
+	for c in hud.spell_cards:
+		_ok("Q 魔法卡唔撞快捷列",
+			c.btn.position.y >= UI.QUICK_RECT.end.y,
+			"spell top %.0f is above quick row bottom %.0f"
+			% [c.btn.position.y, UI.QUICK_RECT.end.y])
+	await _end(b)
+
+func _empty_slots(hud) -> int:
+	var n := 0
+	for id in Meta.quick_slot_ids():
+		if int(id) == 0:
+			n += 1
+	return n
+
+# ---------------------------------------------------------------------------
+# Q — 一個手勢起塔
+# ---------------------------------------------------------------------------
+func _case_one_gesture() -> void:
+	# 20 座全解鎖,但快捷列維持預設 [1,2,5,13,0,0] —— 即係「四張卡 + 兩個空格」
+	# 呢個開局形狀,同時保證嗰四個 id 真係解鎖咗
+	var b = await _start(4, 20)
+	var hud = b.hud
+	b.gold = 9999
+	_ok("Q 預設四張快捷卡", hud.quick_cards.size() == 4,
+		"%d cards, slots=%s" % [hud.quick_cards.size(), str(Meta.quick_slot_ids())])
+	var spot := _free_spot(b, hud)
+	if spot == Vector2.INF:
+		_ok("Q 有空地可放", false, "no legal build spot")
+		await _end(b)
+		return
+	var card: Button = hud.quick_cards[0].btn
+	var tid: int = hud.quick_cards[0].id
+	var before: int = b.towers.size()
+	var gold0: int = b.gold
+	# 呢個就係成個 task 嘅重點:由快捷槽按住 -> 拖 -> 放手,一個手勢,
+	# 全程唔使開抽屜
+	await _drag(card.global_position + card.size * 0.5, spot)
+	_ok("Q 一手勢起到塔", b.towers.size() == before + 1,
+		"towers %d -> %d" % [before, b.towers.size()])
+	_ok("Q 起到嘅係嗰座塔",
+		b.towers.size() > before and int(b.towers[b.towers.size() - 1].id) == tid,
+		"placed a different tower")
+	_ok("Q 有扣金", b.gold < gold0, "gold %d -> %d" % [gold0, b.gold])
+	_ok("Q 全程冇開過抽屜", not hud._drawer_open, "drawer opened during the gesture")
+	_ok("Q 抽屜真係冇現身", not hud.drawer.visible, "drawer became visible")
+
+	# 空槽撳一下 = 開抽屜
+	var empty_btn: Button = _empty_slot_btn(hud)
+	_ok("Q 揾到空槽", empty_btn != null, "no empty slot button found")
+	if empty_btn != null:
+		await _tap(empty_btn.global_position + empty_btn.size * 0.5)
+		_ok("Q 撳空槽開抽屜", hud._drawer_open, "drawer did not open")
+		await _tap(Vector2(540, 300))
+	await _end(b)
+
+## 空槽個掣冇入 quick_cards(佢冇 id),所以按位置揾。
+func _empty_slot_btn(hud) -> Button:
+	var taken: Dictionary = {}
+	for c in hud.quick_cards:
+		taken[int(c.slot)] = true
+	for i in Meta.QUICK_SLOTS:
+		if taken.has(i):
+			continue
+		var x: float = UI.QUICK_RECT.position.x + i * (UI.quick_cell_w() + UI.QUICK_GAP)
+		for ch in hud.get_children():
+			if ch is Button and absf(ch.position.x - x) < 1.0 \
+					and absf(ch.position.y - UI.QUICK_RECT.position.y) < 1.0:
+				return ch
+	return null
+
 ## First snapped, legal build position that the OPEN drawer does not cover.
 func _free_spot(b, hud) -> Vector2:
 	return _scan(b, -INF, hud._drawer_shown_y - 60.0)
@@ -296,6 +401,9 @@ func _start(spells: int, towers: int):
 	Meta.unlocked_towers = []
 	for i in range(1, towers + 1):
 		Meta.unlocked_towers.append(i)
+	# 直接寫 unlocked_towers 繞過咗 unlock_tower() 嘅自動填充同載入時嘅清洗,
+	# 所以要自己洗一次 —— 唔係就會出現「快捷列有張卡指住一座你未解鎖嘅塔」
+	Meta._sanitize_quick_slots()
 	Flow.selected_level = 1
 	Flow.last_result = {}
 	var b = load("res://scenes/Battle.tscn").instantiate()

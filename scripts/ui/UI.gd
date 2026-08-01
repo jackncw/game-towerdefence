@@ -16,6 +16,19 @@ const TEXT_DIM := Color(0.78, 0.70, 0.58)  # muted parchment
 const DANGER := Color(0.86, 0.38, 0.26)    # warm red
 const PARCH := Color(0.82, 0.71, 0.51)     # parchment
 
+## 快捷列幾何。BattleHUD 用佢排戰鬥底欄,QuickBar 用佢 1:1 畫預覽 —— 兩邊共用
+## 同一份數,先至講得出「你喺設定畫面見到嘅就係戰鬥入面嗰行」。
+##
+## 102 高唔係就手揀嘅:塔 icon 60 + 4 上邊距 + 價錢行 26 = 90,而觸控目標最短邊
+## 要 >=88,所以 102 同時滿足兩個限制又剩返少少呼吸位。7 格(6 塔槽 + 更多)
+## 喺 1040 闊入面每格 141,夠位擺 60px icon 加一個四位數價錢。
+const QUICK_RECT := Rect2(20, 1586, 1040, 102)
+const QUICK_CELLS := 7        # 6 個塔槽 + 「更多」
+const QUICK_GAP := 8.0
+
+static func quick_cell_w() -> float:
+	return (QUICK_RECT.size.x - (QUICK_CELLS - 1) * QUICK_GAP) / float(QUICK_CELLS)
+
 static func _style(col: Color, radius := 12, border := 0, border_col := Color.BLACK) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
 	s.bg_color = col

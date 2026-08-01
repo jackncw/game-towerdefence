@@ -194,18 +194,17 @@ func _build_boss_bar() -> void:
 	track.add_child(boss_heal_rect)
 
 # ---------------------------------------------------------------------------
-# Bottom bar. Both halves used to be horizontally-scrolling strips, which is the
-# worst possible control for a one-handed portrait game: reaching spell 12 of 15
-# meant flicking a 100px-tall lane mid-fight, and flicks kept turning into casts.
-# Neither half scrolls any more.
+# Bottom bar.
 #
-#   1592..1688  the 建造 handle (collapsed state of the tower drawer)
-#   1690..1912  the spell grid — EVERY learned spell, always on screen
-#   the drawer slides up out of the handle and stops at 1584, so it never covers
-#   the spell grid and the player can still cast while browsing towers.
+#   1586..1688  常駐快捷列 — 6 個塔槽 + 「更多」,一行過
+#   1690..1912  魔法 grid — 每個學過嘅魔法,永遠喺畫面上
+#   抽屜由「更多」掣拉上嚟,停喺 1584,所以佢永遠唔會冚住快捷列或者魔法列。
+#
+# 呢一行取代咗舊嘅「建造」把手。把手嘅問題唔係佢佔位,係佢令起塔變成兩個動作:
+# 開抽屜,再拖。一個常駐嘅槽令個手勢變返一個 —— 按住、拖出去、放手。
+# 抽屜留返做全塔倉庫(20 座塔擺唔落 6 格),入面照樣一手勢拖得。
 # ---------------------------------------------------------------------------
 const SPELL_AREA := Rect2(40, 1690, 1000, 222)
-const HANDLE_RECT := Rect2(320, 1592, 440, 96)
 const DRAWER_BOTTOM := 1584.0
 const DRAWER_COLS := 4
 const DRAWER_CARD_H := 148.0
@@ -282,12 +281,9 @@ func _make_spell_card(id: int, cell: float) -> Control:
 # --- tower drawer -----------------------------------------------------------
 var drawer: Panel
 var drawer_scrim: Control
-var handle_btn: Button
-var handle_gold: Label
 var _drawer_open: bool = false
 var _drawer_tw: Tween
 var _drawer_shown_y: float = 0.0
-var _handle_gold: int = -1
 
 func _build_buildbar() -> void:
 	var ids: Array = Meta.unlocked_towers
@@ -338,35 +334,77 @@ func _build_buildbar() -> void:
 			gy + (i / DRAWER_COLS) * (DRAWER_CARD_H + DRAWER_SEP))
 		drawer.add_child(card)
 
-	_build_handle()
+	_build_quickbar()
 
-func _build_handle() -> void:
-	handle_btn = UI.button("", HANDLE_RECT.size, UI.PANEL_HI, 34)
-	handle_btn.position = HANDLE_RECT.position
-	handle_btn.size = HANDLE_RECT.size
-	handle_btn.pressed.connect(func(): _set_drawer(not _drawer_open))
-	add_child(handle_btn)
-	var hammer := UI.tex_rect(Assets.tower(1), Vector2(64, 64))
-	hammer.position = Vector2(14, 16)
-	hammer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	handle_btn.add_child(hammer)
-	var cap := UI.label(tr("HUD_BUILD"), 34, UI.TEXT)
-	cap.position = Vector2(86, 26)
-	cap.size = Vector2(150, 44)
-	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	handle_btn.add_child(cap)
-	var coin := UI.tex_rect(Assets.coin(), Vector2(38, 38))
-	coin.position = Vector2(244, 29)
+# --- 常駐快捷列 -------------------------------------------------------------
+var quick_cards: Array = []      # {id, btn, cost, slot}
+var more_btn: Button
+## 每幀要檢查買唔買得起嘅卡。抽屜卡同快捷卡合埋一個 Array 起一次,
+## 好過喺 refresh() 入面逐幀 `build_cards + quick_cards` 開一個新 Array。
+var _afford_cards: Array = []
+
+func _build_quickbar() -> void:
+	var cw: float = UI.quick_cell_w()
+	var ids: Array = Meta.quick_slot_ids()
+	for i in Meta.QUICK_SLOTS:
+		# 未解鎖嘅 id 一律當空格。Meta 載入時會洗一次,但呢度唔可以假設佢啱 ——
+		# 測試同 art_export 都會直接寫 Meta.unlocked_towers 而唔經 unlock_tower(),
+		# 而喺戰鬥入面畫一張買唔到嘅塔卡係比空格差好多嘅結果。
+		var id: int = int(ids[i])
+		if id > 0 and not Meta.is_tower_unlocked(id):
+			id = 0
+		var cell := _make_quick_cell(id, i, cw)
+		cell.position = Vector2(UI.QUICK_RECT.position.x + i * (cw + UI.QUICK_GAP),
+			UI.QUICK_RECT.position.y)
+		add_child(cell)
+	more_btn = UI.button(tr("HUD_MORE"), Vector2(cw, UI.QUICK_RECT.size.y), UI.PANEL_HI, 26)
+	more_btn.position = Vector2(
+		UI.QUICK_RECT.position.x + Meta.QUICK_SLOTS * (cw + UI.QUICK_GAP),
+		UI.QUICK_RECT.position.y)
+	more_btn.size = Vector2(cw, UI.QUICK_RECT.size.y)
+	more_btn.pressed.connect(func(): _set_drawer(not _drawer_open))
+	add_child(more_btn)
+	_afford_cards = build_cards + quick_cards
+
+## 一個快捷槽。空格畫成暗色「+」,撳落去開抽屜 —— 六格闊度永遠一樣,所以
+## 解鎖一座新塔唔會令成條底欄跳位。
+func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
+	var btn := Button.new()
+	btn.size = Vector2(cw, UI.QUICK_RECT.size.y)
+	btn.custom_minimum_size = btn.size
+	btn.add_theme_stylebox_override("normal", UI.frame_box("slot9", 14, 6, 6))
+	btn.add_theme_stylebox_override("hover", UI.frame_box("slot9", 14, 6, 6, Color(1.18, 1.18, 1.18)))
+	btn.add_theme_stylebox_override("pressed", UI.frame_box("slot9", 14, 6, 6, Color(0.7, 1.1, 0.8)))
+	btn.add_theme_stylebox_override("disabled", UI.frame_box("slot9", 14, 6, 6, Color(0.42, 0.42, 0.46)))
+	if id <= 0:
+		var plus := UI.label("+", 44, Color(0.55, 0.50, 0.44))
+		plus.size = btn.size
+		plus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		plus.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		plus.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		btn.add_child(plus)
+		btn.pressed.connect(func(): _set_drawer(true))
+		return btn
+	var def := GameData.tower_by_id(id)
+	btn.tooltip_text = "%s\n%s" % [tr(def.name), tr(def.desc)]
+	# 同抽屜卡行同一條手勢鏈。快捷列唔係抽屜,所以 _over_drawer 唔會否決,
+	# _set_drawer(false) 係 no-op —— 個手勢由頭到尾就係一下。
+	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, false))
+	var icon := UI.tex_rect(Assets.tower(id), Vector2(60, 60))
+	icon.position = Vector2((cw - 60.0) * 0.5, 4)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(icon)
+	var coin := UI.tex_rect(Assets.coin(), Vector2(22, 22))
+	coin.position = Vector2(cw * 0.5 - 36.0, 70)
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	handle_btn.add_child(coin)
-	# the top bar already shows gold, but the handle is where the player is
-	# looking when they decide whether they can afford anything
-	handle_gold = UI.label("0", 34, UI.GOLD)
-	handle_gold.position = Vector2(288, 26)
-	handle_gold.size = Vector2(138, 44)
-	handle_gold.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(handle_gold)     # sits above the button so it is never clipped
-	handle_gold.position = HANDLE_RECT.position + Vector2(288, 26)
+	btn.add_child(coin)
+	var cost := UI.label(str(def.place_cost), 24, UI.GOLD)
+	cost.position = Vector2(cw * 0.5 - 10.0, 68)
+	cost.size = Vector2(64, 30)
+	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(cost)
+	quick_cards.append({"id": id, "btn": btn, "cost": int(def.place_cost), "slot": slot})
+	return btn
 
 func _set_drawer(open: bool) -> void:
 	if open == _drawer_open:
@@ -543,9 +581,6 @@ func refresh(delta: float) -> void:
 		if _last_gold >= 0: _pop(gold_label)
 		_last_gold = battle.gold
 		gold_label.text = str(battle.gold)
-	if handle_gold != null and battle.gold != _handle_gold:
-		_handle_gold = battle.gold
-		handle_gold.text = str(battle.gold)
 	if Meta.crystals != _last_crys:
 		if _last_crys >= 0: _pop(crystal_label)
 		_last_crys = Meta.crystals
@@ -615,7 +650,7 @@ func refresh(delta: float) -> void:
 		if c.btn.modulate != sm:
 			c.btn.modulate = sm
 	# build affordability + active-card highlight
-	for c in build_cards:
+	for c in _afford_cards:
 		var dis: bool = battle.gold < c.cost
 		if c.btn.disabled != dis:
 			c.btn.disabled = dis

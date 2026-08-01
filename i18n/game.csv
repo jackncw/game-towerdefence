@@ -81,6 +81,7 @@ keys,zh_TW,en
 "HUD_BOSS_NAME","{fam} BOSS","{fam} BOSS"
 "HUD_HINT_BUILD","點擊空地建塔","Tap open ground to build"
 "HUD_BUILD","建造","Build"
+"HUD_MORE","更多","More"
 "HUD_HINT_DRAWER","拖出去放塔,或者撳一下再撳地圖","Drag out to place, or tap then tap the map"
 "HUD_SELL","賣塔","Sell"
 "HUD_SELL_VALUE","賣塔 +{n}","Sell +{n}"

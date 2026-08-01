@@ -30,6 +30,7 @@ func _ready() -> void:
 	await _case_routing()
 	await _case_registry()
 	await _case_bar_align()
+	await _case_bar_align_process()
 	await _case_settings()
 	await _case_dedup()
 	await _case_time_scale()
@@ -119,6 +120,45 @@ func _case_bar_align() -> void:
 	Audio.play_bgm("bgm_battle")
 	Audio.queue_bgm("bgm_boss")
 	_ok("A 排咗隊但未切", Audio._bgm_pending == "bgm_boss" and Audio._bgm_name == "bgm_battle",
+		"pending=%s now=%s" % [Audio._bgm_pending, Audio._bgm_name])
+	Audio.stop_bgm()
+	Audio._bgm_pending = ""
+
+## `_process()` 有三個分支。呢度覆蓋到得兩個:
+##   * 排咗隊但冇嘢喺度播 -> 即刻切(冇小節線可以等)
+##   * 排咗隊,但而家播緊嘅嘢喺 BGM_META 度冇 entry -> 即刻切
+## 第三個分支(排咗隊 + 有嘢播緊 + 有 meta -> 要等到 time_to_bar 落返
+## BAR_SNAP 之內先切)需要一個真係郁得嘅播放位置,dummy 音訊驅動喺 headless
+## 底下唔會推進 get_playback_position(),同 _case_time_scale() 嗰個限制一樣 ——
+## 呢個分支冇喺呢度覆蓋到,要開窗聽先驗到。
+func _case_bar_align_process() -> void:
+	# 呢個 case 之前嘅 case(B/R/G/A 頭半嗰段)全部冇 await,即係呢度先係成個
+	# 測試第一個真正嘅 yield 點 —— 引擎啟動時 Audio._process() 可能已經行過
+	# 一次(喺 AudioTest._ready() 嗰段同步code 行到之前),所以要先 settle 一
+	# 幀,先至保證跟住嗰句 await _idle(1) 對應嘅係「我哋啱啱改完 state 之後
+	# 嘅第一個 _process」,唔係啱啱行完、仲未睇到新 state 嗰個。
+	await _idle(1)
+	# 分支一:冇嘢播緊 -> 即刻切
+	Audio.stop_bgm()
+	Audio.queue_bgm("bgm_battle")
+	_ok("A 冇嘢播緊嘅前置條件", Audio._bgm_pending == "bgm_battle" and not Audio._bgm.playing,
+		"pending=%s playing=%s" % [Audio._bgm_pending, Audio._bgm.playing])
+	await _idle(1)
+	_ok("A 冇嘢播緊 -> 即刻切",
+		Audio._bgm_pending == "" and Audio._bgm_name == "bgm_battle",
+		"pending=%s now=%s" % [Audio._bgm_pending, Audio._bgm_name])
+	Audio.stop_bgm()
+
+	# 分支二:有嘢播緊,但嗰個名喺 BGM_META 度冇 entry -> 即刻切
+	Audio.play_bgm("sfx_atk_arrow")     # 借一個實際存在但唔喺 BGM_META 嘅音源
+	Audio.queue_bgm("bgm_battle")
+	_ok("A 播緊冇 meta 嘅嘢嘅前置條件",
+		Audio._bgm_pending == "bgm_battle" and Audio.BGM_META.get(Audio._bgm_name, {}).is_empty(),
+		"pending=%s now=%s meta=%s" % [Audio._bgm_pending, Audio._bgm_name,
+			str(Audio.BGM_META.get(Audio._bgm_name, {}))])
+	await _idle(1)
+	_ok("A 播緊嘅嘢冇節奏 meta -> 即刻切",
+		Audio._bgm_pending == "" and Audio._bgm_name == "bgm_battle",
 		"pending=%s now=%s" % [Audio._bgm_pending, Audio._bgm_name])
 	Audio.stop_bgm()
 	Audio._bgm_pending = ""

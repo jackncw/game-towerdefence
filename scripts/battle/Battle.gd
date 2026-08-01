@@ -1108,6 +1108,16 @@ func card_press(id: int, is_spell: bool, screen: Vector2) -> void:
 		build_id = id
 		_dragging_card = id
 
+## Abandon a card gesture without acting on it. The build drawer needs this:
+## its panel sits over world coordinates that are perfectly legal build spots,
+## so releasing a dragged tower back onto the open panel would otherwise build a
+## tower underneath the UI the player was looking at.
+func card_cancel() -> void:
+	_dragging_card = 0
+	_card_moved = false
+	build_id = 0
+	aiming_spell = 0
+
 func card_drag(screen: Vector2) -> void:
 	if _dragging_card == 0:
 		return

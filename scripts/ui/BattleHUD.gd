@@ -38,8 +38,9 @@ func _ready() -> void:
 	_build_top()
 	_build_resources()
 	_build_boss_bar()
-	_build_spellbar()
+	# drawer first so the spell grid is drawn (and hit-tested) above it
 	_build_buildbar()
+	_build_spellbar()
 	_build_tower_panel()
 	_build_pause_menu()
 
@@ -192,24 +193,63 @@ func _build_boss_bar() -> void:
 	boss_heal_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(boss_heal_rect)
 
-func _build_spellbar() -> void:
-	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(10, 1596)
-	scroll.size = Vector2(1060, 112)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(scroll)
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	scroll.add_child(box)
-	for id in Meta.unlocked_spells:
-		var card := _make_spell_card(id)
-		box.add_child(card)
+# ---------------------------------------------------------------------------
+# Bottom bar. Both halves used to be horizontally-scrolling strips, which is the
+# worst possible control for a one-handed portrait game: reaching spell 12 of 15
+# meant flicking a 100px-tall lane mid-fight, and flicks kept turning into casts.
+# Neither half scrolls any more.
+#
+#   1592..1688  the 建造 handle (collapsed state of the tower drawer)
+#   1690..1912  the spell grid — EVERY learned spell, always on screen
+#   the drawer slides up out of the handle and stops at 1584, so it never covers
+#   the spell grid and the player can still cast while browsing towers.
+# ---------------------------------------------------------------------------
+const SPELL_AREA := Rect2(40, 1690, 1000, 222)
+const HANDLE_RECT := Rect2(320, 1592, 440, 96)
+const DRAWER_BOTTOM := 1584.0
+const DRAWER_COLS := 4
+const DRAWER_CARD_H := 148.0
+const DRAWER_PAD := 24.0
+const DRAWER_SEP := 12.0
+const DRAWER_TITLE_H := 56.0
+const DRAWER_SLIDE := 0.16
 
-func _make_spell_card(id: int) -> Control:
+func _build_spellbar() -> void:
+	var ids: Array = Meta.unlocked_spells
+	var n := ids.size()
+	if n == 0:
+		return
+	# <=8 fits one comfortable row; past that it splits into two, top row first,
+	# so 15 spells read as 8 + 7 instead of scrolling.
+	var cell: float
+	var rows: Array          # each entry is an Array of spell ids
+	if n <= 8:
+		# 120 is the comfortable size, but 8 x 120 + gaps is 1044 — wider than the
+		# safe area — and the row ended up 18px from each screen edge. Shrink to
+		# fit rather than bleed.
+		cell = minf(120.0, (SPELL_AREA.size.x - (n - 1) * 12.0) / float(n))
+		rows = [ids.duplicate()]
+	else:
+		var top := int(ceil(n / 2.0))
+		cell = clampf((SPELL_AREA.size.x - (top - 1) * 8.0) / float(top), 88.0, 104.0)
+		rows = [ids.slice(0, top), ids.slice(top, n)]
+	var sep := 12.0 if n <= 8 else 8.0
+	var grid_h := rows.size() * cell + (rows.size() - 1) * sep
+	var y := SPELL_AREA.position.y + (SPELL_AREA.size.y - grid_h) * 0.5
+	for r in rows.size():
+		var row: Array = rows[r]
+		var row_w := row.size() * cell + (row.size() - 1) * sep
+		var x := SPELL_AREA.position.x + (SPELL_AREA.size.x - row_w) * 0.5
+		for i in row.size():
+			var card := _make_spell_card(int(row[i]), cell)
+			card.position = Vector2(x + i * (cell + sep), y + r * (cell + sep))
+			add_child(card)
+
+func _make_spell_card(id: int, cell: float) -> Control:
 	var def := GameData.spell_by_id(id)
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(100, 100)
+	btn.size = Vector2(cell, cell)
+	btn.custom_minimum_size = Vector2(cell, cell)
 	btn.add_theme_stylebox_override("normal", UI.frame_box("slot9", 14, 6, 6))
 	btn.add_theme_stylebox_override("hover", UI.frame_box("slot9", 14, 6, 6, Color(1.2, 1.2, 1.2)))
 	btn.add_theme_stylebox_override("pressed", UI.frame_box("slot9", 14, 6, 6, Color(0.8, 0.8, 0.8)))
@@ -217,17 +257,18 @@ func _make_spell_card(id: int) -> Control:
 	# same drag-from-card path as tower cards; card_press handles instant vs
 	# targeted spells and ignores presses while on cooldown.
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, true))
-	var icon := UI.tex_rect(Assets.spell(id), Vector2(88, 88))   # 44px src @2x
-	icon.position = Vector2(6, 6)
+	var pad := cell * 0.06
+	var icon := UI.tex_rect(Assets.spell(id), Vector2(cell - pad * 2.0, cell - pad * 2.0))
+	icon.position = Vector2(pad, pad)
 	btn.add_child(icon)
 	var cover := _RadialCover.new()
 	cover.position = Vector2(0, 0)
-	cover.size = Vector2(100, 100)
+	cover.size = Vector2(cell, cell)
 	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(cover)
-	var cd_label := UI.label("", 34, Color.WHITE)
-	cd_label.position = Vector2(0, 30)
-	cd_label.size = Vector2(100, 40)
+	var cd_label := UI.label("", int(cell * 0.34), Color.WHITE)
+	cd_label.position = Vector2(0, cell * 0.3)
+	cd_label.size = Vector2(cell, cell * 0.4)
 	cd_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	cd_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(cd_label)
@@ -238,23 +279,131 @@ func _make_spell_card(id: int) -> Control:
 		"on_cd": false, "cd_max": maxf(0.1, float(Meta.spell_stats(id).get("cd", 10.0)))})
 	return btn
 
-func _build_buildbar() -> void:
-	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(10, 1710)
-	scroll.size = Vector2(1060, 202)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(scroll)
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	scroll.add_child(box)
-	for id in Meta.unlocked_towers:
-		box.add_child(_make_build_card(id))
+# --- tower drawer -----------------------------------------------------------
+var drawer: Panel
+var drawer_scrim: Control
+var handle_btn: Button
+var handle_gold: Label
+var _drawer_open: bool = false
+var _drawer_tw: Tween
+var _drawer_shown_y: float = 0.0
+var _handle_gold: int = -1
 
-func _make_build_card(id: int) -> Control:
+func _build_buildbar() -> void:
+	var ids: Array = Meta.unlocked_towers
+	var rows: int = maxi(1, int(ceil(ids.size() / float(DRAWER_COLS))))
+	var card_w := (1080.0 - DRAWER_PAD * 2.0 - (DRAWER_COLS - 1) * DRAWER_SEP) / float(DRAWER_COLS)
+	var grid_h := rows * DRAWER_CARD_H + (rows - 1) * DRAWER_SEP
+	var panel_h := DRAWER_PAD + DRAWER_TITLE_H + DRAWER_SEP + grid_h + DRAWER_PAD
+	_drawer_shown_y = DRAWER_BOTTOM - panel_h
+
+	# Tap-outside-to-close catcher. It stops short of the handle and the spell
+	# grid, so both stay live while the drawer is open — closing the drawer is
+	# never a prerequisite for casting.
+	drawer_scrim = Control.new()
+	drawer_scrim.position = Vector2.ZERO
+	drawer_scrim.size = Vector2(1080, DRAWER_BOTTOM)
+	drawer_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	drawer_scrim.visible = false
+	drawer_scrim.gui_input.connect(func(e: InputEvent):
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed:
+			_set_drawer(false))
+	add_child(drawer_scrim)
+
+	drawer = Panel.new()
+	drawer.add_theme_stylebox_override("panel", UI.frame_box("panel9", 22, 16, 10))
+	drawer.position = Vector2(0, 1920)     # parked off the bottom edge
+	drawer.size = Vector2(1080, panel_h)
+	drawer.modulate = Color(1, 1, 1, 0.94)
+	drawer.visible = false
+	add_child(drawer)
+
+	var title := UI.label(tr("HUD_BUILD"), 36, UI.TEXT)
+	title.position = Vector2(DRAWER_PAD + 6, DRAWER_PAD - 6)
+	title.size = Vector2(500, DRAWER_TITLE_H)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	drawer.add_child(title)
+	var hint := UI.label(tr("HUD_HINT_DRAWER"), 22, Color(0.7, 0.75, 0.8))
+	hint.position = Vector2(520, DRAWER_PAD + 4)
+	hint.size = Vector2(1080 - 520 - DRAWER_PAD, DRAWER_TITLE_H)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	drawer.add_child(hint)
+
+	var gy := DRAWER_PAD + DRAWER_TITLE_H + DRAWER_SEP
+	for i in ids.size():
+		var card := _make_build_card(int(ids[i]), card_w)
+		card.position = Vector2(
+			DRAWER_PAD + (i % DRAWER_COLS) * (card_w + DRAWER_SEP),
+			gy + (i / DRAWER_COLS) * (DRAWER_CARD_H + DRAWER_SEP))
+		drawer.add_child(card)
+
+	_build_handle()
+
+func _build_handle() -> void:
+	handle_btn = UI.button("", HANDLE_RECT.size, UI.PANEL_HI, 34)
+	handle_btn.position = HANDLE_RECT.position
+	handle_btn.size = HANDLE_RECT.size
+	handle_btn.pressed.connect(func(): _set_drawer(not _drawer_open))
+	add_child(handle_btn)
+	var hammer := UI.tex_rect(Assets.tower(1), Vector2(64, 64))
+	hammer.position = Vector2(14, 16)
+	hammer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	handle_btn.add_child(hammer)
+	var cap := UI.label(tr("HUD_BUILD"), 34, UI.TEXT)
+	cap.position = Vector2(86, 26)
+	cap.size = Vector2(150, 44)
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	handle_btn.add_child(cap)
+	var coin := UI.tex_rect(Assets.coin(), Vector2(38, 38))
+	coin.position = Vector2(244, 29)
+	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	handle_btn.add_child(coin)
+	# the top bar already shows gold, but the handle is where the player is
+	# looking when they decide whether they can afford anything
+	handle_gold = UI.label("0", 34, UI.GOLD)
+	handle_gold.position = Vector2(288, 26)
+	handle_gold.size = Vector2(138, 44)
+	handle_gold.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(handle_gold)     # sits above the button so it is never clipped
+	handle_gold.position = HANDLE_RECT.position + Vector2(288, 26)
+
+func _set_drawer(open: bool) -> void:
+	if open == _drawer_open:
+		return
+	_drawer_open = open
+	drawer_scrim.visible = open
+	if open:
+		drawer.visible = true
+		# The sell panel lives at y1470 and would end up buried under the drawer,
+		# so the two never coexist. Hide it directly rather than going through
+		# show_tower_panel(), which calls back into _set_drawer().
+		if tower_panel != null:
+			tower_panel.visible = false
+		battle.cancel_modes()
+	if _drawer_tw != null and _drawer_tw.is_valid():
+		_drawer_tw.kill()
+	_drawer_tw = create_tween()
+	# The drawer is chrome, not gameplay: at 5x an Engine.time_scale-driven tween
+	# would snap open in 30ms and at 0.5x it would crawl.
+	_drawer_tw.set_ignore_time_scale(true)
+	_drawer_tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_drawer_tw.tween_property(drawer, "position:y",
+		_drawer_shown_y if open else 1920.0, DRAWER_SLIDE)
+	if not open:
+		_drawer_tw.tween_callback(func(): drawer.visible = false)
+
+## True when `screen` lands on the open drawer. Used to veto a drop: the panel
+## covers world coordinates that are legal build spots, so without this check
+## dragging a tower back onto the panel would build it underneath the panel.
+func _over_drawer(screen: Vector2) -> bool:
+	return _drawer_open and Rect2(drawer.position, drawer.size).has_point(screen)
+
+func _make_build_card(id: int, card_w: float) -> Control:
 	var def := GameData.tower_by_id(id)
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(128, 196)
+	btn.size = Vector2(card_w, DRAWER_CARD_H)
+	btn.custom_minimum_size = btn.size
 	btn.add_theme_stylebox_override("normal", UI.frame_box("card9", 16, 6, 6))
 	btn.add_theme_stylebox_override("hover", UI.frame_box("card9", 16, 6, 6, Color(1.18, 1.18, 1.18)))
 	btn.add_theme_stylebox_override("pressed", UI.frame_box("card9", 16, 6, 6, Color(0.7, 1.1, 0.8)))
@@ -267,29 +416,30 @@ func _make_build_card(id: int) -> Control:
 	# two-stage tap fallback. emulate_mouse_from_touch (on) means a finger drag
 	# reaches us as mouse events with a correct global_position.
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, false))
-	var icon := UI.tex_rect(Assets.tower(id), Vector2(88, 88))
-	icon.position = Vector2(20, 8)
+	var icon := UI.tex_rect(Assets.tower(id), Vector2(84, 84))
+	icon.position = Vector2(10, (DRAWER_CARD_H - 84) * 0.5)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(icon)
-	# Two-line wrapping box: an English tower name is roughly twice the width of
-	# the 繁中 one and ran straight off the 128px card on a single fixed line.
-	# A free Label with a manual size wraps unreliably here — the second line
-	# silently vanished — so the Label sits FULL_RECT inside a fixed clip box.
+	# Name and cost stack to the RIGHT of the icon. An English tower name is
+	# roughly twice the width of the 繁中 one, so the Label sits FULL_RECT inside
+	# a fixed clip box — a free Label with a manual size wraps unreliably here and
+	# the second line silently vanished.
+	var text_x := 100.0
+	var text_w := card_w - text_x - 12.0
 	var nbox := Control.new()
-	# inset past the card9 frame ring so a long name never sits on the bevel
-	nbox.position = Vector2(11, 92)
-	nbox.size = Vector2(106, 56)
+	nbox.position = Vector2(text_x, 16)
+	nbox.size = Vector2(text_w, 66)
 	nbox.clip_contents = true
 	nbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(nbox)
-	var nm := UI.label(tr(def.name), 19, UI.TEXT)
+	var nm := UI.label(tr(def.name), 24, UI.TEXT)
 	nm.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nbox.add_child(nm)
 	var costrow := HBoxContainer.new()
-	costrow.position = Vector2(24, 150)
+	costrow.position = Vector2(text_x, 92)
 	costrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	costrow.add_child(UI.tex_rect(Assets.coin(), Vector2(34, 34)))
 	var cost := UI.label(str(def.place_cost), 30, UI.GOLD)
@@ -324,14 +474,43 @@ func _build_tower_panel() -> void:
 # Forward a card's captured pointer gesture to the battle. We use mouse events
 # (emulate_mouse_from_touch turns finger touches into these) so global_position
 # is always the real viewport point; ScreenTouch/Drag would arrive control-local.
+const DRAWER_A_IDLE := 0.94
+const DRAWER_A_DRAG := 0.25    # dragging a tower out ghosts the panel away
+
+var _card_press_pos: Vector2 = Vector2.ZERO
+
 func _card_gui(e: InputEvent, id: int, is_spell: bool) -> void:
 	if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
 		if e.pressed:
+			_card_press_pos = e.global_position
 			battle.card_press(id, is_spell, e.global_position)
-		else:
+		elif is_spell:
 			battle.card_release(e.global_position)
+		else:
+			_drawer_alpha(DRAWER_A_IDLE)
+			# The "put it back" rule only applies to a real DRAG that ends over
+			# the panel. A plain tap also releases inside the panel — it is a tap
+			# ON A CARD — and treating that as a cancel silently killed the
+			# two-stage 撳卡 -> 撳地圖 path.
+			var moved: bool = e.global_position.distance_to(_card_press_pos) > Battle.TAP_MOVE_THRESH
+			if moved and _over_drawer(e.global_position):
+				# dropped straight back onto the panel: that reads as "never
+				# mind", so cancel the placement and keep browsing
+				battle.card_cancel()
+			else:
+				# a drag places (or fails on red ground); a plain tap leaves build
+				# mode armed for the two-stage tap fallback. Either way the panel
+				# has done its job and gets out of the way of the map.
+				battle.card_release(e.global_position)
+				_set_drawer(false)
 	elif e is InputEventMouseMotion and (e.button_mask & MOUSE_BUTTON_MASK_LEFT):
 		battle.card_drag(e.global_position)
+		if not is_spell:
+			_drawer_alpha(DRAWER_A_IDLE if _over_drawer(e.global_position) else DRAWER_A_DRAG)
+
+func _drawer_alpha(a: float) -> void:
+	if drawer != null and drawer.modulate.a != a:
+		drawer.modulate.a = a
 
 # ---------------------------------------------------------------------------
 var _last_gold := -1
@@ -363,6 +542,9 @@ func refresh(delta: float) -> void:
 		if _last_gold >= 0: _pop(gold_label)
 		_last_gold = battle.gold
 		gold_label.text = str(battle.gold)
+	if handle_gold != null and battle.gold != _handle_gold:
+		_handle_gold = battle.gold
+		handle_gold.text = str(battle.gold)
 	if Meta.crystals != _last_crys:
 		if _last_crys >= 0: _pop(crystal_label)
 		_last_crys = Meta.crystals
@@ -448,6 +630,8 @@ func show_tower_panel(t) -> void:
 	if t == null:
 		tower_panel.visible = false
 		return
+	# selecting a placed tower means the player is done browsing
+	_set_drawer(false)
 	tower_panel.visible = true
 	tower_panel_name.text = tr(t.def.name)
 	sell_btn.text = tr("HUD_SELL_VALUE").format({"n": t.sell_value()})
@@ -455,7 +639,7 @@ func show_tower_panel(t) -> void:
 func _flash_card(btn: Button) -> void:
 	var fl := ColorRect.new()
 	fl.color = Color(1, 1, 1, 0.75)
-	fl.size = Vector2(100, 100)
+	fl.size = btn.size     # cards are no longer a fixed 100x100
 	fl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(fl)
 	var tw := create_tween()

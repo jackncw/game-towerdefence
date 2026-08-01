@@ -100,6 +100,7 @@ func _run() -> void:
 	await _shoot_scene("res://scenes/MainMenu.tscn", "01_menu")
 	await _shoot_scene("res://scenes/LevelSelect.tscn", "11_levelselect")
 	await _shoot_battle_states()
+	await _shoot_bottom_bar()
 	await _shoot_spell_casts()
 	await _shoot_curse_aura()
 	await _shoot_scene("res://scenes/Shop.tscn", "05_shop")
@@ -290,6 +291,34 @@ func _populate(battle: Node, n_towers: int, n_monsters: int) -> void:
 		if placed >= n_towers: break
 	for i in n_monsters:
 		battle._spawn_monster(GameData.FAMILY_ORDER[i % GameData.FAMILY_ORDER.size()], 1 + i % 5, false, i * 22.0)
+
+## Round 8: the rebuilt bottom bar. The spell grid has three distinct shapes and
+## the tower drawer has two states, and none of them are reachable from the
+## default all-unlocked save the other shots use — so each one gets set up
+## explicitly. These are the shots the layout was checked against.
+func _shoot_bottom_bar() -> void:
+	var keep_s: Array = Meta.unlocked_spells.duplicate()
+	for n in [3, 8, 15]:
+		Meta.unlocked_spells = range(1, n + 1)
+		var b := _make_battle(4)
+		await _mount(b)
+		_populate(b, 6, 8)
+		for i in 30:
+			await get_tree().process_frame
+		await _grab("20_bar_spells%02d" % n)
+	Meta.unlocked_spells = keep_s
+	# drawer open, all 20 towers, over a live field
+	var bd := _make_battle(4)
+	await _mount(bd)
+	_populate(bd, 6, 8)
+	for i in 20:
+		await get_tree().process_frame
+	if bd.hud:
+		bd.hud._set_drawer(true)
+		bd.hud.drawer.position.y = bd.hud._drawer_shown_y   # skip the slide
+	for i in 10:
+		await get_tree().process_frame
+	await _grab("21_bar_drawer")
 
 func _shoot_battle_states() -> void:
 	# 02: full combat (towers + monsters mid-fight, boss bar up)

@@ -115,7 +115,7 @@ func _case_open_close() -> void:
 	var b = await _start(4, 12)
 	var hud = b.hud
 	await _tap(hud.more_btn.global_position + hud.more_btn.size * 0.5)
-	_ok("O 撳把手開面板", hud._drawer_open and hud.drawer.visible, "drawer did not open")
+	_ok("O 撳更多掣開面板", hud._drawer_open and hud.drawer.visible, "drawer did not open")
 	_ok("O 遮罩出現", hud.drawer_scrim.visible, "scrim hidden while open")
 	_ok("O 開面板唔暫停", not _tree.paused, "tree paused while drawer open")
 	_ok("O 魔法列唔畀遮罩擋",
@@ -126,7 +126,7 @@ func _case_open_close() -> void:
 	_ok("O 撳面板外收埋", not hud._drawer_open, "drawer stayed open")
 	await _tap(hud.more_btn.global_position + hud.more_btn.size * 0.5)
 	await _tap(hud.more_btn.global_position + hud.more_btn.size * 0.5)
-	_ok("O 再撳把手收埋", not hud._drawer_open, "handle did not toggle shut")
+	_ok("O 再撳更多掣收埋", not hud._drawer_open, "more_btn did not toggle shut")
 	await _end(b)
 
 # ---------------------------------------------------------------------------
@@ -327,8 +327,21 @@ func _case_one_gesture() -> void:
 	var before: int = b.towers.size()
 	var gold0: int = b.gold
 	# 呢個就係成個 task 嘅重點:由快捷槽按住 -> 拖 -> 放手,一個手勢,
-	# 全程唔使開抽屜
-	await _drag(card.global_position + card.size * 0.5, spot)
+	# 全程唔使開抽屜。_drawer_open 同 drawer.visible 呢兩個係手勢完咗之後先至
+	# 睇嘅終態,而終態呢兩個字段係唔可靠嘅 —— release 路徑本身就會叫
+	# _set_drawer(false),所以就算中途開咗抽屜,_drawer_open 都會喺手勢完結之前
+	# 變返 false;drawer.visible 就要等 DRAWER_SLIDE(0.16s 真實時間)嘅 tween
+	# callback 先至變返 false,而 _end() 淨係等 2 個 process frame,所以呢個
+	# assertion 其實係同個 timer 賽跑,唔係真係測緊件事。真正可靠嘅檢查要喺
+	# 拖緊嘅過程入面驗:_drag() 每一步之後都攞一次 _drawer_open。
+	# GDScript lambdas capture outer locals BY VALUE, so a plain `var opened_mid_drag
+	# := false` mutated inside the callback would silently never update the copy
+	# read below — wrap it in a single-element Array so the lambda mutates the same
+	# backing storage the outer scope reads afterwards.
+	var opened_mid_drag := [false]
+	await _drag(card.global_position + card.size * 0.5, spot,
+		func(): opened_mid_drag[0] = opened_mid_drag[0] or hud._drawer_open)
+	_ok("Q 拖緊途中都冇開抽屜", not opened_mid_drag[0], "drawer was open during at least one drag step")
 	_ok("Q 一手勢起到塔", b.towers.size() == before + 1,
 		"towers %d -> %d" % [before, b.towers.size()])
 	_ok("Q 起到嘅係嗰座塔",
@@ -443,7 +456,10 @@ func _tap(pos: Vector2) -> void:
 
 ## Press on `from`, move to `to` in steps big enough to pass Battle's tap/drag
 ## threshold, release on `to`.
-func _drag(from: Vector2, to: Vector2) -> void:
+## `on_step`, if given, is invoked after every motion step (mid-drag, before the
+## release) — the only point in this helper where the caller can observe state
+## while the gesture is still in flight, rather than at its final rest state.
+func _drag(from: Vector2, to: Vector2, on_step: Callable = func(): pass) -> void:
 	_press(from, true)
 	await _idle(1)
 	var steps := 6
@@ -458,6 +474,7 @@ func _drag(from: Vector2, to: Vector2) -> void:
 		get_viewport().push_input(d, true)
 		p = np
 		await _idle(1)
+		on_step.call()
 	_press(to, false)
 	await _idle(2)
 

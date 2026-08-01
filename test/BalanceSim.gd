@@ -638,6 +638,10 @@ func _walls_table() -> void:
 		% [WALL_SEEDS, WALL_MAX_TRIES,
 		"無" if WALL_CAP_AT_20 <= 0 else "第1關%d -> 第20關%d"
 		% [_wall_field_cap(1), _wall_field_cap(LEVELS)]])
+	if GameData.WALLS.is_empty():
+		print("SIM 注意:GameData.WALLS 係空嘅 —— 冇一幅牆有內容,所以下面每一關都係")
+		print("SIM      普通關,只會用「首通 >= 85%」呢條非牆準則嚟判。原因見 GameData.gd")
+		print("SIM      WALLS 上面嗰段同 BALANCE_CHANGELOG 第九輪。")
 	var ad: Dictionary = await _walls_run(true)
 	var gr: Dictionary = await _walls_run(false)
 	print("SIM")
@@ -652,7 +656,10 @@ func _walls_table() -> void:
 		var gf: float = float(gr.first[lv]) / float(WALL_SEEDS)
 		var ga: float = float(gr.any[lv]) / float(WALL_SEEDS)
 		var avg: float = float(ad.tries[lv]) / float(WALL_SEEDS)
-		var wall: bool = GameData.is_wall(lv)
+		# 用 level_config().is_wall(= 呢一關實際上有冇被改過)而唔係 GameData.is_wall()
+		# (= 呢一關喺牆嘅時間表上面)。WALLS 空嘅時候兩者答案唔同,而用時間表嗰個
+		# 會令一個乜都冇改嘅關卡被當成「一幅唔達標嘅牆」嚟報,即係報一個唔存在嘅失敗。
+		var wall: bool = bool(GameData.level_config(lv).get("is_wall", false))
 		# 牆:第一次去到預期會輸(首通 <= 30%),但投資之後過到(3 次內 >= 90%)
 		# 非牆:合理操作一次過(首通 >= 85%)
 		var ok: bool = (f <= 0.30 and a >= 0.90) if wall else (f >= 0.85)
@@ -687,7 +694,9 @@ func _walls_table() -> void:
 		for t in AD_TAGS:
 			if d.has(t):
 				parts.append("%s x%d" % [t, int(d[t])])
-		print("SIM  %2d %s | %s" % [lv, "牆" if GameData.is_wall(lv) else "  ", ", ".join(parts)])
+		print("SIM  %2d %s | %s" % [lv,
+			"牆" if GameData.level_config(lv).get("is_wall", false) else "  ",
+			", ".join(parts)])
 	# --- 贏得幾驚險 ----------------------------------------------------------
 	# 一個 100% 通過率答唔到「差幾多就輸」。呢張表答:最遠嗰隻怪行到成條路嘅幾多
 	# (100% = 有嘢入到基地 = 輸)、同場最多幾多隻、行到門口嘅隻數、boss 剩幾多血、
@@ -700,7 +709,7 @@ func _walls_table() -> void:
 		var m: Dictionary = ad.marg[lv]
 		var n: float = maxf(1.0, float(m.n))
 		print("SIM  %2d | %s | %7.0f%% | %6.1f | %8.1f | %4.0f | %4.1f | %7.0f%% | %5.0f"
-			% [lv, "牆" if GameData.is_wall(lv) else "  ",
+			% [lv, "牆" if GameData.level_config(lv).get("is_wall", false) else "  ",
 			100.0 * float(m.frac) / n, float(m.deep) / n, float(m.peak) / n,
 			float(m.kills) / n, float(m.towers) / n,
 			100.0 * float(m.boss) / n, float(m.gold) / n])

@@ -91,6 +91,18 @@ const SPELL_SOUND := {
 	"blackhole": "sfx_spell_blackhole",
 }
 
+## 系統音。金幣同魔晶嘅音色一定要分得開 —— 佢哋喺畫面上係兩種顏色兩個 icon,
+## 聽落一樣就等於將呢個區分喺聽覺上撤銷咗。金幣 = 金屬、短、亮;
+## 魔晶 = 玻璃、長尾、有 shimmer。
+const SYSTEM_SOUNDS := [
+	"sfx_gold_pop", "sfx_gold_bank", "sfx_crystal_gain",
+	"sfx_upgrade", "sfx_unlock",
+	"sfx_boss_warning", "sfx_base_danger",
+	"jingle_win", "jingle_lose", "jingle_first_clear",
+	"sfx_teleport_hit", "sfx_knockback", "sfx_summon_circle",
+	"sfx_place_tower", "sfx_sell_tower",
+]
+
 ## 每個註冊表引用過嘅音名。AudioTest 用佢做「改名唔會靜靜雞收聲」嘅防線:
 ## 任何一個表指去一個唔存在嘅檔,測試就紅,而唔係遊戲入面靜咗。
 func registered_sounds() -> Array:
@@ -102,6 +114,8 @@ func registered_sounds() -> Array:
 	for n in HIT_SOUND.values():
 		out[String(n)] = true
 	for n in SPELL_SOUND.values():
+		out[String(n)] = true
+	for n in SYSTEM_SOUNDS:
 		out[String(n)] = true
 	var arr: Array = out.keys()
 	arr.sort()

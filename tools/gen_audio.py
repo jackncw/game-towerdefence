@@ -196,6 +196,11 @@ LOUDNESS = {
     "sfx_spell_blackhole": 0.13, "sfx_spell_freezenova": 0.12,
     # 環境聲,唔係事件聲 —— 唔應該同攻擊搶
     "sfx_aura_curse": 0.06, "sfx_field_slow": 0.06,
+    # jingle 同警號係「而家停低聽我講」嘅時刻,所以坐高
+    "jingle_win": 0.16, "jingle_lose": 0.16, "jingle_first_clear": 0.18,
+    "sfx_boss_warning": 0.17, "sfx_base_danger": 0.15,
+    # 金幣一秒可以響好多次
+    "sfx_gold_pop": 0.055, "sfx_gold_bank": 0.09, "sfx_crystal_gain": 0.11,
 }
 DEFAULT_LOUDNESS = 0.10          # every sfx_atk_* archetype
 
@@ -751,6 +756,211 @@ def sfx_spell_blackhole():
 
 
 # ---------------------------------------------------------------------------
+# system sounds — currency, upgrades, unlocks, boss/base alerts, and three
+# jingles that are bigger and more structured than anything above: multi-note
+# melodies with real harmony, because a win/lose/first-clear moment is a full
+# musical event, not a one-shot effect.
+# ---------------------------------------------------------------------------
+
+
+def sfx_gold_pop():
+    """Gold pickup: a tiny two-partial metallic ping. Gold has to read as
+    METAL at a glance-free glance, so this leans on the same bright triangle
+    + high bits=7 combination as sfx_atk_frost/sfx_spell_midas rather than
+    anything soft or glassy — that contrast is what keeps it distinct from
+    sfx_crystal_gain below."""
+    d = 0.08
+    a = triangle(note(88), d) * perc(d, curve=13.0)
+    b = triangle(note(95), d) * perc(d, curve=16.0) * 0.5
+    return bitcrush(a + b, bits=7)
+
+
+def sfx_gold_bank():
+    """Gold banked at wave end: two rising notes in the same metallic timbre
+    as sfx_gold_pop, so a lump-sum payout still reads as "gold" and not as
+    a new, unrelated currency sound."""
+    a = triangle(note(84), 0.07) * perc(0.07, curve=12.0)
+    b = triangle(note(91), 0.09) * perc(0.09, curve=11.0)
+    return bitcrush(seq(a, b), bits=7)
+
+
+def sfx_crystal_gain():
+    """Crystal (魔晶) gain: three triangle partials with a long ringing tail
+    and deliberately NO noise layer at all. Noise is exactly what makes
+    sfx_gold_pop read as metal above; leaving it out here is what keeps
+    this one reading as glass instead, so the two currencies never blur
+    into the same "you got money" blip while the player is looking at the
+    battlefield instead of the HUD."""
+    d = 0.38
+    a = triangle(note(88), d) * perc(d, curve=3.5)
+    b = triangle(note(95), d) * perc(d, curve=4.5) * 0.55
+    c = triangle(note(100), d) * perc(d, curve=6.0) * 0.3
+    return bitcrush(a + b + c, bits=7)
+
+
+def sfx_upgrade():
+    """Tower upgraded: three plain ascending square notes. Smaller ceremony
+    than sfx_unlock below — this fires routinely through a match, an unlock
+    is a one-off, so it earns the longer, brighter treatment instead."""
+    notes = [square(note(n), 0.10, duty=0.25) * adsr(0.10, 0.005, 0.03, 0.7, 0.03)
+             for n in (72, 76, 79)]
+    return bitcrush(seq(*notes), bits=6)
+
+
+def sfx_unlock():
+    """New tower/spell unlocked: sfx_upgrade's rising figure stretched to
+    four notes, with the final note held longer and a triangle overlay
+    shining through it — the extra length and brightness are what separate
+    "you unlocked something new" from the routine upgrade chime."""
+    notes = [square(note(n), 0.10, duty=0.25) * adsr(0.10, 0.005, 0.03, 0.7, 0.03)
+             for n in (72, 76, 79)]
+    last = square(note(84), 0.22, duty=0.25) * adsr(0.22, 0.005, 0.03, 0.7, 0.03)
+    shine = triangle(note(84), 0.22) * perc(0.22, curve=4.0) * 0.5
+    notes.append(last + shine)
+    return bitcrush(seq(*notes), bits=6)
+
+
+def sfx_boss_warning():
+    """Boss klaxon: two rising alarm blasts with a gap between them, over a
+    constant low drone. The drone (0.70s, longer than the two blasts plus
+    their gap) is what makes this read as a sustained threat rather than
+    two disconnected chirps — pad() brings the blast sequence up to the
+    drone's length so mix() doesn't just truncate one of them."""
+    blast = square(sweep(440, 330, 0.28, "lin"), 0.28, duty=0.5) \
+        * adsr(0.28, 0.02, 0.04, 0.85, 0.06)
+    gap = np.zeros(int(SR * 0.07))
+    blasts = seq(blast, gap, blast)
+    d = 0.70
+    drone = saw(note(33), d) * adsr(d, 0.05, 0.1, 0.5, 0.2) * 0.4
+    return bitcrush(mix(pad(blasts, d), drone), bits=5)
+
+
+def sfx_base_danger():
+    """Base-in-danger heartbeat: two low sine thumps over a quiet rumbling
+    noise bed. An urgent pulse rather than a single alarm hit, because this
+    can loop for as long as the base stays under threat, unlike the boss
+    klaxon above which fires once per boss arrival."""
+    d = 0.44
+    thump = sine(sweep(90, 45, 0.14), 0.14) * perc(0.14, curve=6.0)
+    gap = np.zeros(int(SR * 0.16))
+    beats = seq(thump, gap, thump)
+    bed = lowpass(noise(d), 300.0) * perc(d, curve=3.0) * 0.3
+    return bitcrush(mix(pad(beats, d), bed), bits=6)
+
+
+def jingle_win():
+    """Victory jingle: a five-note major ascent that opens into a held
+    root/third/fifth chord on the last note — the harmony (triangle, under
+    the square) is what turns a scale run into an ending instead of just
+    stopping on the top note."""
+    degrees = [69, 73, 76, 81, 88]
+    parts = [square(note(n), 0.18, duty=0.25) * adsr(0.18, 0.01, 0.04, 0.7, 0.05)
+              for n in degrees[:-1]]
+    root_n = degrees[-1]
+    root = square(note(root_n), 0.5, duty=0.25) * adsr(0.5, 0.01, 0.04, 0.7, 0.05)
+    third = triangle(note(root_n + 4), 0.5) * adsr(0.5, 0.01, 0.04, 0.7, 0.05) * 0.5
+    fifth = triangle(note(root_n + 7), 0.5) * adsr(0.5, 0.01, 0.04, 0.7, 0.05) * 0.4
+    parts.append(root + third + fifth)
+    return bitcrush(seq(*parts), bits=6)
+
+
+def jingle_lose():
+    """Defeat jingle: a four-note minor descent with a low decaying growl
+    layered under the final note — added via explicit slicing (not seq/pad)
+    because the growl starts AT the last note's onset and outlasts it,
+    which is what keeps the ending from sounding like it just stops."""
+    degrees = [69, 65, 62, 57]
+    step = 0.24
+    notes = [square(note(n), step, duty=0.5) * adsr(step, 0.02, 0.05, 0.6, 0.08)
+             for n in degrees]
+    body = seq(*notes)
+    growl = saw(note(45), 0.40) * perc(0.40, curve=3.0) * 0.5
+    start = int(SR * step * (len(degrees) - 1))
+    total = max(len(body), start + len(growl))
+    out = np.zeros(total)
+    out[:len(body)] += body
+    out[start:start + len(growl)] += growl
+    return bitcrush(out, bits=6)
+
+
+def jingle_first_clear():
+    """First-clear fanfare: jingle_win's motif transposed up an octave, with
+    a shimmering high noise bed under the whole thing and a closing
+    three-note arpeggio. Built standalone rather than calling jingle_win()
+    — this file's rule (see module docstring) is one self-contained function
+    per sound, so either jingle can be retuned without touching the other."""
+    degrees = [n + 12 for n in (69, 73, 76, 81, 88)]
+    parts = [square(note(n), 0.18, duty=0.25) * adsr(0.18, 0.01, 0.04, 0.7, 0.05)
+              for n in degrees[:-1]]
+    root_n = degrees[-1]
+    root = square(note(root_n), 0.5, duty=0.25) * adsr(0.5, 0.01, 0.04, 0.7, 0.05)
+    third = triangle(note(root_n + 4), 0.5) * adsr(0.5, 0.01, 0.04, 0.7, 0.05) * 0.5
+    fifth = triangle(note(root_n + 7), 0.5) * adsr(0.5, 0.01, 0.04, 0.7, 0.05) * 0.4
+    parts.append(root + third + fifth)
+    arp_len = 0.12
+    for n in (88, 93, 96):
+        parts.append(triangle(note(n), arp_len) * perc(arp_len, curve=10.0))
+    notes = seq(*parts)
+    d = 1.60
+    sparkle = highpass(noise(d), 5000.0) * perc(d, curve=2.0) * 0.15
+    return bitcrush(mix(pad(notes, d), sparkle), bits=6)
+
+
+def sfx_teleport_hit():
+    """A monster taking teleport damage: a falling square zap plus a fainter
+    rising one underneath — the same paired rise/fall shape as
+    sfx_atk_teleport's shot, so the hit reads as the same magic landing,
+    just heard from the target's side. bits=4 to match that tower's crush."""
+    d = 0.20
+    fall = square(sweep(1800, 500, d), d, duty=0.125) * perc(d, curve=7.0)
+    rise = square(sweep(500, 1800, d), d, duty=0.125) * perc(d, curve=9.0) * 0.4
+    return bitcrush(fall + rise, bits=4)
+
+
+def sfx_knockback():
+    """Knockback impact: filtered noise thump plus a falling sine underneath
+    for the sense of something being physically shoved back, not just hit."""
+    d = 0.18
+    thump = lowpass(noise(d), 1000.0) * perc(d, curve=7.0)
+    push = sine(sweep(220, 90, d), d) * perc(d, curve=6.0) * 0.7
+    return bitcrush(thump + push, bits=6)
+
+
+def sfx_summon_circle():
+    """Summoning circle forming: a rising triangle tone with a long attack
+    (the circle drawing itself into being) plus a faint high crackle over
+    the top for the magic fizzing at its edge."""
+    d = 0.46
+    body = triangle(sweep(300, 700, d), d) * adsr(d, 0.10, 0.08, 0.7, 0.16)
+    crackle = highpass(noise(d), 3500.0) * perc(d, curve=3.0) * 0.25
+    return bitcrush(body + crackle, bits=6)
+
+
+def sfx_place_tower():
+    """Tower placed: a short puff of ground dust up front, then a falling
+    square thud as the tower settles into it — two events in sequence,
+    not one, which sfx_sell_tower below deliberately reverses."""
+    d = 0.18
+    dust = lowpass(noise(0.07), 800.0) * perc(0.07, curve=10.0)
+    thud = square(sweep(300, 180, d), d, duty=0.5) * perc(d, curve=7.0) * 0.8
+    return bitcrush(mix(pad(dust, d), thud), bits=6)
+
+
+def sfx_sell_tower():
+    """Tower sold: sfx_place_tower's syntax in reverse — a rising square
+    thud first (the tower coming back up), then two gold coin blips landing
+    right at the tail as the refund pays out."""
+    d = 0.22
+    thud = square(sweep(180, 320, d), d, duty=0.5) * perc(d, curve=7.0)
+    coin = triangle(note(84), 0.05) * perc(0.05, curve=12.0)
+    coins = seq(coin, coin)
+    out = thud.copy()
+    start = len(out) - len(coins)
+    out[start:] += coins
+    return bitcrush(out, bits=6)
+
+
+# ---------------------------------------------------------------------------
 # BGM
 # ---------------------------------------------------------------------------
 
@@ -876,6 +1086,24 @@ SOUNDS = {
     "sfx_spell_smite": sfx_spell_smite,
     "sfx_spell_emp": sfx_spell_emp,
     "sfx_spell_blackhole": sfx_spell_blackhole,
+    # SFX bus — system sounds: currency, upgrades, unlocks, boss/base alerts,
+    # jingles, and the small physical events (place/sell/knockback/teleport
+    # hit/summon circle)
+    "sfx_gold_pop": sfx_gold_pop,
+    "sfx_gold_bank": sfx_gold_bank,
+    "sfx_crystal_gain": sfx_crystal_gain,
+    "sfx_upgrade": sfx_upgrade,
+    "sfx_unlock": sfx_unlock,
+    "sfx_boss_warning": sfx_boss_warning,
+    "sfx_base_danger": sfx_base_danger,
+    "jingle_win": jingle_win,
+    "jingle_lose": jingle_lose,
+    "jingle_first_clear": jingle_first_clear,
+    "sfx_teleport_hit": sfx_teleport_hit,
+    "sfx_knockback": sfx_knockback,
+    "sfx_summon_circle": sfx_summon_circle,
+    "sfx_place_tower": sfx_place_tower,
+    "sfx_sell_tower": sfx_sell_tower,
     # BGM bus
     "bgm_battle": bgm_battle,
 }

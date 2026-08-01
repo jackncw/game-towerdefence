@@ -72,10 +72,11 @@ func _process(delta: float) -> void:
 	_tick_recoil(delta)
 	match mech:
 		"slowfield": _proc_slowfield(delta)
-		"beam": _proc_beam(delta)
-		"alchemy": _proc_interval(delta, Callable(self, "_fire_alchemy"), false)
-		"thorn": _proc_interval(delta, Callable(self, "_fire_thorn"), false)
-		"magnet": _proc_interval(delta, Callable(self, "_fire_magnet"), false)
+		"beam": _proc_beam_audio(delta)
+		# these three do not route through _fire(), so they play their own sound
+		"alchemy": _proc_interval(delta, Callable(self, "_fire_alchemy_snd"), false)
+		"thorn": _proc_interval(delta, Callable(self, "_fire_thorn_snd"), false)
+		"magnet": _proc_interval(delta, Callable(self, "_fire_magnet_snd"), false)
 		"barracks": _proc_barracks(delta)
 		"curse": _proc_curse_aura(delta)
 		_: _proc_attack(delta)
@@ -161,6 +162,7 @@ func _muzzle(tgt) -> void:
 # ---------------------------------------------------------------------------
 func _fire(tgt) -> void:
 	_muzzle(tgt)
+	Audio.play_tower(mech)
 	match mech:
 		"arrow": _fire_arrow(tgt)
 		"cannon": _fire_cannon(tgt)
@@ -360,6 +362,33 @@ func _proc_slowfield(delta: float) -> void:
 			for m in battle.monsters_in_radius(global_position, range_val, true):
 				m.take_hit(s.pulse, "magic")
 			battle.spawn_fx_ring(global_position, range_val, Color(0.3, 0.8, 0.8))
+
+## The beam is continuous, so it cannot key its sound off a shot. It re-triggers
+## on its own timer while it has a target — tied to the clip length, not to the
+## frame rate, or 5x would fire it 60 times a second into the dedup filter.
+var _beam_snd_t: float = 0.0
+const BEAM_SND_PERIOD := 0.30
+
+func _proc_beam_audio(delta: float) -> void:
+	_proc_beam(delta)
+	_beam_snd_t -= delta
+	if last_target != null and _beam_snd_t <= 0.0:
+		_beam_snd_t = BEAM_SND_PERIOD
+		Audio.play_tower(mech)
+
+# _proc_interval calls these with no argument (they pick their own targets), so
+# the wrappers take none either.
+func _fire_alchemy_snd() -> void:
+	_fire_alchemy()
+	Audio.play_tower(mech)
+
+func _fire_thorn_snd() -> void:
+	_fire_thorn()
+	Audio.play_tower(mech)
+
+func _fire_magnet_snd() -> void:
+	_fire_magnet()
+	Audio.play_tower(mech)
 
 func _proc_beam(delta: float) -> void:
 	var tgt = battle.target_closest_to_base(global_position, range_val)

@@ -86,6 +86,7 @@ static func button(text: String, min_size := Vector2(200, 96), col := PANEL_HI, 
 		frame_box(tex, 18, 20, 12, Color(0.62, 0.62, 0.66)))
 	b.add_theme_stylebox_override("disabled", frame_box(tex, 18, 20, 10, Color(0.5, 0.5, 0.55)))
 	b.add_theme_color_override("font_disabled_color", Color(0.55, 0.57, 0.62))
+	_click_sound(b)
 	return b
 
 ## Square icon button (top-bar controls). icon_name = a ui/*.png without extension.
@@ -101,7 +102,14 @@ static func icon_button(icon_name: String, size := Vector2(100, 100), col := PAN
 	ic.position = (size - isz) * 0.5
 	b.add_child(ic)
 	b.set_meta("icon", ic)
+	_click_sound(b)
 	return b
+
+## Every button built through this file clicks. Hooking it here rather than at
+## each call site is the only way it stays true — there are ~90 buttons across
+## the game and any new screen gets it for free.
+static func _click_sound(b: BaseButton) -> void:
+	b.pressed.connect(func(): Audio.play("ui_click"))
 
 static func label(text: String, fs := 30, col := TEXT) -> Label:
 	var l := Label.new()
@@ -214,6 +222,11 @@ static func badge_max(size := Vector2(72, 72)) -> Control:
 
 ## Floating warm toast near screen-top ("魔晶不足!還差 XX"). Attaches to `root`.
 static func toast(root: Control, msg: String, col := DANGER) -> void:
+	# The toast IS the game's refusal channel (魔晶不足, 冷卻中, 唔可以起喺呢度), so
+	# the error sound belongs here and not at each of the call sites. A GOLD toast
+	# is a notice, not a refusal, so it stays silent.
+	if col != GOLD:
+		Audio.play("ui_error")
 	var p := panel_dark()
 	p.add_theme_stylebox_override("panel", frame_box("banner_gold9", 22, 26, 14)
 		if col == GOLD else frame_box("panel_dark9", 22, 26, 14))

@@ -372,6 +372,7 @@ func _set_drawer(open: bool) -> void:
 	if open == _drawer_open:
 		return
 	_drawer_open = open
+	Audio.play("ui_panel_open" if open else "ui_panel_close")
 	drawer_scrim.visible = open
 	if open:
 		drawer.visible = true

@@ -141,10 +141,12 @@ func _ready() -> void:
 	_build_hud()
 	_build_debug()
 	spawn_timer = 0.6
+	Audio.play_bgm("bgm_battle")
 	Engine.time_scale = 1.0
 	set_process_unhandled_input(true)
 
 func _exit_tree() -> void:
+	Audio.stop_bgm()
 	Engine.time_scale = 1.0
 	get_tree().paused = false
 	Meta.flush_pending_save()   # bestiary sightings collected during the run

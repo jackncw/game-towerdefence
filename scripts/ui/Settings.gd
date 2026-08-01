@@ -27,22 +27,10 @@ func _ready() -> void:
 	# language still has to be able to find)
 	vb.add_child(_language_row())
 
-	# volume
-	var vrow := HBoxContainer.new()
-	vrow.add_theme_constant_override("separation", 20)
-	var vlabel := UI.label(tr("SET_VOLUME"), 34, UI.TEXT)
-	vlabel.custom_minimum_size = Vector2(180, 60)
-	vrow.add_child(vlabel)
-	# the default HSlider was the last unstyled cool-grey control in the game
-	var slider := UI.slider(590)
-	slider.min_value = 0; slider.max_value = 1; slider.step = 0.05
-	slider.value = Meta.settings.get("volume", 0.8)
-	slider.value_changed.connect(func(v):
-		Meta.settings["volume"] = v
-		Meta.apply_audio_settings()
-		Meta.save_game())
-	vrow.add_child(slider)
-	vb.add_child(vrow)
+	# 總音量 / 音樂 / 音效 — three sliders over the Master / BGM / SFX buses
+	vb.add_child(_volume_row("SET_VOLUME", "volume"))
+	vb.add_child(_volume_row("SET_VOLUME_BGM", "volume_bgm"))
+	vb.add_child(_volume_row("SET_VOLUME_SFX", "volume_sfx"))
 
 	# mute
 	var mute := UI.button("", Vector2(800, 96))
@@ -53,7 +41,10 @@ func _ready() -> void:
 		Meta.settings["muted"] = not Meta.settings.get("muted", false)
 		Meta.apply_audio_settings()
 		Meta.save_game()
-		refresh_mute.call())
+		refresh_mute.call()
+		# the click has to survive its own un-mute, so it plays after the toggle
+		if not Meta.settings.get("muted", false):
+			Audio.play("ui_click"))
 	vb.add_child(mute)
 
 	# reset save (double confirm)
@@ -104,3 +95,25 @@ func _on_reset() -> void:
 	reset_btn.text = tr("SET_RESET_DONE")
 	confirm_reset = false
 	get_tree().create_timer(0.8).timeout.connect(func(): Flow.goto(Flow.MAIN_MENU))
+
+## One labelled slider bound to a settings key. Dragging previews the change
+## immediately (that is the only way to judge a volume) and saves as it goes.
+func _volume_row(label_key: String, setting_key: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 20)
+	var l := UI.label(tr(label_key), 34, UI.TEXT)
+	l.custom_minimum_size = Vector2(180, 60)
+	row.add_child(l)
+	# the default HSlider was the last unstyled cool-grey control in the game
+	var slider := UI.slider(590)
+	slider.min_value = 0; slider.max_value = 1; slider.step = 0.05
+	slider.value = Meta.audio_volume(setting_key)
+	slider.value_changed.connect(func(v):
+		Meta.set_audio_volume(setting_key, v)
+		# audition the bus you just moved, so the slider means something
+		if setting_key == "volume_bgm":
+			Audio.play_bgm("bgm_battle")
+		else:
+			Audio.play("ui_click"))
+	row.add_child(slider)
+	return row

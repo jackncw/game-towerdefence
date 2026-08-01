@@ -12,7 +12,12 @@ var tower_up: Dictionary = {}
 var spell_up: Dictionary = {}
 var highest_level: int = 0            # highest cleared level (0 = none)
 var cleared: Dictionary = {}          # "N": true for cleared levels
-var settings: Dictionary = {"volume": 0.8, "muted": false, "locale": ""}
+## volume = 總音量 (Master), volume_bgm / volume_sfx = the two sub-buses.
+## UI shares the SFX slider: a separate "menu clicks" slider is a control nobody
+## asks for, and the UI bus exists so the click can duck under the music, not so
+## the player has to balance it.
+var settings: Dictionary = {"volume": 0.8, "volume_bgm": 1.0, "volume_sfx": 1.0,
+	"muted": false, "locale": ""}
 var seen: Dictionary = {}             # bestiary: "fam_1".."fam_5","fam_boss" => true
 var save_version: int = SAVE_VERSION   # migrations already applied to this save
 
@@ -323,6 +328,12 @@ func load_game() -> void:
 	save_version = maxi(0, _to_int(data.get("version", 0)))
 	if not settings.has("volume"):
 		settings["volume"] = 0.8
+	# round 8 added the two sub-bus sliders; a pre-round-8 save has neither, and
+	# 1.0 on both reproduces exactly how that save used to sound
+	if not settings.has("volume_bgm"):
+		settings["volume_bgm"] = 1.0
+	if not settings.has("volume_sfx"):
+		settings["volume_sfx"] = 1.0
 	if not settings.has("muted"):
 		settings["muted"] = false
 	# "" = never chosen -> follow the system locale on this and every later launch
@@ -388,12 +399,33 @@ func set_locale(code: String) -> void:
 	apply_locale()
 	save_game()
 
-## Push the persisted audio settings into the bus. Without this the saved
+## Push the persisted audio settings into the buses. Without this the saved
 ## 靜音 / 音量 only ever took effect if you re-toggled them in 設定 this session.
+##
+## Round 8 split one master volume into three: Master carries 總音量 and the mute
+## toggle, and BGM / SFX / UI sit under it. Old saves have only "volume", so the
+## two new keys fall back to 1.0 and such a save sounds exactly as it did.
+const AUDIO_SUB_BUSES := {"BGM": "volume_bgm", "SFX": "volume_sfx", "UI": "volume_sfx"}
+
 func apply_audio_settings() -> void:
 	var vol: float = float(settings.get("volume", 0.8))
 	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(0.0001, vol)))
 	AudioServer.set_bus_mute(0, bool(settings.get("muted", false)))
+	for bus_name in AUDIO_SUB_BUSES:
+		var idx := AudioServer.get_bus_index(bus_name)
+		if idx < 0:
+			continue     # bus layout not loaded (headless tools, older project)
+		var v: float = float(settings.get(AUDIO_SUB_BUSES[bus_name], 1.0))
+		AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(0.0001, v)))
+
+## 0..1 for one of the three sliders. `key` is a settings key, not a bus name.
+func audio_volume(key: String) -> float:
+	return clampf(float(settings.get(key, 0.8 if key == "volume" else 1.0)), 0.0, 1.0)
+
+func set_audio_volume(key: String, v: float) -> void:
+	settings[key] = clampf(v, 0.0, 1.0)
+	apply_audio_settings()
+	save_game()
 
 func reset_save() -> void:
 	crystals = 0
@@ -406,7 +438,8 @@ func reset_save() -> void:
 	# language is a device preference, not progress — a save wipe must not throw
 	# the player back into a language they may not read
 	var keep_locale = settings.get("locale", "")
-	settings = {"volume": 0.8, "muted": false, "locale": keep_locale}
+	settings = {"volume": 0.8, "volume_bgm": 1.0, "volume_sfx": 1.0,
+		"muted": false, "locale": keep_locale}
 	seen = {}
 	save_version = SAVE_VERSION   # a fresh save needs no migration
 	rework_refund = 0

@@ -21,6 +21,7 @@ GameData="*res://scripts/autoload/GameData.gd"
 Assets="*res://scripts/autoload/Assets.gd"
 Meta="*res://scripts/autoload/Meta.gd"
 Flow="*res://scripts/autoload/Flow.gd"
+Audio="*res://scripts/autoload/Audio.gd"
 
 [display]
 
@@ -61,3 +62,7 @@ textures/canvas_textures/default_texture_filter=0
 environment/defaults/default_clear_color=Color(0.11, 0.085, 0.065, 1)
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
+
+[audio]
+
+buses/default_bus_layout="res://default_bus_layout.tres"

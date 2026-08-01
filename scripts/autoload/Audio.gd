@@ -222,6 +222,60 @@ func play(sound: String, pitch := 1.0) -> void:
 func play_varied(sound: String, pitch := 1.0) -> void:
 	play(sound, pitch * (1.0 + randf_range(-PITCH_SPREAD, PITCH_SPREAD)))
 
+## 每首 BGM 嘅節奏,用嚟計小節線。battle 同 boss 一定要同 BPM 同 key,
+## 唔係咁「無縫」就淨係得個講字。
+const BGM_META := {
+	"bgm_menu":   {"bpm": 90.0,  "beats": 4, "bars": 8},
+	"bgm_battle": {"bpm": 132.0, "beats": 4, "bars": 8},
+	"bgm_boss":   {"bpm": 132.0, "beats": 4, "bars": 8},
+}
+## 幾近就當踩正線。一幀喺 60fps 係 0.0167 秒,所以呢個窗要闊過一幀,
+## 唔係就會有時啱啱跳過條線,要等多成個小節先切到。
+const BAR_SNAP := 0.05
+
+var _bgm_pending: String = ""
+
+static func bar_seconds(meta: Dictionary) -> float:
+	return 60.0 / maxf(1.0, float(meta.get("bpm", 120.0))) * float(meta.get("beats", 4))
+
+## 由播放位置 `pos` 去到下一條小節線仲要幾耐。啱啱踩正線返 0。
+static func time_to_bar(pos: float, meta: Dictionary) -> float:
+	var bar: float = bar_seconds(meta)
+	if bar <= 0.0:
+		return 0.0
+	var into: float = fposmod(pos, bar)
+	return 0.0 if into < 0.0005 or bar - into < 0.0005 else bar - into
+
+## 排隊換 BGM,等下一條小節線先真係切。
+##
+## 即刻切試過,唔得:切喺小節中間會斷拍,而斷拍係聽得出嘅 —— 玩家唔會諗到
+## 「換咗歌」,只會覺得「卡咗一下」。等最多一個小節(132bpm 之下 1.82 秒)
+## 換返一個真係接得上嘅過渡,係抵嘅。
+func queue_bgm(sound: String) -> void:
+	if _bgm_name == sound and _bgm.playing:
+		_bgm_pending = ""
+		return
+	_bgm_pending = sound
+
+func _process(_delta: float) -> void:
+	if _bgm_pending == "":
+		return
+	# 冇嘢喺度播 = 冇小節線可以等
+	if not _bgm.playing:
+		_commit_pending()
+		return
+	var meta: Dictionary = BGM_META.get(_bgm_name, {})
+	if meta.is_empty():
+		_commit_pending()
+		return
+	if time_to_bar(_bgm.get_playback_position(), meta) <= BAR_SNAP:
+		_commit_pending()
+
+func _commit_pending() -> void:
+	var n: String = _bgm_pending
+	_bgm_pending = ""
+	play_bgm(n)
+
 func play_bgm(sound: String) -> void:
 	if _bgm_name == sound and _bgm.playing:
 		return
@@ -240,6 +294,7 @@ func play_bgm(sound: String) -> void:
 func stop_bgm() -> void:
 	_bgm_name = ""
 	_bgm.stop()
+	_bgm_pending = ""
 
 func is_bgm_playing() -> bool:
 	return _bgm.playing

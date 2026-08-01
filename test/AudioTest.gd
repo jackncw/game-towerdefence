@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _case_buses()
 	await _case_routing()
 	await _case_registry()
+	await _case_bar_align()
 	await _case_settings()
 	await _case_dedup()
 	await _case_time_scale()
@@ -91,6 +92,36 @@ func _case_registry() -> void:
 			missing.append(String(n))
 	_ok("G 註冊咗嘅 %d 個音全部載到" % names.size(), missing.is_empty(),
 		"missing: %s" % str(missing))
+
+## 小節對齊嘅數學。呢個 case 存在嘅原因:真正嘅交接要有一個會推進嘅音訊驅動先
+## 觀察到(headless 個 dummy 唔會),所以決定「幾時切」嗰條數獨立成純函數,
+## 喺任何環境都答得到。切換本身嘅正確性 = 呢條數 + 一句 if,冇第三樣嘢。
+func _case_bar_align() -> void:
+	var meta := {"bpm": 132.0, "beats": 4, "bars": 8}
+	var bar: float = Audio.bar_seconds(meta)
+	_near("A 一個小節 = 60/132*4", bar, 1.8181818, 0.0005)
+	_near("A 啱啱踩正線 -> 唔使等", Audio.time_to_bar(0.0, meta), 0.0, 0.0005)
+	_near("A 小節中間 -> 等返差嗰段", Audio.time_to_bar(1.0, meta), bar - 1.0, 0.0005)
+	_near("A 跨過一個小節之後照計", Audio.time_to_bar(bar + 0.5, meta), bar - 0.5, 0.0005)
+	# 呢個係最重要嗰個:啱啱過線嘅位置絕對唔可以返一個完整小節,否則 boss 曲會
+	# 白等成個小節先入,而個 bug 喺遊戲入面只會顯示為「有時慢咗」
+	_ok("A 啱啱過線唔會白等成個小節",
+		Audio.time_to_bar(bar * 2.0, meta) < 0.01,
+		"got %.4f, want ~0" % Audio.time_to_bar(bar * 2.0, meta))
+	# battle 同 boss 必須同 BPM,唔係「無縫」就係空話
+	var b1: Dictionary = Audio.BGM_META.get("bgm_battle", {})
+	var b2: Dictionary = Audio.BGM_META.get("bgm_boss", {})
+	_ok("A battle / boss 同 BPM",
+		not b1.is_empty() and not b2.is_empty()
+		and is_equal_approx(float(b1.get("bpm", 0.0)), float(b2.get("bpm", -1.0))),
+		"battle=%s boss=%s" % [str(b1), str(b2)])
+	# 排隊之後未到線之前唔可以即刻換走
+	Audio.play_bgm("bgm_battle")
+	Audio.queue_bgm("bgm_boss")
+	_ok("A 排咗隊但未切", Audio._bgm_pending == "bgm_boss" and Audio._bgm_name == "bgm_battle",
+		"pending=%s now=%s" % [Audio._bgm_pending, Audio._bgm_name])
+	Audio.stop_bgm()
+	Audio._bgm_pending = ""
 
 func _case_settings() -> void:
 	Meta.reset_save()

@@ -186,6 +186,7 @@ LOUDNESS = {
     "ui_panel_close": 0.11,
     "ui_error": 0.15,
     "bgm_battle": 0.085,
+    "bgm_menu": 0.075, "bgm_boss": 0.09,
     # 死亡 / 受擊:5x 之下一秒幾十次,坐低過攻擊聲先唔會蓋住成場
     **{("sfx_die_%s" % f): 0.085 for f in
        ["goblin", "wolf", "skeleton", "golem", "ghost", "bat",
@@ -1031,6 +1032,33 @@ def bgm_battle():
                       lead_pattern=lead, duty=0.25) * 0.8
 
 
+def bgm_menu():
+    """Main menu: unhurried, major key, nothing urgent happening.
+
+    Deliberately NOT the battle theme slowed down — the menu is where the
+    player reads numbers and decides what to buy, and a driving loop makes
+    that feel like something they are late for.
+    """
+    lead = [(0, 0, 1.0), (1, 4, 0.5), (1.5, 7, 0.5), (2, 4, 1.0), (3, 2, 1.0)]
+    return _bgm_track(root=60, prog=[0, 5, 3, 7], bars=8, bpm=90,
+                      lead_pattern=lead, duty=0.5) * 0.7
+
+
+def bgm_boss():
+    """Boss theme. SAME bpm and SAME root as bgm_battle on purpose — the
+    handoff is timed to a bar line, and two tracks in different keys or tempos
+    would still read as a cut no matter how well the moment was chosen.
+
+    What makes it the boss version instead: a darker progression that leans on
+    the flat sixth, the lead an octave down for weight, and a thinner duty
+    cycle so it cuts through a field that is by now very busy.
+    """
+    lead = [(0, 0, 0.5), (0.5, 0, 0.5), (1, 8, 1.0), (2, 7, 0.5),
+            (2.5, 5, 0.5), (3, 3, 1.0)]
+    return _bgm_track(root=57, prog=[0, 8, 5, 3], bars=8, bpm=132,
+                      lead_pattern=lead, duty=0.125) * 0.85
+
+
 # ---------------------------------------------------------------------------
 SOUNDS = {
     # UI bus
@@ -1106,6 +1134,8 @@ SOUNDS = {
     "sfx_sell_tower": sfx_sell_tower,
     # BGM bus
     "bgm_battle": bgm_battle,
+    "bgm_menu": bgm_menu,
+    "bgm_boss": bgm_boss,
 }
 
 

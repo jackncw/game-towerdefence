@@ -414,4 +414,5 @@ asset content.
 
 ## Commit hash
 
-`<filled in after commit — see follow-up commit "Record the round 9 commit hash in the report">`
+`f051492f238b08c93a6f7bed06f526bde3953b6d` — "Verify round 9 against the tightest
+layout and the whole suite, and rebuild web"

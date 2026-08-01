@@ -11,6 +11,7 @@ var scenes := [
 	"res://scenes/Settings.tscn",
 	"res://scenes/Gallery.tscn",
 	"res://scenes/Bestiary.tscn",
+	"res://scenes/QuickBar.tscn",
 ]
 
 # Result/Fail read different fields per outcome, so each payout shape is built

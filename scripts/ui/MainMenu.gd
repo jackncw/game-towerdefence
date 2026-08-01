@@ -56,6 +56,10 @@ func _ready() -> void:
 	up.pressed.connect(func(): Flow.goto(Flow.UPGRADE))
 	vb.add_child(up)
 
+	var quick := UI.button(tr("MENU_QUICKBAR"), Vector2(600, 110))
+	quick.pressed.connect(func(): Flow.goto(Flow.QUICKBAR))
+	vb.add_child(quick)
+
 	var bestiary := UI.button(tr("NAV_BESTIARY"), Vector2(600, 110))
 	bestiary.pressed.connect(func(): Flow.goto(Flow.BESTIARY))
 	vb.add_child(bestiary)

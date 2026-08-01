@@ -38,6 +38,7 @@ func _ready() -> void:
 	await _case_quick_persist()
 	await _case_quick_layout()
 	await _case_one_gesture()
+	await _case_quickbar_screen()
 	_restore_save()
 	Meta.load_game()
 	print("BOTTOMBAR %s fails=%d" % ["PASS" if fails == 0 else "FAIL", fails])
@@ -374,6 +375,79 @@ func _empty_slot_btn(hud) -> Button:
 					and absf(ch.position.y - UI.QUICK_RECT.position.y) < 1.0:
 				return ch
 	return null
+
+
+# ---------------------------------------------------------------------------
+# Q — 主選單嘅釘選畫面
+# ---------------------------------------------------------------------------
+func _case_quickbar_screen() -> void:
+	Meta.reset_save()
+	Meta.crystals = 99999
+	Meta.unlock_tower(3)
+	Meta.unlock_tower(4)
+	var qb = load("res://scripts/ui/QuickBar.gd").new()
+	add_child(qb)
+	await _idle(3)
+
+	# 預覽用嘅係實際尺寸,唔係另一套數
+	_ok("QB 預覽格闊度 = 戰鬥實際",
+		is_equal_approx(qb.preview_cell_w(), UI.quick_cell_w()),
+		"preview %.2f vs battle %.2f" % [qb.preview_cell_w(), UI.quick_cell_w()])
+
+	# 撳槽 -> 撳塔 = 指派
+	var before: Array = Meta.quick_slot_ids()
+	qb._slot_pressed(0)
+	_ok("QB 撳槽選中", qb.selected_slot == 0, "selected_slot=%d" % qb.selected_slot)
+	qb._tower_pressed(6)                    # 6 未解鎖
+	_ok("QB 未解鎖嘅塔指派唔到", Meta.quick_slot_ids() == before,
+		"%s -> %s" % [str(before), str(Meta.quick_slot_ids())])
+	qb._tower_pressed(4)                    # 4 已解鎖,而且已經喺第 6 格
+	var s: Array = Meta.quick_slot_ids()
+	_ok("QB 指派到第 0 格", int(s[0]) == 4, "slots=%s" % str(s))
+	_ok("QB 原本嗰格接走咗被換走嗰座", int(s[5]) == int(before[0]),
+		"slots=%s (before %s)" % [str(s), str(before)])
+
+	# 入嚟嗰陣冇嘢揀住,所以撳塔唔應該有嘢發生
+	qb.selected_slot = -1
+	var s2: Array = Meta.quick_slot_ids()
+	qb._tower_pressed(1)
+	_ok("QB 未揀槽撳塔冇作用", Meta.quick_slot_ids() == s2,
+		"%s -> %s" % [str(s2), str(Meta.quick_slot_ids())])
+
+	# 撳槽 A 再撳槽 B = 兩格對調(重排)
+	var s3: Array = Meta.quick_slot_ids()
+	qb._slot_pressed(1)
+	qb._slot_pressed(3)
+	var s4: Array = Meta.quick_slot_ids()
+	_ok("QB 撳兩個槽 = 對調",
+		int(s4[1]) == int(s3[3]) and int(s4[3]) == int(s3[1]),
+		"%s -> %s" % [str(s3), str(s4)])
+	_ok("QB 對調完清返揀住嘅槽", qb.selected_slot == -1,
+		"selected_slot=%d" % qb.selected_slot)
+
+	# 撳返同一個槽 = 取消揀,唔係對調自己
+	var s5: Array = Meta.quick_slot_ids()
+	qb._slot_pressed(2)
+	qb._slot_pressed(2)
+	_ok("QB 撳返同一格 = 取消揀", qb.selected_slot == -1,
+		"selected_slot=%d" % qb.selected_slot)
+	_ok("QB 取消揀冇郁到內容", Meta.quick_slot_ids() == s5,
+		"%s -> %s" % [str(s5), str(Meta.quick_slot_ids())])
+
+	# 揀住嘅槽再撳同一座塔 = 清空
+	qb._slot_pressed(0)
+	qb._tower_pressed(4)
+	_ok("QB 再撳同一座 = 清空", int(Meta.quick_slot_ids()[0]) == 0,
+		"slots=%s" % str(Meta.quick_slot_ids()))
+
+	# 改完即刻寫落存檔 —— 玩家唔應該要做多一步「儲存」
+	var want: Array = Meta.quick_slot_ids()
+	Meta.quick_slots = [0, 0, 0, 0, 0, 0]
+	Meta.load_game()
+	_ok("QB 改完即刻存檔", Meta.quick_slot_ids() == want,
+		"want %s got %s" % [str(want), str(Meta.quick_slot_ids())])
+	qb.queue_free()
+	await _idle(2)
 
 ## First snapped, legal build position that the OPEN drawer does not cover.
 func _free_spot(b, hud) -> Vector2:

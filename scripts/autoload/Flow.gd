@@ -14,6 +14,7 @@ const FAIL := "res://scenes/Fail.tscn"
 const SETTINGS := "res://scenes/Settings.tscn"
 const GALLERY := "res://scenes/Gallery.tscn"
 const BESTIARY := "res://scenes/Bestiary.tscn"
+const QUICKBAR := "res://scenes/QuickBar.tscn"
 
 ## Subset of Noto Sans TC (SIL OFL 1.1) covering the game's on-screen characters.
 ## Rebuild with tools/subset_font.py after adding text with new characters.

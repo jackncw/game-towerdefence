@@ -232,18 +232,29 @@ func _tick_status(delta: float) -> void:
 	if haste_time > 0.0:
 		haste_time -= delta
 		if haste_time <= 0.0: haste_amp = 0.0
+	# DoT accumulators DRAIN by one period per tick instead of resetting to 0.
+	# Resetting made the tick rate frame-dependent: at 5x a frame delta of 0.167s
+	# overshoots the 0.25s burn period, and zeroing the remainder stretched the
+	# real period to 0.333s — a silent 25% DoT loss at high speed, and the mirror
+	# problem (no loss) at 0.5x, so the same burn did different total damage
+	# depending on the speed button. The while-loop also pays out every period
+	# that fits in one frame, so a huge delta cannot skip ticks either.
 	if burn_time > 0.0:
 		burn_time -= delta
 		burn_tick += delta
-		if burn_tick >= 0.25:
+		while burn_tick >= 0.25:
+			burn_tick -= 0.25
 			_deal_dot(burn_dps * 0.25, Color(1.0, 0.6, 0.15))
-			burn_tick = 0.0
+			if not alive:
+				break
 	if poison_time > 0.0 and poison_stacks > 0:
 		poison_time -= delta
 		poison_tick += delta
-		if poison_tick >= 0.5:
+		while poison_tick >= 0.5:
+			poison_tick -= 0.5
 			_deal_dot(poison_dmg * poison_stacks * 0.5, Color(0.5, 0.9, 0.2))
-			poison_tick = 0.0
+			if not alive:
+				break
 		if poison_time <= 0.0:
 			poison_stacks = 0
 	if _heal_flash > 0.0:

@@ -81,7 +81,8 @@ func _build_top() -> void:
 	boss_timer_label.add_theme_constant_override("outline_size", 5)
 	add_child(boss_timer_label)
 
-	speed_btn = UI.button("x1", Vector2(150, 100), UI.ACCENT, 40)
+	# caption sized for the widest tier ("x0.5"), not for "x1"
+	speed_btn = UI.button(Battle.speed_label(battle.game_speed), Vector2(150, 100), UI.ACCENT, 36)
 	speed_btn.position = Vector2(916, 12)
 	speed_btn.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var sp_ic := UI.tex_rect(Assets.ui("ic_ff"), Vector2(42, 42))
@@ -524,10 +525,10 @@ func _refresh_mute() -> void:
 		ic.texture = Assets.ui("ic_mute" if muted else "ic_sound")
 
 func _cycle_speed() -> void:
-	var i := Battle.SPEEDS.find(battle.game_speed)
+	var i: int = Battle.SPEEDS.find(battle.game_speed)
 	i = (i + 1) % Battle.SPEEDS.size()
 	battle.set_speed_index(i)
-	speed_btn.text = "x%d" % Battle.SPEEDS[i]
+	speed_btn.text = Battle.speed_label(battle.game_speed)
 
 
 # Sector cooldown mask: a dark pie wedge sweeping clockwise from 12 o'clock that

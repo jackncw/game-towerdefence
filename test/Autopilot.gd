@@ -70,7 +70,7 @@ func _process(delta: float) -> void:
 	if abs(t - 4.0) < delta and battle.towers.size() > 0:
 		battle._set_selected(battle.towers[0])
 		battle.set_speed_index(2)
-		print("TEST: selected tower + speed x%d" % battle.game_speed)
+		print("TEST: selected tower + speed %s" % Battle.speed_label(battle.game_speed))
 
 	# sell a tower late
 	if abs(t - 6.0) < delta and battle.towers.size() > 3:

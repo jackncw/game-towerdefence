@@ -44,12 +44,21 @@ var _warcry_time: float = 0.0
 var midas_bonus: float = 0.0
 var midas_time: float = 0.0
 
-var game_speed: int = 1
-const SPEEDS := [1, 3, 5]
+## Cycle order for the speed button. 0.5x is a genuine slow-motion tier for the
+## dense late levels, so this is a float list — game_speed used to be an int and
+## every consumer that formatted it with "%d" silently printed x0 at half speed.
+var game_speed: float = 1.0
+const SPEEDS := [0.5, 1.0, 3.0, 5.0]
+
+## Button caption for a speed. "%g" would render 1.0 as "1" and 0.5 as "0.5",
+## but it also renders 3.0 as "3" only by luck of the locale, so spell it out.
+static func speed_label(s: float) -> String:
+	return "x0.5" if s < 0.75 else "x%d" % int(round(s))
 
 # spawning
 var elapsed: float = 0.0
 var spawn_timer: float = 0.0
+var spawned_count: int = 0       # every monster ever spawned this run (SpeedScaleTest B)
 var boss_time: float = 60.0
 var boss_spawned: bool = false
 var boss_ref = null
@@ -335,6 +344,12 @@ func _spawn_logic(delta: float) -> void:
 		_spawn_boss()
 	if boss_spawned:
 		_burst_logic(delta)
+	# The timer is re-armed with `+= interval`, not `= interval`. Assigning threw
+	# away the overshoot, so the true spawn period was always rounded UP to the
+	# next frame boundary — harmless at 60fps, but the frame delta is 10x larger
+	# at 5x than at 0.5x, so the same level spawned measurably fewer monsters the
+	# faster you ran it. Draining the remainder makes the long-run rate identical
+	# at every speed tier (test/SpeedScaleTest case B).
 	spawn_timer -= delta
 	if spawn_timer <= 0.0:
 		var frac: float = clampf(elapsed / boss_time, 0.0, 1.0)
@@ -343,11 +358,11 @@ func _spawn_logic(delta: float) -> void:
 			var rate: float = float(boss_profile.get("rate", GameData.BOSS_SPAWN_BASE_RATE))
 			if rate <= 0.0:
 				# burst-only profile: no ambient spawns, keep the timer ticking
-				spawn_timer = interval
+				spawn_timer += interval
 				return
 			interval /= rate
 		_spawn_wave_monster()
-		spawn_timer = interval
+		spawn_timer += interval
 
 func _spawn_wave_monster() -> void:
 	var fams: Array = cfg.families
@@ -394,6 +409,7 @@ func _spawn_monster(fam: String, lv: int, boss: bool, start_dist: float) -> Mons
 	var m: Monster = monster_pool.acquire()
 	m.setup(self, route, fam, lv, boss, cfg.wave_scale, monster_pool, start_dist)
 	monsters.append(m)
+	spawned_count += 1
 	Meta.mark_seen(fam, lv, boss)   # bestiary sighting
 	return m
 
@@ -1162,8 +1178,8 @@ func _start_cd(id: int) -> void:
 	spell_cd[id] = s.get("cd", 10.0)
 
 func set_speed_index(i: int) -> void:
-	game_speed = SPEEDS[i % SPEEDS.size()]
-	Engine.time_scale = float(game_speed)
+	game_speed = float(SPEEDS[i % SPEEDS.size()])
+	Engine.time_scale = game_speed
 
 func cancel_modes() -> void:
 	build_id = 0

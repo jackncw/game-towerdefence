@@ -186,6 +186,11 @@ LOUDNESS = {
     "ui_panel_close": 0.11,
     "ui_error": 0.15,
     "bgm_battle": 0.085,
+    # 死亡 / 受擊:5x 之下一秒幾十次,坐低過攻擊聲先唔會蓋住成場
+    **{("sfx_die_%s" % f): 0.085 for f in
+       ["goblin", "wolf", "skeleton", "golem", "ghost", "bat",
+        "treant", "beetle", "cultist", "slime"]},
+    "sfx_hit_soft": 0.055, "sfx_hit_hard": 0.070, "sfx_hit_magic": 0.060,
 }
 DEFAULT_LOUDNESS = 0.10          # every sfx_atk_* archetype
 
@@ -308,6 +313,158 @@ def sfx_atk_beam():
 
 
 # ---------------------------------------------------------------------------
+# monster deaths — one per family, so the player can tell WHAT died by ear
+# alone at 5x, when there is no time to look
+# ---------------------------------------------------------------------------
+
+
+def sfx_die_goblin():
+    """Goblin death: a thin shriek with a short hiss stapled onto the tail —
+    the hiss is the only part above 3kHz, so it reads as breath/spit, not
+    an echo of the shriek itself."""
+    d = 0.22
+    scream = square(sweep(900, 300, d), d, duty=0.125) * perc(d, curve=8.0)
+    tail = highpass(noise(0.05), 3000.0) * perc(0.05, curve=12.0) * 0.4
+    out = scream.copy()
+    out[-len(tail):] += tail
+    return bitcrush(out, bits=6)
+
+
+def sfx_die_wolf():
+    """Wolf death: a falling howl. The vibrato is applied AFTER the envelope
+    so it modulates the sustain, not the attack — a howl wavers once it is
+    already holding a note, not from the first instant."""
+    d = 0.34
+    howl = saw(sweep(420, 160, d), d) * adsr(d, 0.01, 0.06, 0.5, 0.18)
+    vibrato = 1.0 + 0.25 * np.sin(2.0 * np.pi * 7.0 * t(d))
+    return bitcrush(howl * vibrato, bits=6)
+
+
+def sfx_die_skeleton():
+    """Skeleton death: six dry clicks at random moments across the clip, no
+    bass under any of them — bones rattling apart, not a drum hit."""
+    d = 0.30
+    n_total = int(SR * d)
+    click_len = 0.04
+    out = np.zeros(n_total)
+    offsets = np.sort(_rng.uniform(0.0, d - click_len, 6))
+    for i in range(6):
+        click = square(note(72 - 4 * i), click_len, duty=0.25) * perc(click_len, curve=14.0)
+        start = int(SR * offsets[i])
+        end = min(n_total, start + len(click))
+        out[start:end] += click[:end - start]
+    return bitcrush(out, bits=6)
+
+
+def sfx_die_golem():
+    """Golem death: a bed of low rubble noise with three stone thuds landing
+    at staggered moments over it, like a body breaking apart in pieces
+    rather than all at once."""
+    d = 0.42
+    out = lowpass(noise(d), 700.0) * perc(d, curve=3.5)
+    thud = sine(sweep(120, 40, 0.08), 0.08) * perc(0.08, curve=9.0)
+    for offset in (0.02, 0.14, 0.27):
+        start = int(SR * offset)
+        end = min(len(out), start + len(thud))
+        out[start:end] += thud[:end - start]
+    return bitcrush(out, bits=6)
+
+
+def sfx_die_ghost():
+    """Ghost death: dissolving, not striking — the only death sound with no
+    attack at all. It fades IN over the first 80ms before the pitch-rising
+    body even starts its own decay, so the whole thing reads as materialising
+    out of nothing and then thinning away."""
+    d = 0.46
+    n = int(SR * d)
+    body = triangle(sweep(700, 1800, d), d) * (np.linspace(1.0, 0.0, n) ** 2)
+    fade_in = np.linspace(0.0, 1.0, int(SR * 0.08))
+    body[:len(fade_in)] *= fade_in
+    hiss = highpass(noise(d), 4000.0) * 0.15
+    return bitcrush(body + hiss, bits=6)
+
+
+def sfx_die_bat():
+    """Bat death: a short high squeak. bits=5 rather than the usual 6 — at
+    this pitch the extra crush reads as a screech instead of adding noise."""
+    d = 0.16
+    body = square(sweep(2600, 1400, d), d, duty=0.125) * perc(d, curve=11.0)
+    return bitcrush(body, bits=5)
+
+
+def sfx_die_treant():
+    """Treant death: a crisp snap up front, then a slow falling groan for the
+    rest of the clip — a tree splintering and then toppling, not one noise."""
+    d = 0.40
+    crack = highpass(noise(0.06), 2000.0) * perc(0.06, curve=16.0)
+    fall = triangle(sweep(220, 70, d), d) * perc(d, curve=4.0)
+    return bitcrush(mix(pad(crack, d), fall), bits=6)
+
+
+def sfx_die_beetle():
+    """Beetle death: a brittle shell crack followed by a short crunch, both
+    padded to the full clip length so the crunch's silence-tail is part of
+    the sound instead of getting truncated."""
+    d = 0.24
+    crack = highpass(noise(0.08), 2500.0) * perc(0.08, curve=13.0) * 0.9
+    crunch = square(sweep(520, 180, 0.18), 0.18, duty=0.5) * perc(0.18, curve=7.0)
+    return bitcrush(mix(pad(crack, d), pad(crunch, d)), bits=6)
+
+
+def sfx_die_cultist():
+    """Cultist death: a held chant note that snaps into a falling, decaying
+    wail — seq() rather than mix() because the chant has to visibly stop
+    before the death cry starts, not blend into it."""
+    d1, d2 = 0.16, 0.22
+    chant = saw(note(57), d1) * adsr(d1, 0.02, 0.04, 0.8, 0.04)
+    cutoff = saw(sweep(note(57), note(45), d2), d2) * perc(d2, curve=6.0)
+    return bitcrush(seq(chant, cutoff), bits=6)
+
+
+def sfx_die_slime():
+    """Slime death: a wet low burst with a slow pitch-falling wobble under
+    it, no high end anywhere — the one death sound that is all body and
+    no crack or hiss, because slime has neither bone nor shell to break."""
+    d = 0.30
+    burst = lowpass(noise(d), 1100.0) * perc(d, curve=5.0)
+    wobble = sine(sweep(300, 60, d), d) * perc(d, curve=4.0) * 0.7
+    return bitcrush(burst + wobble, bits=6)
+
+
+# ---------------------------------------------------------------------------
+# hits — picked by the target's defence (armour / magic resist), not by the
+# attacker's damage type, so the player hears "is this thing tough" directly
+# ---------------------------------------------------------------------------
+
+
+def sfx_hit_soft():
+    """Unarmoured hit: a quick low thud with barely any tone under it."""
+    d = 0.07
+    thud = lowpass(noise(d), 1800.0) * perc(d, curve=14.0) * 0.8
+    tone = square(420, d, duty=0.5) * perc(d, curve=16.0) * 0.4
+    return bitcrush(thud + tone, bits=6)
+
+
+def sfx_hit_hard():
+    """Armoured hit: a clank rather than a thud — lower noise cutoff, a
+    falling metallic tone, and bits=5 for extra grit on impact."""
+    d = 0.10
+    clank = lowpass(noise(d), 900.0) * perc(d, curve=10.0)
+    tone = square(sweep(260, 150, d), d, duty=0.5) * perc(d, curve=9.0)
+    return bitcrush(clank + tone, bits=5)
+
+
+def sfx_hit_magic():
+    """Ward hit: a bright falling chime with a burst of high hiss — the only
+    hit sound with no low end at all, so it never gets confused with soft
+    or hard on a busy field."""
+    d = 0.09
+    chime = triangle(sweep(1800, 1150, d), d) * perc(d, curve=12.0)
+    sparkle = highpass(noise(d), 5000.0) * perc(d, curve=16.0) * 0.35
+    return bitcrush(chime + sparkle, bits=6)
+
+
+# ---------------------------------------------------------------------------
 # BGM
 # ---------------------------------------------------------------------------
 
@@ -392,12 +549,77 @@ SOUNDS = {
     "sfx_atk_fire": sfx_atk_fire,
     "sfx_atk_frost": sfx_atk_frost,
     "sfx_atk_beam": sfx_atk_beam,
+    # SFX bus — monster deaths, one per family
+    "sfx_die_goblin": sfx_die_goblin,
+    "sfx_die_wolf": sfx_die_wolf,
+    "sfx_die_skeleton": sfx_die_skeleton,
+    "sfx_die_golem": sfx_die_golem,
+    "sfx_die_ghost": sfx_die_ghost,
+    "sfx_die_bat": sfx_die_bat,
+    "sfx_die_treant": sfx_die_treant,
+    "sfx_die_beetle": sfx_die_beetle,
+    "sfx_die_cultist": sfx_die_cultist,
+    "sfx_die_slime": sfx_die_slime,
+    # SFX bus — hits, by target defence
+    "sfx_hit_soft": sfx_hit_soft,
+    "sfx_hit_hard": sfx_hit_hard,
+    "sfx_hit_magic": sfx_hit_magic,
     # BGM bus
     "bgm_battle": bgm_battle,
 }
 
 
+def verify():
+    """Report the objective properties of every generated file.
+
+    This exists because "sounds fine" is not a claim anyone can check later.
+    Four things go wrong silently in a synthesised set and all four are visible
+    in numbers: a clipped waveform (audible as crunch on loud speakers only), a
+    sound whose RMS is far off its neighbours (it will bury or vanish under
+    them), a loop whose ends do not meet (a tick once per bar, forever), and a
+    file that is simply not there because a name was typo'd.
+    """
+    import glob
+    bad = 0
+    rows = []
+    for path in sorted(glob.glob(os.path.join(OUT, "*.wav"))):
+        name = os.path.splitext(os.path.basename(path))[0]
+        with wave.open(path, "rb") as w:
+            n = w.getnframes()
+            pcm = np.frombuffer(w.readframes(n), dtype="<i2").astype(np.float64) / 32768.0
+            sr = w.getframerate()
+            ch = w.getnchannels()
+            sw = w.getsampwidth()
+        dur = n / float(sr)
+        peak = float(np.max(np.abs(pcm))) if n else 0.0
+        rms = float(np.sqrt(np.mean(pcm * pcm))) if n else 0.0
+        clip = int(np.sum(np.abs(pcm) >= 0.999))
+        seam = abs(float(pcm[0]) - float(pcm[-1])) if n else 0.0
+        problems = []
+        if sr != SR or ch != 1 or sw != 2:
+            problems.append("format %dHz/%dch/%dbit" % (sr, ch, sw * 8))
+        if clip > 0:
+            problems.append("clip=%d" % clip)
+        # A loop is the only kind that ticks; one-shots fade to silence anyway.
+        if name.startswith("bgm_") and seam > 0.01:
+            problems.append("loop seam %.4f" % seam)
+        if rms < 0.02:
+            problems.append("near silent")
+        if problems:
+            bad += 1
+        rows.append((name, dur, peak, rms, clip, seam, problems))
+    print("  %-24s %6s %6s %6s %5s %7s  %s"
+          % ("name", "sec", "peak", "rms", "clip", "seam", "problems"))
+    for name, dur, peak, rms, clip, seam, problems in rows:
+        print("  %-24s %6.2f %6.3f %6.3f %5d %7.4f  %s"
+              % (name, dur, peak, rms, clip, seam, ", ".join(problems) or "ok"))
+    print("%d file(s), %d with problems" % (len(rows), bad))
+    return 1 if bad else 0
+
+
 def main(argv):
+    if len(argv) > 1 and argv[1] == "--verify":
+        return verify()
     want = argv[1:] if len(argv) > 1 else sorted(SOUNDS)
     unknown = [w for w in want if w not in SOUNDS]
     if unknown:

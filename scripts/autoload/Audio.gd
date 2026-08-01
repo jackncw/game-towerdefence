@@ -59,6 +59,50 @@ const TOWER_SOUND := {
 	"holy":      ["sfx_atk_beam", 1.30],
 }
 
+## 每族一個死亡聲。共用一個「死亡」聲會令十族聽落一樣 —— 而玩家分辨怪物族群
+## 嘅速度,喺 5x 之下係靠聽多過靠睇。
+const DEATH_SOUND := {
+	"goblin": "sfx_die_goblin", "wolf": "sfx_die_wolf",
+	"skeleton": "sfx_die_skeleton", "golem": "sfx_die_golem",
+	"ghost": "sfx_die_ghost", "bat": "sfx_die_bat",
+	"treant": "sfx_die_treant", "beetle": "sfx_die_beetle",
+	"cultist": "sfx_die_cultist", "slime": "sfx_die_slime",
+}
+
+## 受擊聲。三款按目標嘅防禦形態揀,唔係按傷害類型 —— 玩家要聽到嘅係「我打緊嘅
+## 嘢硬唔硬」,唔係「我用緊乜屬性」(後者睇塔就知)。
+const HIT_SOUND := {"soft": "sfx_hit_soft", "hard": "sfx_hit_hard", "magic": "sfx_hit_magic"}
+
+## 每個註冊表引用過嘅音名。AudioTest 用佢做「改名唔會靜靜雞收聲」嘅防線:
+## 任何一個表指去一個唔存在嘅檔,測試就紅,而唔係遊戲入面靜咗。
+func registered_sounds() -> Array:
+	var out: Dictionary = {}
+	for e in TOWER_SOUND.values():
+		out[String(e[0])] = true
+	for n in DEATH_SOUND.values():
+		out[String(n)] = true
+	for n in HIT_SOUND.values():
+		out[String(n)] = true
+	var arr: Array = out.keys()
+	arr.sort()
+	return arr
+
+## 按怪物嘅防禦形態揀受擊聲。門檻(甲 8 / 魔抗 15)取自 GameData.FAMILIES:
+## golem(甲 12)同 beetle(甲 6,但 lvl 加成後過 8)算「硬」,ghost(魔抗 25)
+## 同 bat(10)算「魔」,其餘算「軟」。
+func play_hit(armor: float, mres: float) -> void:
+	var key := "soft"
+	if mres >= 15.0:
+		key = "magic"
+	elif armor >= 8.0:
+		key = "hard"
+	play_varied(String(HIT_SOUND[key]))
+
+func play_death(fam: String) -> void:
+	var n: String = String(DEATH_SOUND.get(fam, ""))
+	if n != "":
+		play_varied(n)
+
 func play_tower(mech: String) -> void:
 	var e: Array = TOWER_SOUND.get(mech, [])
 	if e.is_empty():

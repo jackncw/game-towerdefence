@@ -28,6 +28,7 @@ func _ready() -> void:
 	_backup_save()
 	await _case_buses()
 	await _case_routing()
+	await _case_registry()
 	await _case_settings()
 	await _case_dedup()
 	await _case_time_scale()
@@ -77,6 +78,19 @@ func _case_routing() -> void:
 		if Audio.stream(String(e[0])) == null and not (String(e[0]) in missing):
 			missing.append(String(e[0]))
 	_ok("R 全部音效檔載到", missing.is_empty(), "missing: %s" % str(missing))
+
+## 每張「事件 → 音名」表入面嘅每個名都要有實檔。呢個 case 存在嘅原因好具體:
+## 改一個音名而唔改表,遊戲入面唯一嘅症狀係嗰個事件靜咗,而靜咗係冇人會即刻
+## 發現嘅 bug。
+func _case_registry() -> void:
+	var names: Array = Audio.registered_sounds()
+	_ok("G 註冊表非空", names.size() > 0, "registered_sounds() returned nothing")
+	var missing: Array = []
+	for n in names:
+		if Audio.stream(String(n)) == null:
+			missing.append(String(n))
+	_ok("G 註冊咗嘅 %d 個音全部載到" % names.size(), missing.is_empty(),
+		"missing: %s" % str(missing))
 
 func _case_settings() -> void:
 	Meta.reset_save()

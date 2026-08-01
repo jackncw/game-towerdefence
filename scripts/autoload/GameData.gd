@@ -411,6 +411,52 @@ func spell_by_id(id: int) -> Dictionary:
 	return {}
 
 # ---------------------------------------------------------------------------
+# 難度牆 —— 「第一次到達預期會輸」嘅關卡。
+#
+# 上一輪將獎勵曲線改成幾何增長之後,模擬 20 關零卡關:「輸 -> 升級 -> 過到」呢個
+# 循環根本冇機會觸發,而佢係呢個遊戲嘅主循環。牆嘅作用就係定期強制觸發佢。
+#
+# 成份全部係機制,唔郁 wave_scale。呢個唔係風格偏好,係因果:乘大血量只會令玩家
+# 買多幾級同一樣嘢就過到,而改陣容先係牆要教嘅嘢 —— 一幅「你需要對空手段」嘅牆
+# 教到嘅嘢,一幅「所有嘢多 40% 血」嘅牆教唔到。
+#
+# 每幅牆嘅 boss 係 level_config 程序決定嘅,改唔到,所以成份要夾住個 boss —— 結果
+# 反而順:三個 boss 本身就係治療 / 復活 / 反傷。
+#   7  遠古樹妖 root_heal   + ambient minion_regen -> 加飛行 + 群療,考對空同
+#                                                     「打得快過佢哋回血」
+#   13 骷髏君主 revive_aura                        -> 加分裂 + 收窄 spawn 間隔,考 AoE
+#   18 甲蟲皇   reflect(該關已有硬殼 + 高甲)      -> 加魔抗,考傷害類型
+#
+# 週期 20 而唔係 10:10 會令第 17 同第 18 關連住兩幅牆,而「牆與牆之間維持合理
+# 操作一次過」係設計目標之一。20 之下間距係 6-5-9 循環。
+const WALL_FIRST := 7
+const WALL_PERIOD := 20
+const WALL_OFFSETS := [0, 6, 11]     # -> 7, 13, 18,然後 27/33/38、47/53/58 …
+
+var WALLS := {
+	7:  {"add_fams": ["bat", "cultist"], "hint": "WALL_HINT_7"},
+	13: {"add_fams": ["slime"], "spawn_min": 0.30, "hint": "WALL_HINT_13"},
+	18: {"add_fams": ["ghost"], "hint": "WALL_HINT_18"},
+}
+
+## 呢一關係邊一幅牆?返 WALLS 嘅 key(7/13/18),唔係牆返 0。
+func wall_slot(n: int) -> int:
+	if n < WALL_FIRST:
+		return 0
+	var k: int = (n - WALL_FIRST) % WALL_PERIOD
+	return WALL_FIRST + k if k in WALL_OFFSETS else 0
+
+func wall_def(n: int) -> Dictionary:
+	var slot: int = wall_slot(n)
+	return WALLS.get(slot, {}) if slot > 0 else {}
+
+func is_wall(n: int) -> bool:
+	return wall_slot(n) > 0
+
+func wall_hint_key(n: int) -> String:
+	return String(wall_def(n).get("hint", ""))
+
+# ---------------------------------------------------------------------------
 # LEVEL generation. Infinite levels. Returns config for level N (1-based).
 # ---------------------------------------------------------------------------
 func level_config(n: int) -> Dictionary:
@@ -433,7 +479,7 @@ func level_config(n: int) -> Dictionary:
 	var boss_fam: String = FAMILY_ORDER[base_i]
 	# path template index
 	var path_idx := (n - 1) % 6
-	return {
+	var cfg := {
 		"level": n,
 		"wave_scale": wave_scale,
 		"families": fams,
@@ -445,7 +491,20 @@ func level_config(n: int) -> Dictionary:
 		"boss_time": 60.0,
 		"spawn_interval_start": 1.6,
 		"spawn_interval_min": 0.45,
+		"is_wall": false,
 	}
+	# 難度牆疊喺程序生成之上。Battle.gd 完全唔知道有「牆」呢回事 —— 佢照讀
+	# families / spawn_interval_min,所以牆嘅每一個改動都留喺呢個檔案入面。
+	var w: Dictionary = wall_def(n)
+	if not w.is_empty():
+		var fams2: Array = cfg["families"]
+		for f in w.get("add_fams", []):
+			if not (String(f) in fams2):
+				fams2.append(String(f))
+		if w.has("spawn_min"):
+			cfg["spawn_interval_min"] = float(w["spawn_min"])
+		cfg["is_wall"] = true
+	return cfg
 
 # ---------------------------------------------------------------------------
 # 魔晶 (meta currency) payouts. All three payout paths live here so the balance

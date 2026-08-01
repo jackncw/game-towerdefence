@@ -35,6 +35,7 @@ func _ready() -> void:
 	await _case_drawer_layout()
 	await _case_open_close()
 	await _case_place()
+	await _case_quick_persist()
 	_restore_save()
 	Meta.load_game()
 	print("BOTTOMBAR %s fails=%d" % ["PASS" if fails == 0 else "FAIL", fails])
@@ -180,6 +181,81 @@ func _case_place() -> void:
 		"towers %d -> %d" % [n0, b.towers.size()])
 	_ok("P 放返落面板唔扣金", b.gold == g0, "gold %d -> %d" % [g0, b.gold])
 	await _end(b)
+
+# ---------------------------------------------------------------------------
+# Q — 快捷槽嘅持久化同不變式
+# ---------------------------------------------------------------------------
+func _case_quick_persist() -> void:
+	Meta.reset_save()
+	_ok("Q 預設 = 四座初始塔 + 兩個空格",
+		Meta.quick_slot_ids() == [1, 2, 5, 13, 0, 0],
+		"got %s" % str(Meta.quick_slot_ids()))
+	_ok("Q 長度一定係 6", Meta.quick_slot_ids().size() == Meta.QUICK_SLOTS,
+		"got %d" % Meta.quick_slot_ids().size())
+
+	# 解鎖新塔自動入第一個空格
+	Meta.crystals = 99999
+	Meta.unlock_tower(3)
+	_ok("Q 新解鎖入第一個空格", int(Meta.quick_slot_ids()[4]) == 3,
+		"slots=%s" % str(Meta.quick_slot_ids()))
+	Meta.unlock_tower(4)
+	_ok("Q 第二個新解鎖入第二個空格", int(Meta.quick_slot_ids()[5]) == 4,
+		"slots=%s" % str(Meta.quick_slot_ids()))
+	# 滿咗就唔再自動郁 —— 玩家排好嘅嘢唔可以俾一次解鎖打亂
+	var before: Array = Meta.quick_slot_ids()
+	Meta.unlock_tower(6)
+	_ok("Q 六格滿咗之後解鎖唔會自動取代", Meta.quick_slot_ids() == before,
+		"%s -> %s" % [str(before), str(Meta.quick_slot_ids())])
+
+	# 指派一座已經喺另一格嘅塔 = 兩格對調,唔會出現兩次
+	Meta.set_quick_slot(0, 4)     # 4 本來喺第 5 格
+	var s: Array = Meta.quick_slot_ids()
+	_ok("Q 指派已在列嘅塔 = 對調", int(s[0]) == 4 and int(s[5]) == 1,
+		"slots=%s" % str(s))
+	var seen: Dictionary = {}
+	var dupes := 0
+	for id in s:
+		if int(id) > 0:
+			if seen.has(int(id)): dupes += 1
+			seen[int(id)] = true
+	_ok("Q 冇一座塔佔兩格", dupes == 0, "slots=%s" % str(s))
+
+	# 對調
+	Meta.swap_quick_slots(0, 1)
+	var s2: Array = Meta.quick_slot_ids()
+	_ok("Q 對調", int(s2[0]) == int(s[1]) and int(s2[1]) == int(s[0]),
+		"%s -> %s" % [str(s), str(s2)])
+
+	# 存檔 round-trip
+	Meta.save_game()
+	var want: Array = Meta.quick_slot_ids()
+	Meta.quick_slots = [0, 0, 0, 0, 0, 0]
+	Meta.load_game()
+	_ok("Q 重開遊戲保留", Meta.quick_slot_ids() == want,
+		"want %s got %s" % [str(want), str(Meta.quick_slot_ids())])
+
+	# 未解鎖 / 唔存在嘅 id 要當空格。呢個唔係防駭,係防「舊存檔」:
+	# 一個 round 9 之前嘅存檔冇 quick_slots,而一個玩到一半又 reset 過嘅存檔
+	# 可能有一個而家已經唔屬於佢嘅 id。
+	Meta.quick_slots = [1, 999, 7, 0, 0, 0]     # 999 唔存在,7 未解鎖
+	Meta.save_game()
+	Meta.load_game()
+	var s3: Array = Meta.quick_slot_ids()
+	_ok("Q 唔存在嘅 id 當空格", int(s3[1]) == 0, "slots=%s" % str(s3))
+	_ok("Q 未解鎖嘅 id 當空格", int(s3[2]) == 0, "slots=%s" % str(s3))
+	_ok("Q 已解鎖嘅照留", int(s3[0]) == 1, "slots=%s" % str(s3))
+
+	# 完全冇 quick_slots 嘅舊存檔要落返預設
+	var raw: Dictionary = Meta.to_dict()
+	raw.erase("quick_slots")
+	var f := FileAccess.open(Meta.SAVE_PATH, FileAccess.WRITE)
+	f.store_string(JSON.stringify(raw, "\t"))
+	f.close()
+	Meta.load_game()
+	_ok("Q 舊存檔(冇 quick_slots)落返預設",
+		Meta.quick_slot_ids().size() == Meta.QUICK_SLOTS
+		and int(Meta.quick_slot_ids()[0]) > 0,
+		"got %s" % str(Meta.quick_slot_ids()))
 
 ## First snapped, legal build position that the OPEN drawer does not cover.
 func _free_spot(b, hud) -> Vector2:

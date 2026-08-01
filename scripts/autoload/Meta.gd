@@ -19,6 +19,12 @@ var cleared: Dictionary = {}          # "N": true for cleared levels
 var settings: Dictionary = {"volume": 0.8, "volume_bgm": 1.0, "volume_sfx": 1.0,
 	"muted": false, "locale": ""}
 var seen: Dictionary = {}             # bestiary: "fam_1".."fam_5","fam_boss" => true
+## 快捷列 —— 戰鬥底欄常駐嗰 6 格。0 = 空格,位置有意義(第 i 格就係畫面第 i 格),
+## 所以呢個 Array 唔可以用 _to_int_array() 讀:嗰個會隔走 0 又會去重,
+## 兩樣都會令「第 3 格係空」變成「冇第 3 格」。
+const QUICK_SLOTS := 6
+const QUICK_DEFAULT := [1, 2, 5, 13, 0, 0]
+var quick_slots: Array = QUICK_DEFAULT.duplicate()
 var save_version: int = SAVE_VERSION   # migrations already applied to this save
 
 # --- save migrations --------------------------------------------------------
@@ -135,12 +141,65 @@ func is_tower_unlocked(id: int) -> bool:
 func is_spell_unlocked(id: int) -> bool:
 	return unlocked_spells.has(id)
 
+## 洗乾淨快捷列:長度補到 6、未解鎖同唔存在嘅 id 當空格、同一座塔唔准佔兩格。
+##
+## 呢個唔係防駭係防舊存檔 —— round 9 之前嘅存檔冇呢個欄位,而一個 reset 過嘅
+## 存檔可能仲留住一個佢已經冇咗嘅塔。載入之後一定要叫,而且一定要喺
+## unlocked_towers 讀完之後先叫。
+func _sanitize_quick_slots() -> void:
+	var out: Array = []
+	var used: Dictionary = {}
+	for i in QUICK_SLOTS:
+		var id: int = _to_int(quick_slots[i]) if i < quick_slots.size() else 0
+		if id > 0 and is_tower_unlocked(id) and not used.has(id):
+			used[id] = true
+			out.append(id)
+		else:
+			out.append(0)
+	quick_slots = out
+
+## 指派一座塔落第 `slot` 格。id = 0 即係清空。
+## 塔本來喺另一格嘅話兩格對調,唔會出現同一座塔佔兩格 —— 兩格一樣嘅嘢
+## 等於白白嘥咗一格,而玩家唔會知自己做咗呢件事。
+func set_quick_slot(slot: int, id: int) -> void:
+	if slot < 0 or slot >= QUICK_SLOTS:
+		return
+	if id > 0 and not is_tower_unlocked(id):
+		return
+	if id > 0:
+		var old: int = quick_slots.find(id)
+		if old >= 0:
+			quick_slots[old] = quick_slots[slot]
+	quick_slots[slot] = id
+	save_game()
+
+func swap_quick_slots(a: int, b: int) -> void:
+	if a < 0 or b < 0 or a >= QUICK_SLOTS or b >= QUICK_SLOTS or a == b:
+		return
+	var t: int = _to_int(quick_slots[a])
+	quick_slots[a] = quick_slots[b]
+	quick_slots[b] = t
+	save_game()
+
+func quick_slot_ids() -> Array:
+	return quick_slots.duplicate()
+
+## 新解鎖嘅塔自動入第一個空格 —— 即係預設嘅「四座初始塔 + 最新解鎖兩座」。
+## 六格滿咗就唔再自動郁:嗰陣個列已經係玩家排過嘅嘢,一次解鎖唔應該打亂佢。
+func _fill_quick_slot(id: int) -> void:
+	if quick_slots.has(id):
+		return
+	var i: int = quick_slots.find(0)
+	if i >= 0:
+		quick_slots[i] = id
+
 func unlock_tower(id: int) -> bool:
 	if is_tower_unlocked(id) or not _take_crystals(GameData.tower_by_id(id).unlock):
 		return false
 	unlocked_towers.append(id)
-	save_game()
+	_fill_quick_slot(id)
 	Audio.play("sfx_unlock")
+	save_game()
 	return true
 
 func unlock_spell(id: int) -> bool:
@@ -291,6 +350,7 @@ func to_dict() -> Dictionary:
 		"settings": settings,
 		"seen": seen,
 		"version": save_version,
+		"quick_slots": quick_slots,
 	}
 
 func save_game() -> void:
@@ -321,6 +381,7 @@ func load_game() -> void:
 	# place nothing and Upgrade._ready() indexes [0] on an empty array.
 	crystals = maxi(0, _to_int(data.get("crystals", 0)))
 	unlocked_towers = _to_int_array(data.get("unlocked_towers", []), [1, 2, 5, 13])
+	quick_slots = _to_slot_array(data.get("quick_slots", []))
 	unlocked_spells = _to_int_array(data.get("unlocked_spells", []), [1])
 	tower_up = _to_lv_dict(data.get("tower_up", {}))
 	spell_up = _to_lv_dict(data.get("spell_up", {}))
@@ -345,6 +406,8 @@ func load_game() -> void:
 	# until the player picks one in 設定.
 	if not settings.has("locale"):
 		settings["locale"] = ""
+	# 一定要喺 unlocked_towers 讀完之後 —— 清洗嘅規則要用到「呢座塔解鎖咗未」
+	_sanitize_quick_slots()
 
 func _to_int(v) -> int:
 	return int(v) if typeof(v) in [TYPE_INT, TYPE_FLOAT, TYPE_STRING] else 0
@@ -360,6 +423,16 @@ func _to_int_array(a, fallback: Array) -> Array:
 			if n > 0 and not out.has(n):
 				out.append(n)
 	return out if not out.is_empty() else fallback.duplicate()
+
+## quick_slots 專用。_to_int_array 唔用得:佢會隔走 0(而 0 喺呢度係「空格」
+## 呢個意思)又會去重,兩樣都會令位置資訊冇咗。長度唔啱就落預設。
+func _to_slot_array(a) -> Array:
+	if not (a is Array) or (a as Array).size() != QUICK_SLOTS:
+		return QUICK_DEFAULT.duplicate()
+	var out: Array = []
+	for v in a:
+		out.append(maxi(0, _to_int(v)))
+	return out
 
 func _to_lv_dict(d) -> Dictionary:
 	var out := {}
@@ -435,6 +508,7 @@ func set_audio_volume(key: String, v: float) -> void:
 func reset_save() -> void:
 	crystals = 0
 	unlocked_towers = [1, 2, 5, 13]
+	quick_slots = QUICK_DEFAULT.duplicate()
 	unlocked_spells = [1]
 	tower_up = {}
 	spell_up = {}

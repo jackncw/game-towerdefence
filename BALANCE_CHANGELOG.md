@@ -38,8 +38,13 @@
 **缺嘅係一個唔靠密度嘅難度掣**(關卡專屬嘅家族強度乘數,或者容許 `pool` 指定
 權重),唔係再調 `spawn_min`。
 
-完整報告見 `.superpowers/sdd/2026-08-01-round9/task-8-report.md`;
-所有 log 喺 `sim_walls_r9*.log` / `sim_tune_*.log` / `sim_capsweep_*.log`。
+完整報告見 `.superpowers/sdd/2026-08-01-round9/task-8-report.md`。Log:
+
+| 檔案 | 入面係乜 |
+|---|---|
+| `sim_walls_r9_shipped.log` | **出街嘅狀態**:`WALLS` 空,二十關全部 100% 首通 |
+| `sim_walls_r9_withheld.log` | **冇出街嗰個配置**的最終 12 seed 量度(第 6 節嗰張表) |
+| `sim_tune_*.log` / `sim_capsweep_*.log` / `sim_walls_r9_it*.log` | 中間每一次調校迭代 |
 
 ## 出街咗嘅嘢 vs 冇出街嘅嘢
 

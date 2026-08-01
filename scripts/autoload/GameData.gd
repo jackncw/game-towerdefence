@@ -458,7 +458,10 @@ const WALL_OFFSETS := [0, 6, 11]     # -> 7, 13, 18,然後 27/33/38、47/53/58 �
 ## test/WallTest.gd 有一條 assertion 守住佢係空嘅,而且會叫你返嚟讀呢段。
 var WALLS := {}
 
-## 呢一關係邊一幅牆?返 WALLS 嘅 key(7/13/18),唔係牆返 0。
+## **時間表**:呢一關係邊一個牆位?返 WALLS 嘅 key(7/13/18),唔喺時間表上面返 0。
+##
+## 純週期算術,同 WALLS 有冇內容完全無關 —— 即使 WALLS 係空,wall_slot(7) 一樣返 7。
+## 想問「呢一關實際上係咪一幅牆」嘅,用 is_wall(),嗰個問嘅係內容。
 func wall_slot(n: int) -> int:
 	if n < WALL_FIRST:
 		return 0
@@ -469,14 +472,16 @@ func wall_def(n: int) -> Dictionary:
 	var slot: int = wall_slot(n)
 	return WALLS.get(slot, {}) if slot > 0 else {}
 
-## 「呢一關喺牆嘅**時間表**上面」—— 純週期算術,同 WALLS 有冇內容無關。
+## **內容**:呢一關實際上係咪一幅牆?即係「佢喺時間表上面,而且嗰個位有嘢」。
 ##
-## 留意佢同 level_config(n).is_wall 唔同,而家(WALLS 空)兩者答案唔一樣:
-##   is_wall(7)                 -> true  (第 7 關係一個牆位)
-##   level_config(7).is_wall    -> false (但嗰個牆位冇內容,所以呢關乜都冇改)
-## 想問「呢一關實際上有冇被改過」嘅,要睇 level_config().is_wall,唔係呢個。
+## 呢個係大部分呼叫者想要嘅答案,所以個名畀咗佢。WALLS 空嘅時候佢對每一關都返
+## false —— 同 level_config(n).is_wall 一致。
+##
+## 曾經寫成 `wall_slot(n) > 0`(即係問時間表),而嗰個係一個陷阱:WALLS 清空之後,
+## is_wall(7) 仍然返 true,所以任何「係牆就標記/警告」嘅 UI 都會喺三關普通關卡上面
+## 畫危險標記。要問時間表嘅,直接叫 wall_slot()。
 func is_wall(n: int) -> bool:
-	return wall_slot(n) > 0
+	return not wall_def(n).is_empty()
 
 func wall_hint_key(n: int) -> String:
 	return String(wall_def(n).get("hint", ""))

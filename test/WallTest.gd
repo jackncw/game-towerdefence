@@ -36,13 +36,16 @@ func _case_empty() -> void:
 		% GameData.WALLS.size()) + "BALANCE_CHANGELOG 第九輪,唔好由零再試一次")
 
 func _case_period() -> void:
-	## 純算術,同 WALLS 有冇內容無關:呢度問嘅係「邊幾關**係牆位**」。
+	## 呢個 case 問嘅係**時間表**,所以直接叫 wall_slot() —— 佢係嗰條純算術,同 WALLS
+	## 有冇內容無關。唔用 is_wall():嗰個(而家)答嘅係「有冇內容」,WALLS 空之下
+	## 對每一關都會返 false,呢度就乜都測唔到。
 	for n in [7, 13, 18, 27, 33, 38, 47, 53, 58]:
-		_ok("W 第 %d 關係牆位" % n, GameData.is_wall(n), "is_wall(%d) = false" % n)
+		_ok("W 第 %d 關係牆位" % n, GameData.wall_slot(n) > 0, "wall_slot(%d) = 0" % n)
 	# 呢啲關必須唔係牆位。特別留意 17 / 23 / 28 —— 如果週期寫成 10 而唔係 20,
 	# 佢哋就會變牆,而 17 同 18 連住兩幅牆會令「牆與牆之間可以一次過」直接失效
 	for n in [1, 6, 8, 12, 14, 17, 19, 20, 23, 26, 28, 34, 39]:
-		_ok("W 第 %d 關唔係牆位" % n, not GameData.is_wall(n), "is_wall(%d) = true" % n)
+		_ok("W 第 %d 關唔係牆位" % n, GameData.wall_slot(n) == 0,
+			"wall_slot(%d) = %d" % [n, GameData.wall_slot(n)])
 	# 週期性:第 n 關同第 n+20 關要係同一個牆位
 	for n in [7, 13, 18]:
 		_ok("W 第 %d 關同第 %d 關同一個位" % [n, n + 20],
@@ -51,9 +54,15 @@ func _case_period() -> void:
 	# 20 關入面剛剛好三個牆位
 	var count := 0
 	for n in range(1, 21):
-		if GameData.is_wall(n):
+		if GameData.wall_slot(n) > 0:
 			count += 1
 	_ok("W 頭 20 關有 3 個牆位", count == 3, "got %d" % count)
+	# is_wall() 問嘅係內容,唔係時間表 —— WALLS 空之下佢對牆位都要返 false。
+	# 呢條就係守住嗰個陷阱:曾經 is_wall() = wall_slot() > 0,所以清空 WALLS 之後
+	# 任何「係牆就畫危險標記」嘅 UI 會喺三關普通關卡上面亂畫。
+	for n in [7, 13, 18]:
+		_ok("W 第 %d 關係牆位但 is_wall() 要睇內容" % n, not GameData.is_wall(n),
+			"WALLS 空但 is_wall(%d) 返 true" % n)
 
 ## 塞一個假牆入 WALLS,驗 level_config() 嘅合併,然後還原。
 ##
@@ -82,7 +91,9 @@ func _case_mechanism() -> void:
 		"合併之後仲係 %s" % str(proc_fams))
 	_ok("M spawn_min 覆蓋到", is_equal_approx(float(cfg.spawn_interval_min), 0.21),
 		"spawn_interval_min=%.3f(期望 0.21)" % float(cfg.spawn_interval_min))
-	_ok("M is_wall 翻轉", bool(cfg.get("is_wall", false)), "is_wall 仲係 false")
+	_ok("M cfg.is_wall 翻轉", bool(cfg.get("is_wall", false)), "is_wall 仲係 false")
+	_ok("M GameData.is_wall() 跟住內容翻轉", GameData.is_wall(M_SLOT),
+		"塞咗內容入去但 is_wall(%d) 仲係 false" % M_SLOT)
 	_ok("M hint key 攞得返", GameData.wall_hint_key(M_SLOT) == "WALL_HINT_7",
 		"wall_hint_key=%s" % GameData.wall_hint_key(M_SLOT))
 	_ok("M boss 唔會被 pool 改到", String(cfg.boss_family) == proc_boss,
@@ -100,6 +111,7 @@ func _case_mechanism() -> void:
 	GameData.WALLS = saved
 	_ok("M 還原之後 WALLS 仲係空", GameData.WALLS.is_empty(),
 		"還原失敗,WALLS 有 %d 個 entry" % GameData.WALLS.size())
+	_ok("M 還原之後 is_wall() 返 false", not GameData.is_wall(M_SLOT), "is_wall 仲係 true")
 	_ok("M 還原之後第 %d 關返返基準" % M_SLOT,
 		Array(GameData.level_config(M_SLOT).families) == proc_fams,
 		"families=%s want %s" % [str(GameData.level_config(M_SLOT).families), str(proc_fams)])

@@ -146,7 +146,7 @@ func _playthrough() -> void:
 ## `adaptive` swaps ONLY the buy rule, from the fixed greedy player to the
 ## composition-changing one used by --walls (see 自適應玩家 below). It defaults to
 ## false, so --playthrough / --curve / --econ10 call this exactly as before.
-func _play_attempt(level: int, adaptive := false, field_cap := 0) -> Dictionary:
+func _play_attempt(level: int, adaptive := false, field_cap := 0, per_slot := false) -> Dictionary:
 	var b = await _start(level)
 	var start_gold: int = b.gold
 	var spent := 0
@@ -161,7 +161,13 @@ func _play_attempt(level: int, adaptive := false, field_cap := 0) -> Dictionary:
 			# the --walls sweep; see _wall_field_cap() for why it exists and how it scales.
 			if field_cap > 0 and b.towers.size() >= field_cap:
 				break
-			var id: int = _ad_next_buy(b) if adaptive else _next_buy(b)
+			var id := 0
+			if adaptive:
+				id = _ad_next_buy(b)          # 自適應玩家一定用每塔位估值
+			elif per_slot:
+				id = _slot_next_buy(b)        # --walls 嘅貪心玩家:同一條估值,冇剋制偏好
+			else:
+				id = _next_buy(b)             # 其餘 mode:原封不動嘅貪心玩家
 			if id == 0:
 				break
 			var cost: int = int(GameData.tower_by_id(id).place_cost)
@@ -728,7 +734,7 @@ func _walls_run(adaptive: bool) -> Dictionary:
 			var won := false
 			while attempt < WALL_MAX_TRIES and not won:
 				attempt += 1
-				var r: Dictionary = await _play_attempt(lv, adaptive, _wall_field_cap(lv))
+				var r: Dictionary = await _play_attempt(lv, adaptive, _wall_field_cap(lv), true)
 				won = r.win
 				if won and attempt == 1:
 					first[lv] = int(first[lv]) + 1
@@ -836,8 +842,62 @@ const AD_DIRS := {
 
 ## 要幾強嘅剋制,先值得專登為佢解鎖一座新塔。
 const AD_UNLOCK_BIAS := 1.15
+## 一座「答案塔」最少要有主力幾多成嘅每塔位輸出,先值得倒魔晶落去。
+const AD_ANSWER_MIN_SHARE := 0.35
 ## 壓力細過呢個就當佢已經淡咗,唔再影響升級方向。
 const AD_LIVE := 0.25
+
+# ---------------------------------------------------------------------------
+# 每塔位估值 —— 只喺 --walls 用,兩個玩家都用
+# ---------------------------------------------------------------------------
+## 點解要換估值。
+##
+## `_damage_value()` 係「每**金**傷害」。喺唔封頂嘅世界嗰個係啱嘅:塔位有 88-128 個,
+## 用唔晒,所以真正嘅稀缺資源係金。但 --walls 封咗塔位之後,稀缺資源就變成**塔位** ——
+## 而兩個玩家仍然喺度為一個已經唔再綁死嘅資源做最佳化。呢個唔係設計取向,係一個
+## 由封頂引入嘅前後不一致。
+##
+## 後果係實測到嘅:自適應玩家喺第 7 關三次內得 17%,而貪心玩家 100%。剋制倍率乘落
+## 一個已經錯咗嘅估值上面,就會用一座啱啱解鎖、零升級嘅剋制塔,換走一座升咗十級
+## 嘅主力。
+##
+## 所以呢度係同一條式**除少一個 cost**。升級級數本身經 `Meta.tower_stats()` 入面
+## (同 `_damage_value` 一模一樣嘅來源),所以一座升深咗嘅塔喺呢條式之下係真係
+## 值錢過一座新解鎖嘅 —— 呢個正正就係換估值想要嘅效果。
+##
+## **`_damage_value` / `_pick` / `_next_buy` 一個字都冇改**,佢哋仍然係
+## --playthrough / --curve / --econ10 嘅玩家。
+func _slot_damage_value(id: int) -> float:
+	var st: Dictionary = Meta.tower_stats(id)
+	var dps: float = float(st.get("dmg", 0.0)) * float(st.get("rate", 0.0))
+	var boss_dps: float = dps * (1.0 + float(st.get("bossmult", 0.0)))
+	return dps * (1.0 - BOSS_SHARE) + boss_dps * BOSS_SHARE
+
+## 輔助塔冇「每塔位輸出」呢樣嘢可以量(佢哋嘅工作係減速 / 產金 / 堵路),所以呢度
+## 照用返 `_support_value`,即係最平優先。刻意唔郁:換估值只係要修好「輸出塔點揀」
+## 嗰個不一致,而輔助塔只佔三分一場,冇根據就唔應該一齊改。
+func _slot_next_buy(b) -> int:
+	var want_support: bool = float(_support_count(b)) < float(maxi(1, b.towers.size())) * SUPPORT_SHARE
+	var best := _slot_pick(b, want_support)
+	if best == 0:
+		best = _slot_pick(b, not want_support)
+	return best
+
+func _slot_pick(b, support: bool) -> int:
+	var best := 0
+	var best_v := -1.0
+	for id in Meta.unlocked_towers:
+		var def := GameData.tower_by_id(id)
+		var cost: int = int(def.place_cost)
+		if cost > b.gold:
+			continue
+		if (def.mech in SUPPORT) != support:
+			continue
+		var v: float = _support_value(b, int(id), cost) if support else _slot_damage_value(int(id))
+		if v > best_v:
+			best_v = v
+			best = int(id)
+	return best
 
 ## tag -> 強度 0..1
 var _ad_p: Dictionary = {}
@@ -911,7 +971,7 @@ func _ad_pick(b, support: bool) -> int:
 			continue
 		if (def.mech in SUPPORT) != support:
 			continue
-		var v: float = _support_value(b, int(id), cost) if support else _damage_value(int(id), cost)
+		var v: float = _support_value(b, int(id), cost) if support else _slot_damage_value(int(id))
 		v *= _ad_bias(String(def.mech))
 		if v > best_v:
 			best_v = v
@@ -998,6 +1058,15 @@ func _ad_core_towers() -> Array:
 		if v > best_v:
 			best_v = v
 			best = int(id)
+	# 但係一座冇希望嘅答案就唔值得倒魔晶落去。人會睇下個答案有冇喺度做緊嘢:
+	# 一座啱啱解鎖、零升級嘅塔就算「機制啱」,如果佢每塔位輸出得主力嘅一兩成,
+	# 倒三分一魔晶落去只係令自己兩頭唔到岸。呢道閘同上面兩道一樣,係為咗令佢似返
+	# 一個人 —— 唔係為咗令佢贏。
+	if best != 0 and not core.is_empty():
+		var lead: float = _slot_damage_value(int(core[0]))
+		var cand: float = _slot_damage_value(best) * _ad_bias(String(GameData.tower_by_id(best).mech))
+		if lead > 0.0 and cand < lead * AD_ANSWER_MIN_SHARE:
+			best = 0
 	if best != 0:
 		core.append(best)
 	elif ranked.size() > core.size():
@@ -1014,14 +1083,25 @@ func _ad_dirs() -> Array:
 				dirs.append(String(d))
 	return dirs
 
+## 剋制方向只落喺**答案嗰座塔**身上,唔係落喺成個核心名單。
+##
+## 第一版將 AD_DIRS 加落所有核心塔,結果係:方向由 3 條變 7 條,而 `_ad_buy_upgrade`
+## 永遠買最平嗰級,所以多出嚟嘅方向淨係提供咗更多「第一級」嘅平貨 —— 佢買咗一堆
+## 一級升級,一座都升唔深。呢個同之前修好嘅「核心塔每場重排」係同一類錯,亦係我自己
+## 引入嘅,貪心玩家由頭到尾只有 CORE_DIRS 三條。
+##
+## 而家:主力塔照升 dmg/rate/range,只有倍率 >= AD_UNLOCK_BIAS 嗰座(即係佢揀嚟答
+## 呢個壓力嗰座)先至可以升 splash / chain / armorpen / burn 嗰類軸。
 func _ad_buy_upgrade() -> bool:
-	var dirs: Array = _ad_dirs()
+	var extra: Array = _ad_dirs()
 	var best_id := 0
 	var best_dir := -1
 	var best_cost := 1 << 30
 	for id in _ad_core_towers():
 		var def := GameData.tower_by_id(id)
 		var levels: Array = Meta.tower_levels(int(id))
+		var is_answer: bool = _ad_bias(String(def.mech)) >= AD_UNLOCK_BIAS
+		var dirs: Array = extra if is_answer else CORE_DIRS
 		for d in def.ups.size():
 			if not (String(def.ups[d].stat) in dirs):
 				continue

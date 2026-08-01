@@ -22,7 +22,7 @@ keys,zh_TW,en
 "LEVELSEL_DANGER","危險","Danger"
 "WALL_HINT_7","佢哋一路行一路回血,仲會互相治療 —— 要打得快過佢哋回","They regenerate as they walk, and heal each other. Out-damage it or lose"
 "WALL_HINT_13","死咗會返生,死咗會分裂 —— 逐隻打追唔到數量","The dead get back up and the big ones split. One target at a time will not keep up"
-"WALL_HINT_18","一半靠護甲,一半靠魔抗 —— 單一傷害類型答唔到兩邊","Half of them shrug off steel, half shrug off magic. One damage type cannot answer both"
+"WALL_HINT_18","佢哋一樣係一分為二,但今次個個都有甲有魔抗 —— 範圍傷害仲要打得穿","They split like before, but now every body has armour or resistance. Your splash has to punch through"
 "SHOP_TITLE","商店","Shop"
 "SHOP_OWNED","已擁有","Owned"
 "SHOP_STARTER","初始解鎖","Starter"

@@ -68,7 +68,7 @@ func _case_content() -> void:
 	# 第 18 關:護甲同魔抗同場,而且要兩邊都答唔到對方
 	var c18: Dictionary = GameData.level_config(18)
 	_ok("C18 標記做牆", bool(c18.get("is_wall", false)), "is_wall missing/false")
-	_ok("C18 pool 完全取代", Array(c18.families) == ["golem", "ghost", "beetle"],
+	_ok("C18 pool 完全取代", Array(c18.families) == ["slime", "ghost", "golem"],
 		"families=%s" % str(c18.families))
 	var has_armor := false
 	var has_mres := false
@@ -79,6 +79,14 @@ func _case_content() -> void:
 			has_mres = true
 	_ok("C18 同場有高甲族", has_armor, "families=%s 冇一個 armor>=6" % str(c18.families))
 	_ok("C18 同場有高魔抗族", has_mres, "families=%s 冇一個 mres>=20" % str(c18.families))
+	# 第 18 關唔係純減傷軸 —— 減傷係乘數,要有屍體先扛得起一幅牆(見 GameData 註解)。
+	# 所以 pool 一定要有一個出屍體嘅機制,否則呢一關會變返一幅量到冇效果嘅牆。
+	var has_bodies := false
+	for f in c18.families:
+		if String(GameData.FAMILIES[f].mech) in ["split", "revive"]:
+			has_bodies = true
+	_ok("C18 有出屍體嘅機制", has_bodies,
+		"families=%s 冇一個係 split/revive —— 淨靠減傷扛唔起" % str(c18.families))
 	_ok("C18 boss 仲係甲蟲", String(c18.boss_family) == "beetle",
 		"boss=%s" % String(c18.boss_family))
 

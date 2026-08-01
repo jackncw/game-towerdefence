@@ -40,32 +40,45 @@ func _case_period() -> void:
 	_ok("W 頭 20 關有 3 幅牆", count == 3, "got %d" % count)
 
 func _case_content() -> void:
-	# 第 7 關:對空 + 治療
+	## 第九輪:`pool` 係**取代**唔係加入(同 BOSS_SPAWN 嘅 `pool` 一樣嘅語義)。
+	## 所以呢度除咗查「有冇嗰個家族」,仲要查「有冇混咗程序生成嗰批入嚟」—— 一幅
+	## 濃度得一半嘅牆,量度上同冇牆分別唔大,而嗰個正正係第一版失敗嘅原因。
+	# 第 7 關:續航戰(再生 + 群療)
 	var c7: Dictionary = GameData.level_config(7)
 	_ok("C7 標記做牆", bool(c7.get("is_wall", false)), "is_wall missing/false")
-	_ok("C7 有飛行族 (bat)", "bat" in c7.families, "families=%s" % str(c7.families))
+	_ok("C7 pool 完全取代", Array(c7.families) == ["treant", "cultist"],
+		"families=%s" % str(c7.families))
+	_ok("C7 有再生族 (treant)", "treant" in c7.families, "families=%s" % str(c7.families))
 	_ok("C7 有治療族 (cultist)", "cultist" in c7.families, "families=%s" % str(c7.families))
 	_ok("C7 boss 仲係樹妖", String(c7.boss_family) == "treant",
 		"boss=%s" % String(c7.boss_family))
 
-	# 第 13 關:分裂 + 密度
+	# 第 13 關:屍體數(返生 + 分裂)
 	var c13: Dictionary = GameData.level_config(13)
 	_ok("C13 標記做牆", bool(c13.get("is_wall", false)), "is_wall missing/false")
+	_ok("C13 pool 完全取代", Array(c13.families) == ["skeleton", "slime"],
+		"families=%s" % str(c13.families))
+	_ok("C13 有返生族 (skeleton)", "skeleton" in c13.families, "families=%s" % str(c13.families))
 	_ok("C13 有分裂族 (slime)", "slime" in c13.families, "families=%s" % str(c13.families))
 	_ok("C13 spawn 間隔收窄", float(c13.spawn_interval_min) < 0.45,
 		"spawn_interval_min=%.3f" % float(c13.spawn_interval_min))
 	_ok("C13 boss 仲係骷髏", String(c13.boss_family) == "skeleton",
 		"boss=%s" % String(c13.boss_family))
 
-	# 第 18 關:護甲同魔抗同場
+	# 第 18 關:護甲同魔抗同場,而且要兩邊都答唔到對方
 	var c18: Dictionary = GameData.level_config(18)
 	_ok("C18 標記做牆", bool(c18.get("is_wall", false)), "is_wall missing/false")
-	_ok("C18 有魔抗族 (ghost)", "ghost" in c18.families, "families=%s" % str(c18.families))
+	_ok("C18 pool 完全取代", Array(c18.families) == ["golem", "ghost", "beetle"],
+		"families=%s" % str(c18.families))
 	var has_armor := false
+	var has_mres := false
 	for f in c18.families:
 		if float(GameData.FAMILIES[f].armor) >= 6.0:
 			has_armor = true
+		if float(GameData.FAMILIES[f].mres) >= 20.0:
+			has_mres = true
 	_ok("C18 同場有高甲族", has_armor, "families=%s 冇一個 armor>=6" % str(c18.families))
+	_ok("C18 同場有高魔抗族", has_mres, "families=%s 冇一個 mres>=20" % str(c18.families))
 	_ok("C18 boss 仲係甲蟲", String(c18.boss_family) == "beetle",
 		"boss=%s" % String(c18.boss_family))
 
@@ -76,6 +89,16 @@ func _case_content() -> void:
 		for x in f:
 			uniq[x] = true
 		_ok("C%d 家族冇重複" % n, uniq.size() == f.size(), "families=%s" % str(f))
+
+	# 每幅牆嘅 pool 都要真係換走咗程序生成嗰批,唔係啱好一樣
+	for n in [7, 13, 18]:
+		var base_i: int = (n - 1) % 10
+		var proc: Array = [GameData.FAMILY_ORDER[base_i],
+			GameData.FAMILY_ORDER[(base_i + 3) % 10]]
+		if n % 2 == 0:
+			proc.append(GameData.FAMILY_ORDER[(base_i + 6) % 10])
+		_ok("C%d 真係換咗陣容" % n, Array(GameData.level_config(n).families) != proc,
+			"pool 同程序生成一樣: %s" % str(proc))
 
 func _case_non_wall_untouched() -> void:
 	## 非牆關要同「冇加過牆」一模一樣。程序生成嘅規則喺 level_config 入面寫死,

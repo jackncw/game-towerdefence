@@ -158,7 +158,7 @@ func _play_attempt(level: int, adaptive := false, field_cap := 0) -> Dictionary:
 		# spend gold as it arrives
 		while spot_i < spots.size():
 			# `field_cap` > 0 stops the player at N towers. Off (0) everywhere except
-			# the --walls diagnostic sweep; see WALL_FIELD_CAP for why it exists.
+			# the --walls sweep; see _wall_field_cap() for why it exists and how it scales.
 			if field_cap > 0 and b.towers.size() >= field_cap:
 				break
 			var id: int = _ad_next_buy(b) if adaptive else _next_buy(b)
@@ -586,26 +586,52 @@ func _buy_core_upgrade() -> bool:
 ## 跑兩次:一次自適應玩家,一次貪心玩家。點解要兩個,見下面「自適應玩家」嘅註解。
 const WALL_SEEDS := 12
 const WALL_MAX_TRIES := 3
-## 0 = 唔封頂,即係驗收用嘅設定。
+## --- 場面上限,只喺 --walls 生效 -------------------------------------------
 ##
 ## 點解會有呢個掣。呢個 harness 嘅玩家係「有錢就即刻喺下一個空位起塔」,而地圖有
 ## 88-128 個可起塔位,佢由出怪口沿住路一路起上去。結果佢喺第 20 關會有 54 座塔,
 ## 剩 3891 金,boss 剩 1% 血 —— 換句話講,佢由頭到尾冇一關輸得到。
 ##
-## 更嚴重嘅係個回路方向:牆加怪 -> 多咗擊殺 -> 多咗金 -> 多咗塔。第 7 關加咗成份
-## 之後佢由 12 座塔變 32 座。每一幅加怪嘅牆都自己出錢買起自己嘅解藥,所以「調成份」
-## 呢個動作喺呢個玩家身上係恆等於零。實測見 BALANCE_CHANGELOG 第 9 輪:即使將三幅
-## 牆全部改成「岩石巨像 + 遠古樹妖 + 甲蟲 + spawn_min 0.08」(即係放棄晒牆本身嘅設計
-## 論點,純粹堆最硬嘅嘢),最遠嗰隻怪都只係行到成條路嘅 16-21%,冇一隻掂過門口。
+## 更嚴重嘅係個回路方向:牆加怪 -> 多擊殺 -> 多金 -> 多塔。第 7 關加咗成份之後佢由
+## 12.5 座塔變 32 座。每幅加怪嘅牆都自己出錢買起自己嘅解藥。封住塔數就係斬斷呢條
+## 回路 —— 封咗之後,多出嚟嘅怪冇得再換成防守。
 ##
-## 所以呢個掣係一個診斷,唔係一個答案:封住塔數,就等於問「如果玩家嘅場面有限,
-## 呢幾幅牆係咪牆」。驗收表永遠喺 0(唔封頂)之下跑,封頂嗰次會另外標明。
-const WALL_FIELD_CAP := 0
+## **只喺 --walls 用,而且兩個玩家都受同一個上限**,因為佢哋要互相比較。
+## `--playthrough` / `--curve` / `--econ10` 嘅玩家一個字都冇變(呢三個 mode 唔會傳
+## 呢個參數,`_play_attempt` 嘅預設係 0 = 唔封頂),所以 BALANCE_CHANGELOG 入面舊嘅
+## 數字全部仍然成立。
+##
+## --- 點解係跟關數行,唔係一個常數 -------------------------------------------
+## 試過常數,量到常數做唔到:
+##   上限 18 -> 第 20 關首通 0%(非牆關要 >=85%,爆咗)
+##   上限 24 -> 第 20 關首通 100%,但第 7 關嘅贏面只由 15% 郁到 20%
+##   上限 30 -> 同 24 差唔多
+## 原因係算術:同樣 24 座塔,喺第 7 關(wave_scale 2.08)同第 20 關(9.85)面對嘅
+## 總血量差 11 倍。一個喺第 20 關啱啱好嘅常數,喺第 7 關等於送。而血量差係
+## WAVE_GROWTH 決定嘅,唔喺 WALLS 手上。
+##
+## 所以上限跟返「玩家嘅場面本來就會隨住戰役長大」呢件事:唔封頂嘅 playthrough 量到
+## 佢由第 1 關嘅 ~10 座長到第 20 關嘅 ~54 座。呢度用一條直線去追嗰條線嘅一個固定
+## 比例(第 1 關 6/10 = 60%,第 7 關 12/19 = 63%,第 13 關 17/43 = 40%,第 20 關
+## 24/54 = 44%),即係「一個唔會填晒 128 個位嘅人」。
+##
+## 斜率同截距唔係為咗令三幅牆輸而揀嘅 —— 唯一綁死嘅係尾端:WALL_CAP_AT_20 = 24 係
+## 上面量到「第 20 關仲過到嘅最緊上限」(18 過唔到)。呢個同揀常數嗰陣用嘅係同一條
+## 規則,只係而家沿住成條曲線應用。
+const WALL_CAP_AT_1 := 8
+const WALL_CAP_AT_20 := 24
+## <= 0 就唔封頂。
+func _wall_field_cap(level: int) -> int:
+	if WALL_CAP_AT_20 <= 0:
+		return 0
+	var t: float = float(level - 1) / 19.0
+	return maxi(1, int(round(lerpf(float(WALL_CAP_AT_1), float(WALL_CAP_AT_20), t))))
 
 func _walls_table() -> void:
 	print("SIM 難度牆驗收 (%d 個 seed, 每關最多 %d 次, 兩個玩家, 塔數上限 %s)"
 		% [WALL_SEEDS, WALL_MAX_TRIES,
-		"無" if WALL_FIELD_CAP <= 0 else str(WALL_FIELD_CAP)])
+		"無" if WALL_CAP_AT_20 <= 0 else "第1關%d -> 第20關%d"
+		% [_wall_field_cap(1), _wall_field_cap(LEVELS)]])
 	var ad: Dictionary = await _walls_run(true)
 	var gr: Dictionary = await _walls_run(false)
 	print("SIM")
@@ -702,7 +728,7 @@ func _walls_run(adaptive: bool) -> Dictionary:
 			var won := false
 			while attempt < WALL_MAX_TRIES and not won:
 				attempt += 1
-				var r: Dictionary = await _play_attempt(lv, adaptive, WALL_FIELD_CAP)
+				var r: Dictionary = await _play_attempt(lv, adaptive, _wall_field_cap(lv))
 				won = r.win
 				if won and attempt == 1:
 					first[lv] = int(first[lv]) + 1
@@ -914,7 +940,25 @@ func _ad_spend_crystals() -> Dictionary:
 
 ## 解鎖一座真係答到依家嗰個壓力嘅塔。買唔起就回 false —— 呢個係設計上要保留嘅失敗
 ## 途徑,唔係一個要補嘅窿:一個未儲夠錢買答案嘅玩家,就係應該過唔到。
+##
+## 兩道閘,兩個都係為咗令佢似返一個人:
+##   * 壓力要係啱啱先診斷到(未衰減過)。翻兩關前嘅舊帳去買新塔,係一個人唔會做
+##     嘅嘢,而且會令佢永遠喺度買散貨。
+##   * 手上已經有一座答到嘅塔就唔買。人係喺已有嘅答案上面加碼,唔係每次撞板都
+##     再開一條新線。
+## 呢兩道閘係量度之後加嘅:冇佢哋嗰陣,自適應玩家喺第 7/13 關**衰過**貪心玩家
+## (0% vs 33%),因為佢將魔晶洗晒喺解鎖同埋每次都換一批塔嚟升,結果一座都唔夠深。
 func _ad_buy_counter_unlock() -> bool:
+	var fresh := 0.0
+	for tag in _ad_p:
+		fresh = maxf(fresh, float(_ad_p[tag]))
+	if fresh < 0.9:
+		return false
+	for t in GameData.TOWERS:
+		if not Meta.is_tower_unlocked(t.id):
+			continue
+		if _ad_bias(String(t.mech)) >= AD_UNLOCK_BIAS:
+			return false          # 已經有答案,應該加碼唔係再買
 	var best := 0
 	var best_v := AD_UNLOCK_BIAS
 	for t in GameData.TOWERS:
@@ -930,14 +974,35 @@ func _ad_buy_counter_unlock() -> bool:
 		return false
 	return Meta.unlock_tower(best)
 
-## 依家值得深耕嘅塔:每金輸出 x 剋制倍率。壓力一轉,呢個名單就會轉,所以魔晶會跟住
-## 流去新陣容而唔係繼續灌落舊嗰兩座。
+## 依家值得深耕嘅塔 = 本來嘅主力 + 一座答到依家壓力嘅塔。
+##
+## 第一版係將成個核心名單按「每金輸出 x 剋制倍率」重排,結果係災難:壓力每場都
+## 變,個名單跟住變,而 _ad_buy_upgrade 永遠買最平嗰級,所以佢不停由零開始升一批
+## 新塔,一座都唔夠深 —— 量到自適應玩家喺第 7/13 關輸到 0%,而貪心玩家有 33%。
+##
+## 一個人唔會咁做。佢會**保住**自己嘅主力,喺隔籬**加**一個答案。所以核心 =
+## 頭 (CORE_COUNT-1) 座純粹睇每金輸出嘅主力(同貪心玩家一模一樣嘅排法),
+## 加最多一座剋制塔。
 func _ad_core_towers() -> Array:
 	var ranked: Array = Meta.unlocked_towers.duplicate()
 	ranked.sort_custom(func(a, c):
-		return _out_per_gold(int(a)) * _ad_bias(String(GameData.tower_by_id(int(a)).mech)) \
-			> _out_per_gold(int(c)) * _ad_bias(String(GameData.tower_by_id(int(c)).mech)))
-	return ranked.slice(0, mini(CORE_COUNT, ranked.size()))
+		return _out_per_gold(int(a)) > _out_per_gold(int(c)))
+	var core: Array = ranked.slice(0, mini(CORE_COUNT - 1, ranked.size()))
+	# 加一座剋制塔(如果佢仲未喺名單入面)
+	var best := 0
+	var best_v := AD_UNLOCK_BIAS
+	for id in Meta.unlocked_towers:
+		if int(id) in core:
+			continue
+		var v: float = _ad_bias(String(GameData.tower_by_id(int(id)).mech))
+		if v > best_v:
+			best_v = v
+			best = int(id)
+	if best != 0:
+		core.append(best)
+	elif ranked.size() > core.size():
+		core.append(int(ranked[core.size()]))   # 冇剋制塔就照補返第三座主力
+	return core
 
 func _ad_dirs() -> Array:
 	var dirs: Array = CORE_DIRS.duplicate()

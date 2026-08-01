@@ -417,15 +417,42 @@ func spell_by_id(id: int) -> Dictionary:
 # 循環根本冇機會觸發,而佢係呢個遊戲嘅主循環。牆嘅作用就係定期強制觸發佢。
 #
 # 成份全部係機制,唔郁 wave_scale。呢個唔係風格偏好,係因果:乘大血量只會令玩家
-# 買多幾級同一樣嘢就過到,而改陣容先係牆要教嘅嘢 —— 一幅「你需要對空手段」嘅牆
-# 教到嘅嘢,一幅「所有嘢多 40% 血」嘅牆教唔到。
+# 買多幾級同一樣嘢就過到,而改陣容先係牆要教嘅嘢。
 #
-# 每幅牆嘅 boss 係 level_config 程序決定嘅,改唔到,所以成份要夾住個 boss —— 結果
-# 反而順:三個 boss 本身就係治療 / 復活 / 反傷。
-#   7  遠古樹妖 root_heal   + ambient minion_regen -> 加飛行 + 群療,考對空同
-#                                                     「打得快過佢哋回血」
-#   13 骷髏君主 revive_aura                        -> 加分裂 + 收窄 spawn 間隔,考 AoE
-#   18 甲蟲皇   reflect(該關已有硬殼 + 高甲)      -> 加魔抗,考傷害類型
+# --- 第九輪:由「加家族」改成「換家族」--------------------------------------
+# 第一版嘅牆用 `add_fams`,即係喺程序生成嘅家族名單後面加多一兩個。量度證明呢個
+# 機制方向係錯嘅,而且錯得幾嚴重(數字見 BALANCE_CHANGELOG 第九輪):
+#
+#   1. `_spawn_wave_monster()` 由 `cfg.families` **均勻抽**,所以「加一個家族」
+#      = 溝淡原有每一個家族。加一個平嘅家族入一關本身好貴嘅關,係實實在在令佢
+#      易咗 —— 第 7 關基礎係遠古樹妖(13.6 血/金)+ 史萊姆(12.0),加咗蝙蝠
+#      (7.2)同信徒(7.1)之後平均由 12.8 跌到 9.5。**幅牆令佢平咗四分一。**
+#   2. 加怪 -> 多擊殺 -> 多金 -> 多塔。第 7 關嘅塔數由 12.5 變 32。**每幅加怪
+#      嘅牆都自己出錢買起自己嘅解藥。**
+#
+# 所以 `pool` **整個取代**該關嘅家族名單,而唔係加落去 —— 同 BOSS_SPAWN 嘅 `pool`
+# 完全一樣嘅語義(嗰度亦都係「呢場只出呢啲」)。取代之下,一幅牆嘅成份濃度係
+# 100% 而唔係 25%,而且關卡嘅平均難度由我哋話事,唔會被溝淡。
+#
+# --- 三條軸點揀 -------------------------------------------------------------
+# 第一版寫住第 7 關考「對空」。呢一輪量到呢個前提喺呢個 codebase 根本唔成立:
+# 二十座塔入面得荊棘塔真係打唔到飛行(monsters_in_radius(..., false)),兵營嘅士兵
+# 攔唔到飛行(nearest_ground_monster_near);**其餘十八座全部照打**,因為
+# target_closest_to_base 完全冇 flying 過濾。一幅飛行牆對一個唔係全荊棘/全兵營
+# 嘅玩家嚟講咩都冇考到,所以呢一輪唔再嘗試搶救佢。
+#
+# 剩返三條喺呢個 codebase 真係存在嘅軸,啱好夾到三個程序決定、改唔到嘅 boss:
+#   7  遠古樹妖 root_heal + ambient minion_regen
+#      -> 續航戰:遠古樹妖(2%/s 再生 + 全遊戲最厚)+ 信徒(群體治療光環 + 加速)
+#         打得快過佢哋回血,否則永遠差一截
+#   13 骷髏君主 revive_aura
+#      -> 屍體數:骷髏(死咗返生,光環之下兩次)+ 史萊姆(死咗分裂)
+#         單體輸出追唔到數量,要範圍
+#   18 甲蟲皇 reflect
+#      -> 傷害類型:岩石巨像(護甲 12)+ 幽靈(魔抗 25 + 相位)
+#         一種傷害類型答唔到兩邊,要溝或者要真傷/穿甲
+#
+# 每個 pool 都係**兩個都體現嗰條軸**嘅家族,唔係四個入面兩個係填充。
 #
 # 週期 20 而唔係 10:10 會令第 17 同第 18 關連住兩幅牆,而「牆與牆之間維持合理
 # 操作一次過」係設計目標之一。20 之下間距係 6-5-9 循環。
@@ -434,9 +461,9 @@ const WALL_PERIOD := 20
 const WALL_OFFSETS := [0, 6, 11]     # -> 7, 13, 18,然後 27/33/38、47/53/58 …
 
 var WALLS := {
-	7:  {"add_fams": ["bat", "cultist"], "hint": "WALL_HINT_7"},
-	13: {"add_fams": ["slime"], "spawn_min": 0.30, "hint": "WALL_HINT_13"},
-	18: {"add_fams": ["ghost"], "hint": "WALL_HINT_18"},
+	7:  {"pool": ["treant", "cultist"], "spawn_min": 0.105, "hint": "WALL_HINT_7"},
+	13: {"pool": ["skeleton", "slime"], "spawn_min": 0.07, "hint": "WALL_HINT_13"},
+	18: {"pool": ["golem", "ghost", "beetle"], "spawn_min": 0.06, "hint": "WALL_HINT_18"},
 }
 
 ## 呢一關係邊一幅牆?返 WALLS 嘅 key(7/13/18),唔係牆返 0。
@@ -497,10 +524,16 @@ func level_config(n: int) -> Dictionary:
 	# families / spawn_interval_min,所以牆嘅每一個改動都留喺呢個檔案入面。
 	var w: Dictionary = wall_def(n)
 	if not w.is_empty():
-		var fams2: Array = cfg["families"]
-		for f in w.get("add_fams", []):
-			if not (String(f) in fams2):
-				fams2.append(String(f))
+		# `pool` REPLACES the family list, exactly as GameData.BOSS_SPAWN's `pool`
+		# does for the boss phase. Appending was tried in round 9 and measured to
+		# make two of the three walls EASIER than their neighbours — see the WALLS
+		# comment above for the numbers.
+		if w.has("pool"):
+			var pool: Array = []
+			for f in w["pool"]:
+				if not (String(f) in pool):     # 重複會令均勻抽變咗加權抽
+					pool.append(String(f))
+			cfg["families"] = pool
 		if w.has("spawn_min"):
 			cfg["spawn_interval_min"] = float(w["spawn_min"])
 		cfg["is_wall"] = true

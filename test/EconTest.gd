@@ -71,7 +71,16 @@ func _test_loss_payout() -> void:
 	var lv := 5
 	var cap := GameData.level_lose_cap(lv)
 	var clear := GameData.level_crystal_reward(lv)
-	_check(cap == int(floor(clear * 0.4)), "loss cap = 40%% of clear (%d of %d)" % [cap, clear])
+	_check(cap == int(floor(clear * GameData.LOSE_REWARD_CAP_FRAC)),
+		"loss cap = %d%% of clear (%d of %d)"
+		% [int(GameData.LOSE_REWARD_CAP_FRAC * 100.0), cap, clear])
+	# Round 8: the payout is pinned to the measured upgrade-cost curve, so the
+	# thing worth asserting is the DESIGN PROMISE, not the arithmetic — a loss
+	# with typical progress has to buy at least one upgrade level.
+	for n in range(1, 21):
+		var typ := GameData.level_lose_reward(n, 27, 60.0, 100.0, 0.25)
+		var cn := GameData.typical_upgrade_cost(n)
+		_check(typ >= cn, "lv%d: 有進度嘅敗仗 %d >= 下一級升級 %d" % [n, typ, cn])
 
 	# 10s anti-farm window: instant surrender / instant loss pays nothing
 	var quick := Meta.on_level_failed(lv, 0, 3.0, 60.0, 0.0)
@@ -85,8 +94,12 @@ func _test_loss_payout() -> void:
 	_check(just_out.crystals >= 1, "loss at 10.0s pays at least 1 (got %d)" % just_out.crystals)
 
 	# perfect-progress loss still lands on the cap, never above it
+	# the reachable ceiling, which is not the same as LOSE_REWARD_CAP_FRAC * clear
+	var reach := GameData.level_lose_max(lv)
 	var best := Meta.on_level_failed(lv, 999, 600.0, 60.0, 1.0)
-	_check(best.crystals == cap, "max-progress loss = cap %d (got %d)" % [cap, best.crystals])
+	_check(best.crystals == reach, "max-progress loss = %d (got %d)" % [reach, best.crystals])
+	_check(best.cap == reach, "fail screen quotes the reachable ceiling (%d vs %d)"
+		% [best.cap, reach])
 	var over := false
 	for n in range(1, 31):
 		var c := GameData.level_lose_cap(n)
@@ -114,13 +127,23 @@ func _test_monotone() -> void:
 func _test_clear_beats_farming() -> void:
 	# The whole point of the cap: a clear must always be worth more than a loss
 	# on the same level, first clear or replay.
-	var bad := 0
+	# Two separate comparisons, because round 8 gave losses their own replay rule.
+	# Farming is only possible on a level you have ALREADY cleared, so that is the
+	# case the cap has to win: there, a max-progress loss pays LOSE_REPLAY_FRAC of
+	# the cap and must still lose to simply re-clearing (which pays half).
+	var bad_replay := 0
+	var bad_fresh := 0
 	for n in range(1, 31):
-		var best_loss := GameData.level_lose_reward(n, 9999, 9999.0, 60.0, 1.0)
-		var replay_clear := int(GameData.level_crystal_reward(n) / 2)
-		if best_loss >= replay_clear:
-			bad += 1
-	_check(bad == 0, "best possible loss < halved replay clear on every level")
+		var best_replay_loss := GameData.level_lose_reward(n, 9999, 9999.0, 60.0, 1.0, true)
+		if best_replay_loss >= int(GameData.level_crystal_reward(n) / 2):
+			bad_replay += 1
+		# and on a NEW level, losing must lose to clearing it outright
+		var best_fresh_loss := GameData.level_lose_reward(n, 9999, 9999.0, 60.0, 1.0, false)
+		if best_fresh_loss >= (GameData.level_crystal_reward(n)
+				+ GameData.level_first_clear_bonus(n)):
+			bad_fresh += 1
+	_check(bad_replay == 0, "重玩關: 最好嘅敗仗 < 減半通關獎勵")
+	_check(bad_fresh == 0, "新關: 最好嘅敗仗 < 通關 + 首通")
 
 # --- 10-level economy simulation -------------------------------------------
 func _simulate() -> void:

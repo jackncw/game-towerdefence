@@ -207,13 +207,15 @@ func on_level_cleared(n: int) -> Dictionary:
 func on_level_failed(n: int, kills: int, elapsed: float, boss_time_s: float, boss_frac: float) -> Dictionary:
 	## 輸咗都有魔晶: pays out by progress, capped at GameData.LOSE_REWARD_CAP_FRAC
 	## of the clear reward, and nothing at all inside the anti-farm window.
-	var reward := GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac)
+	var replay := is_cleared(n)   # a loss on an already-cleared level pays less
+	var reward := GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac, replay)
 	if reward > 0:
 		add_crystals(reward)  # also saves
 	return {
 		"crystals": reward,
+		"replay": replay,
 		"progress": GameData.lose_progress(kills, elapsed, boss_time_s, boss_frac),
-		"cap": GameData.level_lose_cap(n),
+		"cap": GameData.level_lose_max(n, replay),
 		"too_short": elapsed < GameData.LOSE_MIN_TIME,
 		"boss_frac": clampf(boss_frac, 0.0, 1.0),
 	}

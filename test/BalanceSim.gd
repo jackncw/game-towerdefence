@@ -49,6 +49,8 @@ func _ready() -> void:
 		await _bench_rework()
 	elif "--econ10" in args:
 		await _econ_table()
+	elif "--curve" in args:
+		await _curve_table()
 	else:
 		await _playthrough()
 	get_tree().paused = false
@@ -283,7 +285,7 @@ func _spend_crystals() -> Dictionary:
 ## Answers the one question a payout multiplier has to answer: does the player
 ## still have something left to want? Plays levels 1..10 with the same
 ## reasonable player as the playthrough, and books every 魔晶 in and out.
-const ECON_LEVELS := 10
+const ECON_LEVELS := 20   # round 8: the brief asks for the whole curve, not the first ten
 
 func _econ_table() -> void:
 	Meta.reset_save()
@@ -358,6 +360,106 @@ func _econ_table() -> void:
 		("冇" if _cheapest_locked() < 0 else str(_cheapest_locked())),
 		_cheapest_core_upgrade(),
 		("有嘢想買,唔算通脹" if Meta.crystals < _cheapest_core_upgrade() else "餘額買得起下一級,注意")])
+
+# ===========================================================================
+# MODE 6 — 獎勵曲線 vs 升級成本曲線 (--curve)
+# ===========================================================================
+## The payouts have to be pinned to something the player actually feels, and the
+## only such thing is "what does my next upgrade cost right now". C(N) is that
+## number, measured rather than assumed: the MEDIAN price of the next level on
+## every axis this player is currently investing in, sampled at the moment they
+## start level N. Because upgrade cost is base * 1.35^lv, C(N) grows
+## geometrically — which is exactly why linear payouts (36+8n) fell further and
+## further behind as the run went on.
+##
+## Prints one row per level: C(N), what the CURRENT formulas pay, and whether a
+## loss covers one upgrade level. The new formulas are fitted to this table.
+func _curve_table() -> void:
+	Meta.reset_save()
+	print("SIM 獎勵曲線 (CRYSTAL_REWARD_MULT=%.2f)" % GameData.CRYSTAL_REWARD_MULT)
+	print("SIM  lv | C(N) 下級價 | 通關 | 首通 | 敗(p=典型) | 敗/C | 通關/C | 輸一場升到級? | 實測敗場 p")
+	var rows: Array = []
+	for lv in range(1, LEVELS + 1):
+		var cn := _typical_next_cost()
+		# what the formulas pay AT THIS POINT in the run
+		var clear: int = GameData.level_crystal_reward(_payout_level(lv))
+		var first: int = GameData.level_first_clear_bonus(_payout_level(lv))
+		var lose_typ: int = GameData.level_lose_reward(_payout_level(lv), 27,
+			60.0, 100.0, 0.25)     # a "reasonable" loss: ~60% progress
+		var attempt := 0
+		var won := false
+		var ps: Array = []
+		while attempt < MAX_ATTEMPTS and not won:
+			attempt += 1
+			var r: Dictionary = await _play_attempt(lv)
+			won = r.win
+			if not won:
+				# `boss_left` is HP REMAINING; lose_progress wants HP REMOVED
+				ps.append(GameData.lose_progress(int(r.kills), float(r.time),
+					float(GameData.level_config(lv).boss_time), 1.0 - float(r.boss_left)))
+			_spend_crystals()
+		if not won:
+			Meta.on_level_cleared(lv)
+			_spend_crystals()
+		var pmean := 0.0
+		for p in ps:
+			pmean += float(p)
+		pmean = (pmean / ps.size()) if not ps.is_empty() else -1.0
+		rows.append({"lv": lv, "c": cn, "clear": clear, "first": first, "lose": lose_typ,
+			"p": pmean})
+		print("SIM  %2d | %10d | %4d | %4d | %10d | %4.2f | %6.2f | %-12s | %s"
+			% [lv, cn, clear, first, lose_typ,
+			float(lose_typ) / maxf(1.0, float(cn)), float(clear) / maxf(1.0, float(cn)),
+			("係" if lose_typ >= cn else "唔係"), ("-" if pmean < 0.0 else "%.2f" % pmean)])
+	# summary: how badly the payout curve lags the cost curve
+	var ok := 0
+	for r in rows:
+		if int(r.lose) >= int(r.c):
+			ok += 1
+	print("SIM ---- %d/%d 關「輸一場 >= 1 級升級」成立 ----" % [ok, rows.size()])
+	var c1: float = float(rows[0].c)
+	var cN: float = float(rows[rows.size() - 1].c)
+	print("SIM C(1)=%d C(%d)=%d,幾何增長率 = %.3f/關"
+		% [int(c1), rows.size(), int(cN), pow(cN / maxf(1.0, c1), 1.0 / float(rows.size() - 1))])
+	var l1: float = float(rows[0].lose)
+	var lN: float = float(rows[rows.size() - 1].lose)
+	print("SIM 敗方獎勵 %d -> %d,增長率 = %.3f/關 (追唔追到成本曲線?)"
+		% [int(l1), int(lN), pow(lN / maxf(1.0, l1), 1.0 / float(rows.size() - 1))])
+
+## The level number the payouts are computed from — the level being PLAYED.
+##
+## Basing it on the highest cleared level instead was considered and rejected on
+## the numbers: a player stuck on a new level is already playing their highest
+## level, so it changes nothing for them, while a player who has cleared 15 and
+## drops back to level 1 would start collecting level-15-sized payouts for a
+## trivial fight. It makes old-level farming BETTER, not worse. The anti-farm job
+## is done by GameData.LOSE_REPLAY_FRAC instead.
+func _payout_level(playing: int) -> int:
+	return playing
+
+## Median next-level price across every axis this player is actually investing
+## in — the core towers' CORE_DIRS, plus the cheapest remaining unlock while the
+## player is still buying breadth. Median, not mean: one maxed-out 15th level at
+## 1.35^14 would drag a mean far above anything the player is really looking at.
+func _typical_next_cost() -> int:
+	var costs: Array = []
+	for id in _core_towers():
+		var def := GameData.tower_by_id(id)
+		var levels: Array = Meta.tower_levels(int(id))
+		for d in def.ups.size():
+			if not (String(def.ups[d].stat) in CORE_DIRS):
+				continue
+			if int(levels[d]) >= GameData.MAX_UP_LV:
+				continue
+			costs.append(Meta.tower_up_cost(int(id), d))
+	if Meta.unlocked_towers.size() < UNLOCK_TARGET:
+		var cl := _cheapest_locked()
+		if cl > 0:
+			costs.append(cl)
+	if costs.is_empty():
+		return 0
+	costs.sort()
+	return int(costs[costs.size() / 2])
 
 func _total_up_levels() -> int:
 	var n := 0

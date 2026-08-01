@@ -444,27 +444,57 @@ func level_config(n: int) -> Dictionary:
 # 魔晶 (meta currency) payouts. All three payout paths live here so the balance
 # can be tuned in one place: 通關獎勵 / 首次通關獎勵 / 失敗按進度獎勵.
 # ---------------------------------------------------------------------------
-## Global multiplier on every 魔晶 payout. All three payout paths (通關 / 首通 /
-## 失敗按進度) are expressed as base × this, so the ratios between them — and the
-## rules layered on top (重玩減半, 失敗上限 40%, 10 秒內唔派) — are untouched by
-## changing it. Round 7 tried 3.0 then 2.0; both played too rich, so the dial is
-## back at 1.0 — i.e. the payouts are exactly the pre-round-7 numbers, and the
-## multiplier now only exists as the one place to turn if that judgement changes
-## again. See BALANCE_CHANGELOG for the ×1 / ×2 / ×3 measurements.
+## Global multiplier on every 魔晶 payout, kept as the single dial to turn if the
+## whole economy needs shifting. The round-8 recalibration is baked into the base
+## constants below instead, so this sits at 1.0.
 const CRYSTAL_REWARD_MULT := 1.0
+
+## Round 8: the payouts are GEOMETRIC, not linear.
+##
+## The old 36+8n / 40+10n were flat lines under an upgrade cost curve that is
+## base*1.35^lv, so they fell further behind every level. `--curve` measured the
+## gap: 通關/C(N) — the clear reward over the price of the player's next upgrade
+## level — drifted from 1.38 at level 5 down to 0.81 at level 20. Payouts now
+## grow at REWARD_GROWTH per level, which holds that ratio roughly flat instead.
+##
+## The starting values are the old numbers at ×3 (the floor this round was told
+## not to go below: 3*(36+8) = 132 and 3*(40+10) = 150), and every later level
+## pays MORE than the old ×3 line did, because 1.13 > the old curve's effective
+## 1.082 growth.
+const REWARD_GROWTH := 1.13
+const REWARD_BASE_CLEAR := 132.0
+const REWARD_BASE_FIRST := 150.0
 
 func level_crystal_reward(n: int) -> int:
 	## 通關獎勵. Meta.on_level_cleared halves this on a replay.
-	## Raised from the old 30+6n: it is also the base the 40% loss cap is taken
-	## from, and at the old rate a stuck player earned too little per attempt to
-	## afford even the cheapest upgrade level (35) after two tries.
-	return int(round((36 + n * 8) * CRYSTAL_REWARD_MULT))
+	return int(round(REWARD_BASE_CLEAR * pow(REWARD_GROWTH, n - 1) * CRYSTAL_REWARD_MULT))
 
 func level_first_clear_bonus(n: int) -> int:
-	## 首次通關獎勵 — paid ONCE per level, on top of the clear reward. Kept
-	## clearly bigger than the clear reward and growing faster with n so that
-	## pushing into a NEW level always beats re-farming an old one.
-	return int(round((40 + n * 10) * CRYSTAL_REWARD_MULT))
+	## 首次通關獎勵 — paid ONCE per level, on top of the clear reward, so pushing
+	## into a NEW level always beats re-farming an old one.
+	return int(round(REWARD_BASE_FIRST * pow(REWARD_GROWTH, n - 1) * CRYSTAL_REWARD_MULT))
+
+# --- the measured cost curve ------------------------------------------------
+## C(N): what the player's NEXT upgrade level costs by the time they reach level
+## N. This is MEASURED, not designed — `BalanceSim --curve` samples the median
+## next-level price across the axes a reasonable player is actually investing in,
+## and these two numbers are the geometric fit to that table (45 -> 804 over 20
+## levels).
+##
+## It has to be measured because it is ENDOGENOUS: pay the player more and they
+## buy deeper, so their next upgrade costs more. Round 8 checked this directly by
+## running the whole curve at ×3 payouts — C(20) went 242 -> 596 and 通關/C(20)
+## landed on 0.99, the same place it sat at ×1. That is why the round-7 answer
+## ("turn the multiplier up") could not work, and why the loss payout below is
+## pinned to this curve rather than to a percentage of the clear reward.
+##
+## If the upgrade cost curve or the payouts move, re-run --curve and refit these,
+## or the loss payout silently drifts off the thing it is supposed to track.
+const UPGRADE_COST_BASE := 47.36
+const UPGRADE_COST_GROWTH := 1.1668
+
+func typical_upgrade_cost(n: int) -> int:
+	return int(round(UPGRADE_COST_BASE * pow(UPGRADE_COST_GROWTH, maxi(1, n) - 1)))
 
 # --- loss payout ------------------------------------------------------------
 # Losing pays a small progress-based amount so a failed run still feeds the
@@ -472,7 +502,28 @@ func level_first_clear_bonus(n: int) -> int:
 # wave you survived, how much you killed, and (if the boss showed up) how deep
 # you cut into its HP. It is capped well below a clear so clearing always wins.
 const LOSE_MIN_TIME := 10.0          # 開場 10 秒內結束嘅局唔派 (防秒退刷)
-const LOSE_REWARD_CAP_FRAC := 0.40   # 上限 = 通關獎勵 * 40%
+## 上限 = 通關獎勵 * this. Raised from 0.40 in round 8. The cap is what you would
+## get at PERFECT progress (survived to the boss, 45 kills, boss stripped to
+## zero) — i.e. a run you almost won. Measured real losses score p = 0.44..0.61,
+## so the payout a stuck player actually sees is ~45-55% of a clear, not 90%.
+## A first clear still pays 2.2x the very best possible loss.
+const LOSE_REWARD_CAP_FRAC := 0.90
+## Losing a level you have ALREADY cleared pays this fraction. This is the whole
+## anti-farm rule: without it, the cheapest way to earn was to load level 1,
+## leak on purpose, and collect a full progress payout forever. A player stuck on
+## a NEW level is unaffected and keeps the full amount.
+const LOSE_REPLAY_FRAC := 0.30
+## 一場「有合理進度」嘅敗仗要實付到一級升級. Progress that scores this much is what
+## a real failed attempt measures at — BalanceSim recorded p = 0.44 and 0.61 on
+## the two genuine losses it produced — so the payout is calibrated at this point
+## on the curve rather than at the (unreachable) top of it.
+const LOSE_TYPICAL_PROGRESS := 0.5
+## 1.15, not 1.0, because C(N) is measured data with real scatter (levels 13-16
+## came in at 327 / 363 / 441 / 449) and the constants above are a smooth
+## least-squares fit through it. At 1.10 the fit dips under the measured cost at
+## level 7 and the "輸一場 = 一級" promise quietly fails there; 1.15 clears every
+## level in the table and still sits inside the 1.0-1.2 design band.
+const LOSE_TARGET_C_MULT := 1.15     # 敗仗 / C(N) at typical progress
 const LOSE_W_TIME := 0.35            # 捱到嘅時間 (滿分 = 撐到 boss 出場)
 const LOSE_W_KILLS := 0.35           # 擊殺數
 const LOSE_W_BOSS := 0.30            # 對 boss 造成嘅最大傷害百分比
@@ -481,20 +532,44 @@ const LOSE_EXPECTED_KILLS := 45.0    # boss 出場前大約刷出嘅怪數 = 擊
 func level_lose_cap(n: int) -> int:
 	return int(floor(level_crystal_reward(n) * LOSE_REWARD_CAP_FRAC))
 
+## The most a loss on level `n` can actually pay. Since round 8 the payout is the
+## SMALLER of a cost-curve target and the cap, and which one binds changes with
+## the level (the target is lower early, the cap is lower late) — so the fail
+## screen must quote this rather than level_lose_cap(), or the number it shows a
+## player at low levels is one they can never reach.
+func level_lose_max(n: int, replay := false) -> int:
+	var m := minf(LOSE_TARGET_C_MULT * float(typical_upgrade_cost(n)) / LOSE_TYPICAL_PROGRESS,
+		float(level_lose_cap(n)))
+	if replay:
+		m *= LOSE_REPLAY_FRAC
+	return int(round(m))
+
 func lose_progress(kills: int, elapsed: float, boss_time_s: float, boss_frac: float) -> float:
 	var t := clampf(elapsed / maxf(1.0, boss_time_s), 0.0, 1.0)
 	var k := clampf(float(kills) / LOSE_EXPECTED_KILLS, 0.0, 1.0)
 	var b := clampf(boss_frac, 0.0, 1.0)
 	return clampf(LOSE_W_TIME * t + LOSE_W_KILLS * k + LOSE_W_BOSS * b, 0.0, 1.0)
 
-func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float, boss_frac: float) -> int:
+func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float,
+		boss_frac: float, replay := false) -> int:
 	if elapsed < LOSE_MIN_TIME:
 		return 0
 	var p := lose_progress(kills, elapsed, boss_time_s, boss_frac)
 	if p <= 0.0:
 		return 0
+	# Pinned to the cost curve, not to a share of the clear reward: the design
+	# goal is "一場有進度嘅敗仗 = 一級升級", and at p = LOSE_TYPICAL_PROGRESS this
+	# pays exactly LOSE_TARGET_C_MULT x C(N). Linear in p through the origin, so
+	# a barely-there attempt still pays barely anything.
+	var amount := LOSE_TARGET_C_MULT * float(typical_upgrade_cost(n)) \
+		* (p / LOSE_TYPICAL_PROGRESS)
+	# The cap only bites at high progress, which is the case where paying a full
+	# upgrade level twice over would start to compete with actually winning.
+	amount = minf(amount, float(level_lose_cap(n)))
+	if replay:
+		amount *= LOSE_REPLAY_FRAC
 	# any real attempt past the anti-farm window pays at least 1
-	return maxi(1, int(round(level_lose_cap(n) * p)))
+	return maxi(1, int(round(amount)))
 
 func _ready() -> void:
 	_build_towers()

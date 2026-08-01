@@ -34,7 +34,6 @@ var skeleton_boss_alive = null
 
 var gold: int = 0
 var base_shield: int = 0
-var _base_shield_max: int = 1
 var _danger_played: bool = false
 var barrier_reflect: float = 0.0
 var base_pos: Vector2
@@ -136,7 +135,6 @@ func _ready() -> void:
 	boss_time = cfg.boss_time
 	gold = cfg.start_gold
 	base_pos = route.pos_at(route.total - 20.0)
-	_base_shield_max = base_shield
 
 	Assets.prewarm_battle(cfg.families, cfg.boss_family)
 	_build_world()
@@ -474,15 +472,26 @@ func on_boss_killed(m: Monster) -> void:
 	_remove(m)
 	_win()
 
+## 基地危險:第一次有隻怪嘅路程比例跨過 GameData.BASE_DANGER_ROUTE_FRAC,並且
+## 冇 Barrier 罩住(base_shield <= 0,即係呢隻怪唔會被擋)嗰陣響一次,俾玩家仲
+## 有一兩秒反應時間。有 Barrier 罩住唔算危險——漏咗都會被吸收。一場淨係響一
+## 次,唔係每隻怪跨線都響:後者喺守唔住嘅局入面會變成連續警報,而連續警報等
+## 於冇警報。冇「基地生命值」呢樣嘢可以睇跌到幾多,所以呢個係以路程做距離代
+## 理,唔係以殘餘量——見 GameData.BASE_DANGER_ROUTE_FRAC 嘅註解。
+##
+## 喺 Monster._process() 度叫,嗰度本身就已經逐幀讀緊呢隻怪嘅 dist/route.total
+## (跟住嗰句就係 on_reach_base 嘅到達判斷),所以呢度唔使加多一次逐怪嘅 traversal。
+func _maybe_warn_base_danger(route_frac: float) -> void:
+	if _danger_played or base_shield > 0:
+		return
+	if route_frac < GameData.BASE_DANGER_ROUTE_FRAC:
+		return
+	_danger_played = true
+	Audio.play("sfx_base_danger")
+
 func on_reach_base(m: Monster) -> void:
 	if base_shield > 0:
 		base_shield -= 1
-		# 基地危險:只喺跌穿三成嗰一刻響一次,唔係每次漏怪都響 —— 後者喺守唔住嘅
-		# 局入面會變成連續警報,而連續警報等於冇警報
-		if base_shield > 0 and float(base_shield) / float(_base_shield_max) < GameData.BASE_DANGER_FRAC \
-				and not _danger_played:
-			_danger_played = true
-			Audio.play("sfx_base_danger")
 		spawn_fx_ring(base_pos, 90, Color(0.5, 0.8, 1.0))
 		_barrier_reflect_burst(m)
 		if not m.alive:

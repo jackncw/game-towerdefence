@@ -7,9 +7,13 @@ const MAX_UP_LV := 15
 const UP_COST_MULT := 1.35
 ## 每關敵人強度成長率 (wave_scale = WAVE_GROWTH^(n-1))
 const WAVE_GROWTH := 1.13
-## 基地護盾跌穿呢個比例(相對於本局最高值)先響一次「危險」音效——
-## 見 Battle.on_reach_base()。
-const BASE_DANGER_FRAC := 0.30
+## 冇「基地生命值」呢樣嘢可以睇跌到幾多——一隻怪冇 Barrier 罩住走到底就係直接
+## 輸,冧咗都冇一個「跌穿三成」嘅時刻存在。所以「危險」音效改以路程做距離代理:
+## 一隻怪嘅路程比例(dist/route.total)第一次跨過呢個值,並且冇 Barrier 罩住
+## (base_shield <= 0),就響一次——喺佢行到之前,俾玩家仲有一兩秒反應。行到嗰
+## 一刻已經係敗局 jingle 嘅職責,唔係呢個音效嘅。見 Monster._process() /
+## Battle._maybe_warn_base_danger()。
+const BASE_DANGER_ROUTE_FRAC := 0.85
 
 # --- world-render scales (B1: on-screen readability; visual only, no balance) --
 # Round 5 pixel-density rule: EVERY world sprite renders at the same integer

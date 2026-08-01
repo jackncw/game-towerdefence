@@ -10,6 +10,8 @@ extends Node
 ##   H3  魔法
 ##   H4  boss 出場 -> 警號 + boss 曲排隊
 ##   H5  勝 / 敗 jingle
+##   H4b 基地危險(路程跨過門檻,冇 Barrier 罩住)——淨係響一次
+##   H6  魔晶 / 解鎖 / 升級 (Meta) + 選單 BGM
 ##
 ## 唔需要真嘅音訊驅動:呢度問嘅係「派唔派」,唔係「聽落點」。
 
@@ -29,6 +31,8 @@ func _ready() -> void:
 	seed(0xA0D10)
 	await _case_battle_sounds()
 	await _case_end_jingles()
+	await _case_base_danger()
+	await _case_meta_hooks()
 	_tree.paused = false
 	Flow.nav_enabled = true
 	_restore_save()
@@ -119,6 +123,75 @@ func _case_end_jingles() -> void:
 	_heard("H5 勝 jingle", "jingle_win")
 	_heard("H5 首通 jingle", "jingle_first_clear")
 	await _end(b2)
+
+## 冇「基地生命值」呢樣嘢——一隻怪冇 Barrier 罩住走到底就係直接輸。呢個 case
+## 唔等佢真係捱到失守,直接喺路程 90% 處生一隻怪(> BASE_DANGER_ROUTE_FRAC =
+## 85%),踩一幀,睇吓「危險」有冇響;再踩多一幀,確認佢唔會響第二次。
+func _case_base_danger() -> void:
+	Meta.reset_save()
+	var b = await _start(1)
+	b.base_shield = 0        # 冇 Barrier 罩住 -> 呢個先算「危險」
+	Audio.debug_capture = true
+	Audio.debug_log.clear()
+
+	var fam: String = b.cfg.families[0]
+	b._spawn_monster(fam, 1, false, b.route.total * 0.9)
+	_step(b, DT)
+	_heard("H4b 基地危險", "sfx_base_danger")
+
+	Audio.debug_log.clear()
+	_step(b, DT)
+	_ok("H4b 基地危險淨係響一次",
+		not Audio.debug_log.has("sfx_base_danger"),
+		"second frame past threshold dispatched again: %s" % str(Audio.debug_log))
+	await _end(b)
+
+## Meta 嗰五個掛鈎(魔晶 / 塔解鎖 / 魔法解鎖 / 塔升級 / 魔法升級)同主選單 BGM ——
+## 呢五個係最容易「靜靜雞」嘅位,因為佢哋唔喺戰鬥入面,冇人會邊打邊聽。
+## 塔 3 / 魔法 2 特登揀唔喺 Meta 預設解鎖表(unlocked_towers = [1,2,5,13],
+## unlocked_spells = [1])入面嘅 id,否則 unlock_* 一開始就因為「已解鎖」return
+## false,連 Audio.play 都唔會行到。塔 1 / 魔法 1 就特登揀喺表入面,因為升級唔
+## 需要(亦唔驗)解鎖狀態,揀返同 RegressionTest 一樣嘅已知組合最穩陣。
+func _case_meta_hooks() -> void:
+	Meta.reset_save()
+	Meta.crystals = 99999
+	Audio.debug_capture = true
+	Audio.debug_log.clear()
+
+	Meta.add_crystals(10)
+	_heard("H6 魔晶", "sfx_crystal_gain")
+
+	var unlock_tower_id := 3
+	var unlock_spell_id := 2
+	Audio.debug_log.clear()
+	_ok("H6 解鎖塔前置:未解鎖", not Meta.is_tower_unlocked(unlock_tower_id),
+		"tower %d already unlocked" % unlock_tower_id)
+	_ok("H6 解鎖塔成功", Meta.unlock_tower(unlock_tower_id), "unlock_tower returned false")
+	_heard("H6 解鎖塔", "sfx_unlock")
+
+	Audio.debug_log.clear()
+	_ok("H6 解鎖魔法前置:未解鎖", not Meta.is_spell_unlocked(unlock_spell_id),
+		"spell %d already unlocked" % unlock_spell_id)
+	_ok("H6 解鎖魔法成功", Meta.unlock_spell(unlock_spell_id), "unlock_spell returned false")
+	_heard("H6 解鎖魔法", "sfx_unlock")
+
+	Audio.debug_log.clear()
+	_ok("H6 升級塔成功", Meta.buy_tower_upgrade(1, 0), "buy_tower_upgrade returned false")
+	_heard("H6 升級塔", "sfx_upgrade")
+
+	Audio.debug_log.clear()
+	_ok("H6 升級魔法成功", Meta.buy_spell_upgrade(1, 0), "buy_spell_upgrade returned false")
+	_heard("H6 升級魔法", "sfx_upgrade")
+
+	Audio.debug_log.clear()
+	var menu: Node = load("res://scenes/MainMenu.tscn").instantiate()
+	add_child(menu)
+	await get_tree().process_frame
+	_ok("H6 選單 BGM",
+		Audio.debug_log.has("bgm_menu") or Audio._bgm_name == "bgm_menu",
+		"log=%s now=%s" % [str(Audio.debug_log), Audio._bgm_name])
+	menu.queue_free()
+	await get_tree().process_frame
 
 # ---------------------------------------------------------------------------
 func _heard(label: String, name: String) -> void:

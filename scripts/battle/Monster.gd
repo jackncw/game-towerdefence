@@ -166,6 +166,7 @@ func _process(delta: float) -> void:
 	var spd := _current_speed()
 	if spd > 0.0:
 		dist += spd * delta
+		battle._maybe_warn_base_danger(dist / route.total)
 		if dist >= route.total:
 			battle.on_reach_base(self)
 			return

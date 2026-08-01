@@ -191,6 +191,9 @@ LOUDNESS = {
        ["goblin", "wolf", "skeleton", "golem", "ghost", "bat",
         "treant", "beetle", "cultist", "slime"]},
     "sfx_hit_soft": 0.055, "sfx_hit_hard": 0.070, "sfx_hit_magic": 0.060,
+    # 大魔法要有份量,但仲係要坐喺 jingle 之下
+    "sfx_spell_meteor": 0.13, "sfx_spell_quake": 0.13,
+    "sfx_spell_blackhole": 0.13, "sfx_spell_freezenova": 0.12,
 }
 DEFAULT_LOUDNESS = 0.10          # every sfx_atk_* archetype
 
@@ -465,6 +468,191 @@ def sfx_hit_magic():
 
 
 # ---------------------------------------------------------------------------
+# spells — fifteen of them, each its own sound (no shared archetype). A spell
+# fires a handful of times a match and every cast is a deliberate choice, so
+# unlike tower fire it earns its own timbre instead of a re-pitched one.
+# ---------------------------------------------------------------------------
+
+
+def sfx_spell_meteor():
+    """Meteor: a rising whistle as the rock falls, then a heavy low impact.
+    seq() not mix() — the whistle has to finish arriving before the impact
+    lands, or the fall and the hit blur into one noise instead of reading
+    as two events in sequence."""
+    whistle = lowpass(noise(0.35), 1500.0) * np.linspace(0.0, 1.0, int(SR * 0.35)) ** 2
+    body = sine(sweep(180, 30, 0.40), 0.40) * perc(0.40, curve=3.5)
+    boom = lowpass(noise(0.40), 600.0) * perc(0.40, curve=3.0)
+    return bitcrush(seq(whistle, body + boom), bits=6)
+
+
+def sfx_spell_stormbolt():
+    """Storm bolt: seven quick strikes, each a different random pitch — like
+    sfx_atk_electric's jitter trick but applied once per strike instead of
+    within one, so the bolts read as seven discrete hits, not one buzz."""
+    d = 0.30
+    hit_len = 0.035
+    n_total = int(SR * d)
+    out = np.zeros(n_total)
+    for i in range(7):
+        f = _rng.uniform(900, 2800)
+        hit = square(f, hit_len, duty=0.125) * perc(hit_len, curve=10.0)
+        start = int(SR * i * hit_len)
+        end = min(n_total, start + len(hit))
+        out[start:end] += hit[:end - start]
+    return bitcrush(out, bits=5)
+
+
+def sfx_spell_freezenova():
+    """Freeze nova: two ringing triangle sweeps (fundamental plus a bright
+    upper partial) over a short crack at the very front — the crack is the
+    ice sheet breaking outward, the sweeps are the cold ringing after."""
+    d = 0.60
+    body = triangle(sweep(2600, 900, d), d) * perc(d, curve=3.0)
+    shimmer = triangle(sweep(5200, 1800, d), d) * perc(d, curve=5.0) * 0.35
+    crack = lowpass(noise(0.10), 800.0) * perc(0.10, curve=6.0) * 0.6
+    return bitcrush(mix(body + shimmer, pad(crack, d)), bits=6)
+
+
+def sfx_spell_miasma():
+    """Miasma: a bandpassed hiss that swells and fades — the poison cloud
+    spreading out then settling — over a low sawtooth growl for weight, so
+    it does not read as pure hiss with nothing underneath it."""
+    d = 0.42
+    n = noise(d)
+    hiss = (lowpass(n, 900.0) - lowpass(n, 200.0)) * np.sin(np.linspace(0.0, np.pi, len(n)))
+    growl = saw(sweep(90, 60, d), d) * perc(d, curve=3.0) * 0.4
+    return bitcrush(hiss + growl, bits=6)
+
+
+def sfx_spell_summon():
+    """Summon: a rising three-note fanfare (root, major third, fifth) with a
+    trail of high magic dust laid under the whole thing — the dust is what
+    tells the ear "magic", the notes are what tell it "arriving"."""
+    notes = seq(*[square(note(57 + k), 0.10, duty=0.25) * perc(0.10, curve=7.0)
+                  for k in (0, 4, 7)])
+    dust = highpass(noise(0.34), 4000.0) * perc(0.34, curve=5.0) * 0.2
+    return bitcrush(mix(notes, dust), bits=6)
+
+
+def sfx_spell_midas():
+    """Midas touch: five coin chimes at random pitches landing at random
+    moments, like a small pile of gold hitting the ground rather than one
+    coordinated jingle — bits=7 keeps them bright instead of grainy."""
+    d = 0.30
+    coin_len = 0.05
+    n_total = int(SR * d)
+    out = np.zeros(n_total)
+    offsets = np.sort(_rng.uniform(0.0, d - coin_len, 5))
+    for off in offsets:
+        coin = triangle(note(84 + _rng.integers(-3, 4)), coin_len) * perc(coin_len, curve=12.0)
+        start = int(SR * off)
+        end = min(n_total, start + len(coin))
+        out[start:end] += coin[:end - start]
+    return bitcrush(out, bits=7)
+
+
+def sfx_spell_timewarp():
+    """Time warp: a falling sawtooth under a slow 3Hz wobble. The wobble is
+    slow enough to read as time itself dragging, not as ordinary tremolo —
+    a faster rate here would sound like an effect instead of the mechanic."""
+    d = 0.44
+    body = saw(sweep(700, 180, d), d) * adsr(d, 0.02, 0.08, 0.6, 0.14)
+    wobble = 1.0 + 0.15 * np.sin(2.0 * np.pi * 3.0 * t(d))
+    return bitcrush(body * wobble, bits=6)
+
+
+def sfx_spell_warcry():
+    """War cry: a rising square shout with a low noise rasp under it for a
+    voice-like texture — a pure tone alone read as a siren, not a shout."""
+    d = 0.36
+    shout = square(sweep(300, 460, d, "lin"), d, duty=0.5) * adsr(d, 0.01, 0.05, 0.8, 0.10)
+    rasp = lowpass(noise(d), 1200.0) * perc(d, curve=4.0) * 0.35
+    return bitcrush(shout + rasp, bits=6)
+
+
+def sfx_spell_barrier():
+    """Barrier: a rising tone that settles into a held, steady hum — seq()
+    because a shield snapping up has a distinct rise and then a sustain,
+    not one continuously-changing pitch."""
+    rise = sine(sweep(300, 620, 0.18), 0.18) * perc(0.18, curve=5.0)
+    hold = triangle(620, 0.22) * adsr(0.22, 0.01, 0.03, 0.85, 0.08)
+    return bitcrush(seq(rise, hold), bits=6)
+
+
+def sfx_spell_tornado():
+    """Tornado: bandpassed noise amplitude-modulated at 9Hz so it reads as
+    something spinning rather than a static gust of wind."""
+    d = 0.40
+    n = noise(d)
+    body = lowpass(n, 2400.0) - lowpass(n, 500.0)
+    spin = 0.5 + 0.5 * np.sin(2.0 * np.pi * 9.0 * t(d))
+    return bitcrush(body * spin, bits=6)
+
+
+def sfx_spell_quake():
+    """Earthquake: a deep falling sine as the main shock plus a rumbling
+    noise bed under it, with three short rubble ticks scattered on top —
+    grit settling after the shock rather than one flat rumble."""
+    d = 0.70
+    body = sine(sweep(70, 26, d), d) * perc(d, curve=2.5)
+    rumble = lowpass(noise(d), 400.0) * perc(d, curve=2.2) * 0.8
+    out = body + rumble
+    rubble = highpass(noise(0.05), 2500.0) * perc(0.05, curve=13.0) * 0.5
+    for offset in (0.15, 0.35, 0.55):
+        start = int(SR * offset)
+        end = min(len(out), start + len(rubble))
+        out[start:end] += rubble[:end - start]
+    return bitcrush(out, bits=6)
+
+
+def sfx_spell_firewall():
+    """Firewall: bandpassed noise that swells in from nothing — the burn
+    spreading down the line rather than igniting all at once — under a low
+    triangle growl for weight."""
+    d = 0.44
+    n = noise(d)
+    body = lowpass(n, 2000.0) - lowpass(n, 300.0)
+    swell = np.linspace(0.0, 1.0, len(body)) ** 0.6
+    growl = triangle(sweep(160, 110, d), d) * perc(d, curve=3.0) * 0.35
+    return bitcrush(body * swell + growl, bits=6)
+
+
+def sfx_spell_smite():
+    """Smite: a short bright crack (the strike landing) then a held root +
+    fifth chord ringing out — the open fifth is what makes it read as holy
+    rather than violent, the way the crack alone would."""
+    strike = saw(note(81), 0.06) * perc(0.06, curve=9.0)
+    root = triangle(note(69), 0.28) * adsr(0.28, 0.005, 0.05, 0.7, 0.12)
+    fifth = triangle(note(76), 0.28) * adsr(0.28, 0.005, 0.05, 0.7, 0.12) * 0.5
+    return bitcrush(seq(strike, root + fifth), bits=6)
+
+
+def sfx_spell_emp():
+    """EMP: a square wave falling almost three octaves across the clip, plus
+    a burst of high static at the front — bits=4 is the roughest crush in
+    the whole set, matching a system getting fried rather than struck."""
+    d = 0.28
+    drop = square(sweep(2200, 120, d), d, duty=0.125) * perc(d, curve=5.0)
+    zap = highpass(noise(0.06), 3500.0) * perc(0.06, curve=14.0) * 0.5
+    out = drop.copy()
+    out[:len(zap)] += zap
+    return bitcrush(out, bits=4)
+
+
+def sfx_spell_blackhole():
+    """Black hole: a rising saw pulled inward, then a falling sine as it
+    collapses — seq() so the pull and the collapse read as two distinct
+    phases — with a constant low rumble mixed under the full 0.80s so the
+    field never drops out silent between them."""
+    d = 0.80
+    pull = saw(sweep(120, 900, 0.55), 0.55) * np.linspace(0.0, 1.0, int(SR * 0.55)) ** 1.5
+    collapse = sine(sweep(900, 40, 0.25), 0.25) * perc(0.25, curve=4.0)
+    body = seq(pull, collapse)
+    rumble = lowpass(noise(d), 300.0) * 0.3
+    return bitcrush(mix(body, rumble), bits=6)
+
+
+# ---------------------------------------------------------------------------
 # BGM
 # ---------------------------------------------------------------------------
 
@@ -564,6 +752,22 @@ SOUNDS = {
     "sfx_hit_soft": sfx_hit_soft,
     "sfx_hit_hard": sfx_hit_hard,
     "sfx_hit_magic": sfx_hit_magic,
+    # SFX bus — spells, one per spell (no shared archetype)
+    "sfx_spell_meteor": sfx_spell_meteor,
+    "sfx_spell_stormbolt": sfx_spell_stormbolt,
+    "sfx_spell_freezenova": sfx_spell_freezenova,
+    "sfx_spell_miasma": sfx_spell_miasma,
+    "sfx_spell_summon": sfx_spell_summon,
+    "sfx_spell_midas": sfx_spell_midas,
+    "sfx_spell_timewarp": sfx_spell_timewarp,
+    "sfx_spell_warcry": sfx_spell_warcry,
+    "sfx_spell_barrier": sfx_spell_barrier,
+    "sfx_spell_tornado": sfx_spell_tornado,
+    "sfx_spell_quake": sfx_spell_quake,
+    "sfx_spell_firewall": sfx_spell_firewall,
+    "sfx_spell_smite": sfx_spell_smite,
+    "sfx_spell_emp": sfx_spell_emp,
+    "sfx_spell_blackhole": sfx_spell_blackhole,
     # BGM bus
     "bgm_battle": bgm_battle,
 }

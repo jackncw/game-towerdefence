@@ -73,6 +73,20 @@ const DEATH_SOUND := {
 ## 嘢硬唔硬」,唔係「我用緊乜屬性」(後者睇塔就知)。
 const HIT_SOUND := {"soft": "sfx_hit_soft", "hard": "sfx_hit_hard", "magic": "sfx_hit_magic"}
 
+## 15 個魔法各有自己嘅聲。呢度冇用 archetype + pitch(塔嗰邊用嘅做法):
+## 塔係一路重複咁響,pitch 已經夠分;魔法一場得幾次,每次都係一個決定,
+## 所以每個都值一個自己嘅聲。
+const SPELL_SOUND := {
+	"meteor": "sfx_spell_meteor", "stormbolt": "sfx_spell_stormbolt",
+	"freezenova": "sfx_spell_freezenova", "miasma": "sfx_spell_miasma",
+	"summon": "sfx_spell_summon", "midas": "sfx_spell_midas",
+	"timewarp": "sfx_spell_timewarp", "warcry": "sfx_spell_warcry",
+	"barrier": "sfx_spell_barrier", "tornado": "sfx_spell_tornado",
+	"quake": "sfx_spell_quake", "firewall": "sfx_spell_firewall",
+	"smite": "sfx_spell_smite", "emp": "sfx_spell_emp",
+	"blackhole": "sfx_spell_blackhole",
+}
+
 ## 每個註冊表引用過嘅音名。AudioTest 用佢做「改名唔會靜靜雞收聲」嘅防線:
 ## 任何一個表指去一個唔存在嘅檔,測試就紅,而唔係遊戲入面靜咗。
 func registered_sounds() -> Array:
@@ -82,6 +96,8 @@ func registered_sounds() -> Array:
 	for n in DEATH_SOUND.values():
 		out[String(n)] = true
 	for n in HIT_SOUND.values():
+		out[String(n)] = true
+	for n in SPELL_SOUND.values():
 		out[String(n)] = true
 	var arr: Array = out.keys()
 	arr.sort()
@@ -108,6 +124,11 @@ func play_death(fam: String) -> void:
 	var n: String = String(DEATH_SOUND.get(fam, ""))
 	if n != "":
 		play_varied(n)
+
+func play_spell(mech: String) -> void:
+	var n: String = String(SPELL_SOUND.get(mech, ""))
+	if n != "":
+		play(n)
 
 func play_tower(mech: String) -> void:
 	var e: Array = TOWER_SOUND.get(mech, [])

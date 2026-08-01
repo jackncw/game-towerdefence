@@ -13,6 +13,15 @@ extends Node
 ##   --spells   SPELL BENCH — casts each spell once into an identical standing
 ##              crowd and measures the damage and the control it produces.
 ##
+##   --walls    難度牆驗收 — plays levels 1..20 from a fresh save on each of
+##              WALL_SEEDS seeds, retrying up to three times with the real
+##              spend-crystals-between-attempts loop in between, and reports
+##              first-try / three-try clear rates per level. Runs the sweep TWICE:
+##              once with a composition-changing adaptive player and once with the
+##              fixed greedy player, because the gap between them is the evidence
+##              that a wall demands a different build rather than more upgrade
+##              levels. See 自適應玩家 below.
+##
 ##   --rework   REWORK CHECK — the two design targets from the 詛咒塔 / 導彈塔
 ##              rework, measured rather than asserted by feel:
 ##                * 詛咒塔: "詛咒塔 + 3 輸出" vs "4 輸出" at aura coverage 1 / 2 / 3
@@ -51,6 +60,8 @@ func _ready() -> void:
 		await _econ_table()
 	elif "--curve" in args:
 		await _curve_table()
+	elif "--walls" in args:
+		await _walls_table()
 	else:
 		await _playthrough()
 	get_tree().paused = false
@@ -131,7 +142,11 @@ func _playthrough() -> void:
 	print("SIM  總共擺咗 %d 座" % total_placed)
 
 ## One attempt at `level` with the current Meta state.
-func _play_attempt(level: int) -> Dictionary:
+##
+## `adaptive` swaps ONLY the buy rule, from the fixed greedy player to the
+## composition-changing one used by --walls (see 自適應玩家 below). It defaults to
+## false, so --playthrough / --curve / --econ10 call this exactly as before.
+func _play_attempt(level: int, adaptive := false, field_cap := 0) -> Dictionary:
 	var b = await _start(level)
 	var start_gold: int = b.gold
 	var spent := 0
@@ -142,7 +157,11 @@ func _play_attempt(level: int) -> Dictionary:
 	while not b.ended and t < ATTEMPT_TIMEOUT:
 		# spend gold as it arrives
 		while spot_i < spots.size():
-			var id: int = _next_buy(b)
+			# `field_cap` > 0 stops the player at N towers. Off (0) everywhere except
+			# the --walls diagnostic sweep; see WALL_FIELD_CAP for why it exists.
+			if field_cap > 0 and b.towers.size() >= field_cap:
+				break
+			var id: int = _ad_next_buy(b) if adaptive else _next_buy(b)
 			if id == 0:
 				break
 			var cost: int = int(GameData.tower_by_id(id).place_cost)
@@ -171,6 +190,23 @@ func _play_attempt(level: int) -> Dictionary:
 		"spots": spots.size(),
 		"gold_left": b.gold,
 		"used": used,
+		# What the attempt FELT like, from Battle's sim_* measurement counters. Only
+		# the adaptive player reads this; every other mode ignores the key.
+		"sig": {
+			"deep_flying": int(b.sim_deep_flying),
+			"deep_ground": int(b.sim_deep_ground),
+			"leak_flying": bool(b.sim_leak_flying),
+			"revives": int(b.sim_revives),
+			"splits": int(b.sim_splits),
+			"peak_alive": int(b.sim_peak_alive),
+			"heal": float(b.sim_heal_enemy),
+			"dmg": float(b.damage_dealt),
+			"raw_phys": float(b.sim_raw_phys),
+			"out_phys": float(b.sim_out_phys),
+			"raw_magic": float(b.sim_raw_magic),
+			"out_magic": float(b.sim_out_magic),
+			"max_frac": float(b.sim_max_frac),
+		},
 	}
 	await _end(b)
 	return res
@@ -524,6 +560,405 @@ func _buy_core_upgrade() -> bool:
 		var levels: Array = Meta.tower_levels(id)
 		for d in def.ups.size():
 			if not (String(def.ups[d].stat) in CORE_DIRS):
+				continue
+			if int(levels[d]) >= GameData.MAX_UP_LV:
+				continue
+			var cost: int = Meta.tower_up_cost(int(id), d)
+			if cost < best_cost:
+				best_cost = cost
+				best_id = int(id)
+				best_dir = d
+	if best_id == 0 or not Meta.can_afford(best_cost):
+		return false
+	return Meta.buy_tower_upgrade(best_id, best_dir)
+
+# ===========================================================================
+# MODE 7 — 難度牆驗收 (--walls)
+# ===========================================================================
+## 「牆」係一個關於機率嘅講法 —— 「第一次到呢關預期會輸」 —— 所以量佢一定要跑多個
+## seed。單次 playthrough 答唔到:一次通過只係一個樣本,而 crit / proc / spawn 家族
+## 嘅骰喺一場入面嘅方差好大(round 6 量過同一個陣容連續兩次 boss 傷害係 47% 同 24%)。
+##
+## 每個 seed 都由 Meta.reset_save() 開始由第一關打上去,唔係直接跳去嗰關 —— 玩家到
+## 第 13 關嗰陣有幾多升級,係佢前面十二關賺返嚟嘅,直接跳過去就等於問一個唔存在
+## 嘅玩家。
+##
+## 跑兩次:一次自適應玩家,一次貪心玩家。點解要兩個,見下面「自適應玩家」嘅註解。
+const WALL_SEEDS := 12
+const WALL_MAX_TRIES := 3
+## 0 = 唔封頂,即係驗收用嘅設定。
+##
+## 點解會有呢個掣。呢個 harness 嘅玩家係「有錢就即刻喺下一個空位起塔」,而地圖有
+## 88-128 個可起塔位,佢由出怪口沿住路一路起上去。結果佢喺第 20 關會有 54 座塔,
+## 剩 3891 金,boss 剩 1% 血 —— 換句話講,佢由頭到尾冇一關輸得到。
+##
+## 更嚴重嘅係個回路方向:牆加怪 -> 多咗擊殺 -> 多咗金 -> 多咗塔。第 7 關加咗成份
+## 之後佢由 12 座塔變 32 座。每一幅加怪嘅牆都自己出錢買起自己嘅解藥,所以「調成份」
+## 呢個動作喺呢個玩家身上係恆等於零。實測見 BALANCE_CHANGELOG 第 9 輪:即使將三幅
+## 牆全部改成「岩石巨像 + 遠古樹妖 + 甲蟲 + spawn_min 0.08」(即係放棄晒牆本身嘅設計
+## 論點,純粹堆最硬嘅嘢),最遠嗰隻怪都只係行到成條路嘅 16-21%,冇一隻掂過門口。
+##
+## 所以呢個掣係一個診斷,唔係一個答案:封住塔數,就等於問「如果玩家嘅場面有限,
+## 呢幾幅牆係咪牆」。驗收表永遠喺 0(唔封頂)之下跑,封頂嗰次會另外標明。
+const WALL_FIELD_CAP := 0
+
+func _walls_table() -> void:
+	print("SIM 難度牆驗收 (%d 個 seed, 每關最多 %d 次, 兩個玩家, 塔數上限 %s)"
+		% [WALL_SEEDS, WALL_MAX_TRIES,
+		"無" if WALL_FIELD_CAP <= 0 else str(WALL_FIELD_CAP)])
+	var ad: Dictionary = await _walls_run(true)
+	var gr: Dictionary = await _walls_run(false)
+	print("SIM")
+	print("SIM  lv | 牆 | 自適應首通 | 自適應%d次內 | 貪心首通 | 貪心%d次內 | 組成差距 | 平均嘗試 | 達標"
+		% [WALL_MAX_TRIES, WALL_MAX_TRIES])
+	var bad := 0
+	var dead_walls: Array = []
+	var soft_levels: Array = []
+	for lv in range(1, LEVELS + 1):
+		var f: float = float(ad.first[lv]) / float(WALL_SEEDS)
+		var a: float = float(ad.any[lv]) / float(WALL_SEEDS)
+		var gf: float = float(gr.first[lv]) / float(WALL_SEEDS)
+		var ga: float = float(gr.any[lv]) / float(WALL_SEEDS)
+		var avg: float = float(ad.tries[lv]) / float(WALL_SEEDS)
+		var wall: bool = GameData.is_wall(lv)
+		# 牆:第一次去到預期會輸(首通 <= 30%),但投資之後過到(3 次內 >= 90%)
+		# 非牆:合理操作一次過(首通 >= 85%)
+		var ok: bool = (f <= 0.30 and a >= 0.90) if wall else (f >= 0.85)
+		if not ok:
+			bad += 1
+			if not wall:
+				soft_levels.append(lv)
+		# 一幅貪心玩家一樣輕鬆三次內過到嘅牆,唔係喺度考陣容,係喺度考升級級數 ——
+		# 通過率幾靚都好,佢冇做緊佢存在嘅嗰件事。
+		if wall and gf <= 0.30 and ga >= 0.90 and (a - ga) < 0.15:
+			dead_walls.append(lv)
+		print("SIM  %2d | %s | %9.0f%% | %11.0f%% | %7.0f%% | %9.0f%% | %+7.0f%% | %8.2f | %s"
+			% [lv, "牆" if wall else "  ", f * 100.0, a * 100.0, gf * 100.0, ga * 100.0,
+			(a - ga) * 100.0, avg, "OK" if ok else "唔達標"])
+	print("SIM ---- %d/%d 關達標(自適應玩家)----" % [LEVELS - bad, LEVELS])
+	if not soft_levels.is_empty():
+		print("SIM 非牆關跌穿 85%%: %s —— 唔關 WALLS 事,係基礎曲線,只記錄唔喺呢度改"
+			% [soft_levels])
+	if not dead_walls.is_empty():
+		print("SIM 無效嘅牆(貪心玩家一樣三次內過到,即係淨係考緊升級級數): %s" % [dead_walls])
+	elif bad == 0:
+		print("SIM 三幅牆都對貪心玩家造成咗真嘅阻力(組成差距 >= 15% 或者貪心過唔到)")
+	# 自適應玩家喺每一關「感覺到」啲乜。呢個係牆有冇教到嘢嘅直接證據:一幅飛行牆
+	# 應該讀到 air,一幅分裂牆應該讀到 crowd。
+	print("SIM")
+	print("SIM ---- 敗仗診斷(自適應玩家喺每關讀到嘅壓力,計數 = 診斷到嘅局數)----")
+	for lv in range(1, LEVELS + 1):
+		var d: Dictionary = ad.diag[lv]
+		if d.is_empty():
+			continue
+		var parts: Array = []
+		for t in AD_TAGS:
+			if d.has(t):
+				parts.append("%s x%d" % [t, int(d[t])])
+		print("SIM  %2d %s | %s" % [lv, "牆" if GameData.is_wall(lv) else "  ", ", ".join(parts)])
+	# --- 贏得幾驚險 ----------------------------------------------------------
+	# 一個 100% 通過率答唔到「差幾多就輸」。呢張表答:最遠嗰隻怪行到成條路嘅幾多
+	# (100% = 有嘢入到基地 = 輸)、同場最多幾多隻、行到門口嘅隻數、boss 剩幾多血、
+	# 收工仲剩幾多金。如果通過率係 100% 而 max_frac 得五六成、剩金仲有幾千,咁「調
+	# 成份」根本唔會改變任何嘢 —— 個瓶頸唔喺關卡,喺呢個模擬玩家身上。
+	print("SIM")
+	print("SIM ---- 贏面(自適應玩家,每關所有嘗試嘅平均)----")
+	print("SIM  lv | 牆 | 最遠推進 | 到門口 | 同場最多 | 擊殺 | 塔數 | boss殘血 | 剩金")
+	for lv in range(1, LEVELS + 1):
+		var m: Dictionary = ad.marg[lv]
+		var n: float = maxf(1.0, float(m.n))
+		print("SIM  %2d | %s | %7.0f%% | %6.1f | %8.1f | %4.0f | %4.1f | %7.0f%% | %5.0f"
+			% [lv, "牆" if GameData.is_wall(lv) else "  ",
+			100.0 * float(m.frac) / n, float(m.deep) / n, float(m.peak) / n,
+			float(m.kills) / n, float(m.towers) / n,
+			100.0 * float(m.boss) / n, float(m.gold) / n])
+	if bad > 0:
+		print("SIM 未達標,要調 GameData.WALLS(牆太易 -> 加成份;牆太難 -> 減成份;"
+			+ "非牆關跌穿 85% -> 睇下係咪牆嘅成份漏咗落隔離關)")
+
+## One full 12-seed sweep with one of the two players. Both players face the SAME
+## seed sequence, so the difference between the two tables is the player and not
+## the dice.
+func _walls_run(adaptive: bool) -> Dictionary:
+	var who: String = "自適應" if adaptive else "貪心"
+	var first: Dictionary = {}
+	var any: Dictionary = {}
+	var tries: Dictionary = {}
+	var diag: Dictionary = {}
+	var marg: Dictionary = {}
+	for lv in range(1, LEVELS + 1):
+		first[lv] = 0
+		any[lv] = 0
+		tries[lv] = 0
+		diag[lv] = {}
+		marg[lv] = {"n": 0, "frac": 0.0, "peak": 0, "deep": 0, "boss": 0.0,
+			"gold": 0, "towers": 0, "kills": 0}
+	for s in WALL_SEEDS:
+		Meta.reset_save()
+		_ad_reset()
+		seed(0xBA1A + s * 7919)
+		for lv in range(1, LEVELS + 1):
+			var attempt := 0
+			var won := false
+			while attempt < WALL_MAX_TRIES and not won:
+				attempt += 1
+				var r: Dictionary = await _play_attempt(lv, adaptive, WALL_FIELD_CAP)
+				won = r.win
+				if won and attempt == 1:
+					first[lv] = int(first[lv]) + 1
+				var sg: Dictionary = r.sig
+				var mg: Dictionary = marg[lv]
+				mg.n = int(mg.n) + 1
+				mg.frac = float(mg.frac) + float(sg.max_frac)
+				mg.peak = int(mg.peak) + int(sg.peak_alive)
+				mg.deep = int(mg.deep) + int(sg.deep_flying) + int(sg.deep_ground)
+				mg.boss = float(mg.boss) + float(r.boss_left)
+				mg.gold = int(mg.gold) + int(r.gold_left)
+				mg.towers = int(mg.towers) + int(r.towers)
+				mg.kills = int(mg.kills) + int(r.kills)
+				if adaptive:
+					for t in _ad_observe(r, won):
+						diag[lv][t] = int(diag[lv].get(t, 0)) + 1
+					_ad_spend_crystals()
+				else:
+					_spend_crystals()
+			tries[lv] = int(tries[lv]) + attempt
+			if won:
+				any[lv] = int(any[lv]) + 1
+			else:
+				# 同 playthrough 一樣強制放行,先至量到成條曲線而唔係淨係量到第一幅牆
+				Meta.on_level_cleared(lv)
+				if adaptive:
+					_ad_spend_crystals()
+				else:
+					_spend_crystals()
+		print("SIM   %s玩家 seed %d/%d 完成" % [who, s + 1, WALL_SEEDS])
+	return {"first": first, "any": any, "tries": tries, "diag": diag, "marg": marg}
+
+# ---------------------------------------------------------------------------
+# 自適應玩家 —— 只俾 --walls 用
+# ---------------------------------------------------------------------------
+## 點解要多一個玩家。
+##
+## 上面嗰個玩家(_next_buy / _pick / _damage_value / _spend_crystals)輸咗只會做
+## 一件事:袋起魔晶,喺佢本來就鍾意嗰兩三座塔身上再買多幾級。佢揀塔淨係睇每金傷
+## 害,由頭到尾都唔會換陣容。
+##
+## 但「逼玩家換陣容」正正就係難度牆嘅全部論點 —— 一幅「你需要對空手段」嘅牆教到嘅
+## 嘢,一幅「所有嘢多 40% 血」嘅牆教唔到。用一個永遠唔換陣容嘅玩家去調牆,調到佢
+## 三次內過到,唯一調得出嘅結論就係「淨係買升級級數就夠」,而嗰樣正正係牆要防止嘅
+## 失敗模式:個量度會過,但個設計會衰。所以呢度加咗一個會換陣容嘅玩家,而貪心玩家
+## 一個字都冇改 —— --playthrough / --curve / --econ10 全部靠佢固定唔郁,郁咗就等於
+## 靜靜雞廢咗 BALANCE_CHANGELOG.md 入面每一次舊量度。
+##
+## 呢個玩家係一個「講得通嘅人類」,唔係一個神:
+##   * 佢淨係讀真人打完一場會察覺到嘅嘢 —— 有嘢衝到我門口而且係飛嘅、我殺咗佢佢
+##     又企返起身、成場太多屍體、佢哋血一路上返、我啲彈打落去似冇入面。全部由
+##     Battle 嘅 sim_* 計數器嚟(見 Battle.gd),冇一個係關卡資料。
+##   * 佢絕對唔會讀 GameData.WALLS、唔會叫 is_wall()、唔知邊關係牆、亦都唔知牆加咗
+##     乜家族入去。可以查答案嘅量度冇價值。
+##   * 佢會輸。如果佢想要嘅剋制塔未解鎖又買唔起,佢就係買唔到 —— 嗰個先係我哋想
+##     要嘅信號。
+const AD_TAGS := ["air", "crowd", "heal", "armor", "mres"]
+
+## 一場之後,舊嘅壓力衰減幾多。唔係記憶好唔好嘅問題:玩家換完陣容過咗關之後,再
+## 過幾關嗰個壓力就唔再係佢決策嘅主軸。
+const AD_DECAY := 0.55
+## 診斷門檻。全部係「打完一場會察覺到」嘅量級,唔係精準值。
+const AD_DEEP_AIR := 3          # 幾多隻飛行怪行到門口 = 對空唔夠
+const AD_CROWD_ALIVE := 26      # 同場最多幾多隻
+const AD_SPLIT := 8             # 分裂出嚟嘅屍體數
+const AD_REVIVE := 5            # 殺完企返起身嘅次數
+const AD_HEAL_FRAC := 0.10      # 敵人回復量 / 我造成嘅傷害
+const AD_ABSORB := 0.32         # 被吸收咗嘅傷害比例
+
+## 邊種機制答邊種壓力。key 係塔嘅 `mech`,值係乘落每金傷害估值嘅倍率。
+## 呢張表係設計判斷,唔係量度出嚟嘅 —— 佢代表「一個諗過嘅玩家會點反應」。
+const AD_COUNTER := {
+	# 飛行:荊棘塔淨係打地面(monsters_in_radius(..., false)),兵營嘅士兵亦都只
+	# 攔得住地面(Soldier 用 nearest_ground_monster_near)。所以「對空」喺呢隻遊戲
+	# 唔係解鎖一座防空塔,而係唔好將塔位同魔晶倒落兩座打唔到天上嘅嘢度。
+	"air": {"thorn": 0.15, "barracks": 0.25, "arrow": 1.30, "gatling": 1.30,
+		"sniper": 1.25, "frost": 1.30, "lightning": 1.20, "boomerang": 1.20,
+		"beam": 1.20, "slowfield": 1.20},
+	# 屍體太多 / 殺唔死實:要範圍。單體大傷嘅塔(狙擊 / 導彈)喺呢個情境最差。
+	"crowd": {"cannon": 1.60, "mortar": 1.55, "fireball": 1.50, "lightning": 1.50,
+		"poison": 1.30, "slowfield": 1.30, "thorn": 1.20, "sniper": 0.70,
+		"missile": 0.70, "beam": 0.80},
+	# 佢哋一路回血:要燒 / 毒呢啲持續傷害,同埋快到可以喺回血之前殺死治療者。
+	"heal": {"fireball": 1.40, "poison": 1.40, "lightning": 1.30, "beam": 1.30,
+		"gatling": 1.20, "curse": 1.30, "barracks": 0.60, "alchemy": 0.70},
+	# 打落去似冇入面,而且係物理被食:轉魔法 / 真傷,或者買穿甲。
+	"armor": {"lightning": 1.50, "fireball": 1.50, "beam": 1.50, "holy": 1.40,
+		"poison": 1.50, "thorn": 1.40, "arrow": 0.70, "sniper": 0.70,
+		"gatling": 0.70, "boomerang": 0.80, "cannon": 1.10},
+	# 魔法被食:轉返物理 / 真傷。
+	"mres": {"arrow": 1.40, "cannon": 1.40, "sniper": 1.40, "gatling": 1.40,
+		"mortar": 1.30, "missile": 1.30, "boomerang": 1.30, "poison": 1.40,
+		"thorn": 1.40, "lightning": 0.60, "fireball": 0.60, "beam": 0.60,
+		"holy": 0.60},
+}
+
+## 除咗 CORE_DIRS 之外,呢個壓力之下仲值得升邊啲方向。
+const AD_DIRS := {
+	"air": [],
+	"crowd": ["splash", "chain", "frag", "pburst", "pmax"],
+	"heal": ["burn", "burndur", "pstack", "execute"],
+	"armor": ["armorpen", "meltarmor", "pstack", "bleed"],
+	"mres": ["pstack", "pmax", "bleed"],
+}
+
+## 要幾強嘅剋制,先值得專登為佢解鎖一座新塔。
+const AD_UNLOCK_BIAS := 1.15
+## 壓力細過呢個就當佢已經淡咗,唔再影響升級方向。
+const AD_LIVE := 0.25
+
+## tag -> 強度 0..1
+var _ad_p: Dictionary = {}
+
+func _ad_reset() -> void:
+	_ad_p = {}
+
+## 打完一場:舊壓力衰減,贏咗就算數,輸咗就診斷返點解。回傳今次讀到嘅 tag。
+func _ad_observe(r: Dictionary, won: bool) -> Array:
+	for k in _ad_p.keys():
+		_ad_p[k] = float(_ad_p[k]) * AD_DECAY
+	if won:
+		return []
+	var tags: Array = _ad_diagnose(r.sig)
+	for t in tags:
+		_ad_p[t] = 1.0
+	return tags
+
+## 點解會輸。全部由 Battle 嘅 sim_* 嚟,全部係打完一場察覺得到嘅嘢。
+func _ad_diagnose(sig: Dictionary) -> Array:
+	var tags: Array = []
+	# 「有嘢衝到我門口,而且係飛嘅」
+	if int(sig.deep_flying) >= AD_DEEP_AIR or bool(sig.leak_flying):
+		tags.append("air")
+	# 「我殺咗佢佢又企返起身」/「一隻變幾隻」/「成場太多屍體」
+	if int(sig.peak_alive) >= AD_CROWD_ALIVE or int(sig.splits) >= AD_SPLIT \
+			or int(sig.revives) >= AD_REVIVE:
+		tags.append("crowd")
+	# 「佢哋條血一路上返」
+	if float(sig.heal) >= AD_HEAL_FRAC * maxf(1.0, float(sig.dmg)):
+		tags.append("heal")
+	# 「我啲彈打落去似冇入面」—— 再分係甲food定係魔抗食。冇用過某一種傷害類型嘅
+	# 玩家自然讀唔到嗰邊被食幾多,而佢嘅結論(「試下另一種」)一樣啱。
+	var rp: float = float(sig.raw_phys)
+	var rm: float = float(sig.raw_magic)
+	var fp: float = (1.0 - float(sig.out_phys) / rp) if rp > 0.0 else -1.0
+	var fm: float = (1.0 - float(sig.out_magic) / rm) if rm > 0.0 else -1.0
+	if fp >= AD_ABSORB and fp >= fm:
+		tags.append("armor")
+	if fm >= AD_ABSORB and fm > fp:
+		tags.append("mres")
+	return tags
+
+## 依家嘅壓力之下,呢個機制值幾多倍。
+func _ad_bias(mech: String) -> float:
+	var mult := 1.0
+	for tag in _ad_p:
+		var w: float = clampf(float(_ad_p[tag]), 0.0, 1.0)
+		if w <= 0.02:
+			continue
+		var tbl: Dictionary = AD_COUNTER[tag]
+		mult *= lerpf(1.0, float(tbl.get(mech, 1.0)), w)
+	return mult
+
+## 同貪心玩家一樣嘅結構(支援塔佔三分一場),但每金傷害估值乘咗剋制倍率。
+## 呢個就係「換陣容」實際發生嘅位:同一筆金,依家會流去另一種塔。
+func _ad_next_buy(b) -> int:
+	var want_support: bool = float(_support_count(b)) < float(maxi(1, b.towers.size())) * SUPPORT_SHARE
+	var best := _ad_pick(b, want_support)
+	if best == 0:
+		best = _ad_pick(b, not want_support)
+	return best
+
+func _ad_pick(b, support: bool) -> int:
+	var best := 0
+	var best_v := -1.0
+	for id in Meta.unlocked_towers:
+		var def := GameData.tower_by_id(id)
+		var cost: int = int(def.place_cost)
+		if cost > b.gold:
+			continue
+		if (def.mech in SUPPORT) != support:
+			continue
+		var v: float = _support_value(b, int(id), cost) if support else _damage_value(int(id), cost)
+		v *= _ad_bias(String(def.mech))
+		if v > best_v:
+			best_v = v
+			best = int(id)
+	return best
+
+## 場與場之間嘅購物。同貪心玩家嘅分別得兩處:先買剋制塔嘅解鎖(買唔起就係買唔起,
+## 唔會退而求其次亂咁解鎖),同埋升級方向會跟壓力走。
+func _ad_spend_crystals() -> Dictionary:
+	var out := {"unlock": 0, "upgrade": 0}
+	var guard := 0
+	while guard < 400:
+		guard += 1
+		var before: int = Meta.crystals
+		if _ad_buy_counter_unlock():
+			out.unlock += before - Meta.crystals
+			continue
+		if Meta.unlocked_towers.size() < UNLOCK_TARGET and _buy_best_unlock():
+			out.unlock += before - Meta.crystals
+			continue
+		if _ad_buy_upgrade():
+			out.upgrade += before - Meta.crystals
+			continue
+		return out
+	return out
+
+## 解鎖一座真係答到依家嗰個壓力嘅塔。買唔起就回 false —— 呢個係設計上要保留嘅失敗
+## 途徑,唔係一個要補嘅窿:一個未儲夠錢買答案嘅玩家,就係應該過唔到。
+func _ad_buy_counter_unlock() -> bool:
+	var best := 0
+	var best_v := AD_UNLOCK_BIAS
+	for t in GameData.TOWERS:
+		if Meta.is_tower_unlocked(t.id) or int(t.unlock) <= 0:
+			continue
+		var v: float = _ad_bias(String(t.mech))
+		if v > best_v:
+			best_v = v
+			best = int(t.id)
+	if best == 0:
+		return false
+	if not Meta.can_afford(int(GameData.tower_by_id(best).unlock)):
+		return false
+	return Meta.unlock_tower(best)
+
+## 依家值得深耕嘅塔:每金輸出 x 剋制倍率。壓力一轉,呢個名單就會轉,所以魔晶會跟住
+## 流去新陣容而唔係繼續灌落舊嗰兩座。
+func _ad_core_towers() -> Array:
+	var ranked: Array = Meta.unlocked_towers.duplicate()
+	ranked.sort_custom(func(a, c):
+		return _out_per_gold(int(a)) * _ad_bias(String(GameData.tower_by_id(int(a)).mech)) \
+			> _out_per_gold(int(c)) * _ad_bias(String(GameData.tower_by_id(int(c)).mech)))
+	return ranked.slice(0, mini(CORE_COUNT, ranked.size()))
+
+func _ad_dirs() -> Array:
+	var dirs: Array = CORE_DIRS.duplicate()
+	for tag in _ad_p:
+		if float(_ad_p[tag]) < AD_LIVE:
+			continue
+		for d in AD_DIRS[tag]:
+			if not (String(d) in dirs):
+				dirs.append(String(d))
+	return dirs
+
+func _ad_buy_upgrade() -> bool:
+	var dirs: Array = _ad_dirs()
+	var best_id := 0
+	var best_dir := -1
+	var best_cost := 1 << 30
+	for id in _ad_core_towers():
+		var def := GameData.tower_by_id(id)
+		var levels: Array = Meta.tower_levels(int(id))
+		for d in def.ups.size():
+			if not (String(def.ups[d].stat) in dirs):
 				continue
 			if int(levels[d]) >= GameData.MAX_UP_LV:
 				continue

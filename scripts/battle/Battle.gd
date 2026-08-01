@@ -79,6 +79,41 @@ var kills: int = 0
 ## while damage output stays monotone and comparable between builds.
 var damage_dealt: float = 0.0
 
+# ---------------------------------------------------------------------------
+# MEASUREMENT COUNTERS (sim_*). These exist ONLY so test/BalanceSim.gd's adaptive
+# player can diagnose why an attempt was lost — nothing in the game reads them and
+# no gameplay branches on them. They are deliberately plain integer / float
+# accumulators updated at points the code already walks (a monster's own _process,
+# take_hit, on_reach_base), because they run inside the hot loop at 5x speed: one
+# add per event is affordable, a per-frame scan of `monsters` would not be.
+#
+# Each one is meant to correspond to something a HUMAN would notice from playing
+# the level, not to internal level data — see BalanceSim._ad_diagnose().
+# ---------------------------------------------------------------------------
+## Monsters that got within BASE_DANGER_ROUTE_FRAC of the gate, split by air/ground.
+## "Things kept reaching my doorstep, and they were the flying ones."
+var sim_deep_flying: int = 0
+var sim_deep_ground: int = 0
+## Whether the monster that finally broke through was flying.
+var sim_leak_flying: bool = false
+## Deepest fraction of the road any enemy ever reached. See _maybe_warn_base_danger.
+var sim_max_frac: float = 0.0
+## Kills that stood back up (骷髏 復活光環) and bodies born from a split (史萊姆).
+## "I killed it and it got up" / "one of them became three".
+var sim_revives: int = 0
+var sim_splits: int = 0
+## Most enemies alive at once. Sampled once per spawn, not per frame.
+var sim_peak_alive: int = 0
+## Total HP restored to enemies. "Their bars keep going back up."
+var sim_heal_enemy: float = 0.0
+## Damage BEFORE and AFTER mitigation, split by damage type. The ratio is what a
+## player reads as "my shots are barely denting these", and the split is what tells
+## them whether it was armour or magic resistance doing it.
+var sim_raw_phys: float = 0.0
+var sim_out_phys: float = 0.0
+var sim_raw_magic: float = 0.0
+var sim_out_magic: float = 0.0
+
 # input modes
 var build_id: int = 0            # tower id being placed (0 = none)
 var aiming_spell: int = 0        # spell id awaiting target (0 = none)
@@ -415,6 +450,7 @@ func _spawn_monster(fam: String, lv: int, boss: bool, start_dist: float) -> Mons
 	m.setup(self, route, fam, lv, boss, cfg.wave_scale, monster_pool, start_dist)
 	monsters.append(m)
 	spawned_count += 1
+	sim_peak_alive = maxi(sim_peak_alive, monsters.size())   # measurement only
 	Meta.mark_seen(fam, lv, boss)   # bestiary sighting
 	return m
 
@@ -430,6 +466,7 @@ const SPLIT_BACK := 80.0
 
 func spawn_split(fam: String, lv: int, count: int, at_dist: float) -> void:
 	var cap: float = maxf(0.0, route.total - SPLIT_BACK)
+	sim_splits += count                                     # measurement only
 	for i in count:
 		var off := randf_range(-25, 25)
 		_spawn_monster(fam, maxi(1, lv), false, clampf(at_dist + off, 0.0, cap))
@@ -482,6 +519,11 @@ func on_boss_killed(m: Monster) -> void:
 ## 喺 Monster._process() 度叫,嗰度本身就已經逐幀讀緊呢隻怪嘅 dist/route.total
 ## (跟住嗰句就係 on_reach_base 嘅到達判斷),所以呢度唔使加多一次逐怪嘅 traversal。
 func _maybe_warn_base_danger(route_frac: float) -> void:
+	# MEASUREMENT ONLY (see the sim_* block): the deepest any enemy ever got along
+	# the road, as a fraction. 1.0 means something reached the gate, i.e. the run
+	# was lost — so this is the MARGIN a won run was won by, which pass/fail alone
+	# cannot show. One maxf on a value the caller already computed.
+	sim_max_frac = maxf(sim_max_frac, route_frac)
 	if _danger_played or base_shield > 0:
 		return
 	if route_frac < GameData.BASE_DANGER_ROUTE_FRAC:
@@ -490,6 +532,7 @@ func _maybe_warn_base_danger(route_frac: float) -> void:
 	Audio.play("sfx_base_danger")
 
 func on_reach_base(m: Monster) -> void:
+	sim_leak_flying = m.flying                              # measurement only
 	if base_shield > 0:
 		base_shield -= 1
 		spawn_fx_ring(base_pos, 90, Color(0.5, 0.8, 1.0))

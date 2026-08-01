@@ -84,6 +84,9 @@ var burn_tick: float = 0.0
 var _walk: float = 0.0            # walk-cycle phase (procedural bob/step)
 var _drawn_frac: float = -1.0     # HP fraction currently painted (redraw gate)
 var _drawn_cursed: bool = false   # curse mark currently painted (redraw gate)
+## MEASUREMENT ONLY: latched once this monster crosses the "doorstep" distance, so
+## Battle.sim_deep_* counts monsters rather than frames. See _process().
+var _sim_deep: bool = false
 
 func _ready() -> void:
 	sprite = Sprite2D.new()
@@ -132,6 +135,7 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	channel_time = 0.0; channel_total = 0.0; channel_heal = 0.0; channel_heal0 = 0.0
 	_heal_flash = 0.0; _heal_bank = 0.0; _heal_bank_t = 0.0
 	phase_time = 0.0; phase_cd = 5.0; did_rootheal = false; boss_timer = 3.0
+	_sim_deep = false                 # pooled node: measurement latch resets too
 	poison_tick = 0.0; burn_tick = 0.0; _flash_t = 0.0; _drawn_frac = -1.0
 	_drawn_cursed = false
 	_walk = randf() * TAU
@@ -167,6 +171,16 @@ func _process(delta: float) -> void:
 	if spd > 0.0:
 		dist += spd * delta
 		battle._maybe_warn_base_danger(dist / route.total)
+		# MEASUREMENT ONLY (Battle.sim_*): "how many of them got to my doorstep, and
+		# were they the flying ones". Piggybacks on the distance the danger warning
+		# already needs, and the latch keeps it to one bool test per monster per
+		# frame in the hot loop instead of a per-frame scan of the field.
+		if not _sim_deep and dist >= route.total * GameData.BASE_DANGER_ROUTE_FRAC:
+			_sim_deep = true
+			if flying:
+				battle.sim_deep_flying += 1
+			else:
+				battle.sim_deep_ground += 1
 		if dist >= route.total:
 			battle.on_reach_base(self)
 			return
@@ -336,6 +350,7 @@ func _apply_heal(amount: float) -> float:
 		return 0.0
 	amount = minf(amount, max_hp - hp)
 	hp += amount
+	battle.sim_heal_enemy += amount     # measurement only; see Battle.sim_*
 	_heal_bank += amount
 	_heal_flash = HEAL_FLASH_DUR
 	_drawn_frac = -1.0          # force the bar to repaint on the way up too
@@ -430,8 +445,14 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	if dtype == "phys":
 		var a: float = maxf(0.0, armor * (1.0 - armorpen))
 		d *= (1.0 - a / (a + 50.0))
+		# MEASUREMENT ONLY (Battle.sim_*): two float adds, so the balance harness can
+		# tell "armour is eating my shots" apart from "magic resistance is".
+		battle.sim_raw_phys += dmg
+		battle.sim_out_phys += d
 	elif dtype == "magic":
 		d *= (1.0 - mres / (mres + 60.0))
+		battle.sim_raw_magic += dmg
+		battle.sim_out_magic += d
 	# amplifiers
 	var amp := 1.0 + curse_amp + vuln_amp
 	d *= amp
@@ -509,6 +530,7 @@ func _die(force: bool) -> void:
 			var frac: float = GameData.REVIVE_HP[mini(revive_count, GameData.REVIVE_HP.size() - 1)]
 			revive_count += 1
 			revived = true
+			battle.sim_revives += 1     # measurement only; see Battle.sim_*
 			hp = 0.0
 			request_heal(max_hp * frac, true)   # shows the green number + rebound
 			battle.spawn_fx_ring(global_position, size, Color(0.8, 0.8, 0.7))

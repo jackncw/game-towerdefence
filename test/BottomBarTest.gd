@@ -39,6 +39,7 @@ func _ready() -> void:
 	await _case_quick_layout()
 	await _case_one_gesture()
 	await _case_quickbar_screen()
+	await _case_quickbar_no_bleed()
 	_restore_save()
 	Meta.load_game()
 	print("BOTTOMBAR %s fails=%d" % ["PASS" if fails == 0 else "FAIL", fails])
@@ -406,9 +407,12 @@ func _case_quickbar_screen() -> void:
 	_ok("QB 指派到第 0 格", int(s[0]) == 4, "slots=%s" % str(s))
 	_ok("QB 原本嗰格接走咗被換走嗰座", int(s[5]) == int(before[0]),
 		"slots=%s (before %s)" % [str(s), str(before)])
+	# 成功指派完,揀住嘅槽應該自己清返 —— 唔靠測試手動清,
+	# 因為手動清會蓋住「畫面冇自己做呢步」呢個 bug(見 _case_quickbar_no_bleed）
+	_ok("QB 指派完自己清返揀住嘅槽(冇靠測試手動清)", qb.selected_slot == -1,
+		"selected_slot=%d" % qb.selected_slot)
 
-	# 入嚟嗰陣冇嘢揀住,所以撳塔唔應該有嘢發生
-	qb.selected_slot = -1
+	# 冇嘢揀住,所以撳塔唔應該有嘢發生
 	var s2: Array = Meta.quick_slot_ids()
 	qb._tower_pressed(1)
 	_ok("QB 未揀槽撳塔冇作用", Meta.quick_slot_ids() == s2,
@@ -446,6 +450,36 @@ func _case_quickbar_screen() -> void:
 	Meta.load_game()
 	_ok("QB 改完即刻存檔", Meta.quick_slot_ids() == want,
 		"want %s got %s" % [str(want), str(Meta.quick_slot_ids())])
+	qb.queue_free()
+	await _idle(2)
+
+# ---------------------------------------------------------------------------
+# QB — 一個手勢完咗就完咗,唔應該漏到下一手
+# ---------------------------------------------------------------------------
+## 呢個 case 全程唔撳一下 `qb.selected_slot = ...`,因為呢度測緊嘅正正就係
+## 「畫面自己會唔會喺一個成功嘅指派之後清返揀住嘅槽」。手動清會蓋住呢個 bug —
+## _case_quickbar_screen() 之前有一句咁做,而家已經拆走咗。
+func _case_quickbar_no_bleed() -> void:
+	Meta.reset_save()
+	Meta.crystals = 99999
+	Meta.unlock_tower(3)
+	var qb = load("res://scripts/ui/QuickBar.gd").new()
+	add_child(qb)
+	await _idle(3)
+
+	qb._slot_pressed(0)              # 揀第 0 格
+	qb._tower_pressed(3)             # 指派 3 落去 —— 一個完整嘅手勢
+	_ok("QB 指派完自己清返揀住嘅槽", qb.selected_slot == -1,
+		"selected_slot=%d after a successful assign" % qb.selected_slot)
+	var after_assign: Array = Meta.quick_slot_ids()
+
+	qb._slot_pressed(2)              # 全新、無關嘅一撳 —— 應該淨係揀第 2 格
+	_ok("QB 新一撳係新揀,唔係同上一手勢連埋",
+		qb.selected_slot == 2,
+		"selected_slot=%d (想要 2 —— 一個新選擇,唔係對調)" % qb.selected_slot)
+	_ok("QB 頭先指派嗰座塔冇被搬走", Meta.quick_slot_ids() == after_assign,
+		"%s -> %s" % [str(after_assign), str(Meta.quick_slot_ids())])
+
 	qb.queue_free()
 	await _idle(2)
 

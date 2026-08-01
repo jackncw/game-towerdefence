@@ -116,6 +116,11 @@ func _slot_pressed(i: int) -> void:
 
 ## 撳一座塔。要有一個揀咗嘅槽先有意義 —— 冇揀槽就撳,唔知放邊格,所以乜都唔做。
 ## 撳返已經喺揀咗嗰格入面嘅塔 = 清空嗰格(即係「取消釘選」,唔使多一個掣)。
+##
+## 成功指派/清空之後要清返 selected_slot —— 唔係就個槽會繼續揀住,令玩家跟住
+## 嗰一撳(佢以為係「揀第二格」)被讀成「同揀住嗰格對調」,一個佢冇叫過嘅動作。
+## 冇做嘢嘅早退(冇揀槽 / 塔未解鎖)就唔郁 selected_slot —— 淨係一個真係
+## 成功嘅變動先算完咗一個手勢。
 func _tower_pressed(id: int) -> void:
 	if selected_slot < 0 or selected_slot >= Meta.QUICK_SLOTS:
 		return
@@ -123,6 +128,7 @@ func _tower_pressed(id: int) -> void:
 		return
 	var cur: int = int(Meta.quick_slot_ids()[selected_slot])
 	Meta.set_quick_slot(selected_slot, 0 if cur == id else id)
+	selected_slot = -1
 	_refresh()
 
 func _refresh() -> void:

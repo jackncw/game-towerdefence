@@ -31,6 +31,8 @@
 /art_i18n_en/
 /art_r8_zh/
 /art_r8_en/
+/art_r9/
+/art_r9_en/
 /Claude art self improve/
 
 # translation resources compiled from i18n/*.csv by the Godot importer

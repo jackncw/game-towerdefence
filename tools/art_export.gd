@@ -60,6 +60,9 @@ func _unlock_all() -> void:
 		Meta.seen["%s_boss" % f] = true
 	Flow.last_result = {"win": true, "level": 3, "kills": 48, "crystals": 130,
 		"base": 60, "first": 70, "replay": false}
+	# 快捷列六格全滿 —— 最迫嘅底欄佈局(15 魔法 + 6 塔槽 + 更多掣)先係要驗嘅
+	# 嗰個狀態,四座初始塔加兩個空格證明唔到乜
+	Meta.quick_slots = [1, 2, 5, 13, 7, 9]
 
 # --- capture helpers --------------------------------------------------------
 func _save(img: Image, name: String) -> void:
@@ -131,6 +134,9 @@ func _run() -> void:
 		"time": 78.0, "boss_reached": true}
 	await _shoot_scene("res://scenes/Fail.tscn", "10_fail")
 	await _shoot_scene("res://scenes/Settings.tscn", "14_settings")
+	# 快捷列釘選畫面:全部 20 座塔解鎖情況下,4 欄 grid 排唔排得晒 —— 呢個先係
+	# 英文塔名(比中文闊 1.7 倍)真正會爆嘅地方
+	await _shoot_scene("res://scenes/QuickBar.tscn", "23_quickbar")
 	await _gen_galleries()
 
 ## 詛咒塔 in the field: the standing sigil on the ground plus the little hex/flame

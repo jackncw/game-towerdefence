@@ -194,6 +194,8 @@ LOUDNESS = {
     # 大魔法要有份量,但仲係要坐喺 jingle 之下
     "sfx_spell_meteor": 0.13, "sfx_spell_quake": 0.13,
     "sfx_spell_blackhole": 0.13, "sfx_spell_freezenova": 0.12,
+    # 環境聲,唔係事件聲 —— 唔應該同攻擊搶
+    "sfx_aura_curse": 0.06, "sfx_field_slow": 0.06,
 }
 DEFAULT_LOUDNESS = 0.10          # every sfx_atk_* archetype
 
@@ -313,6 +315,102 @@ def sfx_atk_beam():
     body = saw(760.0 * vib, d) * adsr(d, 0.02, 0.06, 0.8, 0.10)
     sub = square(380, d, duty=0.5) * adsr(d, 0.02, 0.06, 0.6, 0.10) * 0.4
     return bitcrush(body * 0.7 + sub, bits=5)
+
+
+# ---------------------------------------------------------------------------
+# tower attacks — five bespoke ones. Each of these mechanics reads as
+# something other than a bow (a spray, a spinning return, a spike, a pulse, a
+# phase-shift), so re-pitching sfx_atk_arrow for them just sounds like an
+# out-of-tune arrow tower instead of its own thing.
+# ---------------------------------------------------------------------------
+
+
+def sfx_atk_poison():
+    """Poison spray: crude bandpassed noise (the wet spray itself) plus a
+    falling sine underneath for a sticky low body — the low layer is what
+    separates this from sfx_atk_fire's whoosh, which has no tonal centre."""
+    d = 0.20
+    n = noise(d)
+    spray = (lowpass(n, 1400.0) - lowpass(n, 350.0)) * perc(d, curve=5.0)
+    ooze = sine(sweep(200.0, 130.0, d), d) * perc(d, curve=6.0) * 0.35
+    return bitcrush(spray + ooze, bits=6)
+
+
+def sfx_atk_boomerang():
+    """Boomerang: a rising triangle whirr amplitude-modulated at 14Hz so it
+    reads as something spinning through the air, not a straight shot — the
+    rotation modulation is the one thing that tells it apart from a bow."""
+    d = 0.26
+    body = triangle(sweep(600.0, 900.0, d, "lin"), d)
+    spin = 0.45 + 0.55 * np.sin(2.0 * np.pi * 14.0 * t(d))
+    return bitcrush(body * spin * perc(d, curve=3.5), bits=7)
+
+
+def sfx_atk_thorn():
+    """Thorn spike: a thin rising square snap plus a very short high-noise
+    tick layered at the front for the spike physically popping out."""
+    d = 0.14
+    snap = square(sweep(1500.0, 2200.0, d, "lin"), d, duty=0.125) * perc(d, curve=12.0)
+    tick = highpass(noise(0.05), 4000.0) * perc(0.05, curve=15.0) * 0.5
+    out = snap.copy()
+    out[:len(tick)] += tick
+    return bitcrush(out, bits=7)
+
+
+def sfx_atk_magnet():
+    """Magnet pulse: a rising sine sub plus a mid square layer, both low and
+    with no high end at all — the pull is felt, not heard as a click."""
+    d = 0.28
+    sub = sine(sweep(90.0, 240.0, d, "lin"), d) * perc(d, curve=4.0)
+    body = square(180, d, duty=0.5) * perc(d, curve=5.0) * 0.35
+    return bitcrush(sub + body, bits=6)
+
+
+def sfx_atk_teleport():
+    """Teleport: a fast rising square (the target vanishing) with a falling
+    square layered under it (arriving elsewhere) — the pair is what reads as
+    a phase-shift rather than a shot. bits=4 for the roughest crush in the
+    tower set, matching a system snapping through space rather than firing."""
+    d = 0.18
+    out_rise = square(sweep(400.0, 3000.0, d), d, duty=0.125) * perc(d, curve=6.0)
+    in_fall = square(sweep(3000.0, 400.0, d), d, duty=0.125) * perc(d, curve=8.0) * 0.4
+    return bitcrush(out_rise + in_fall, bits=4)
+
+
+# ---------------------------------------------------------------------------
+# tower non-attack events — barracks spawn, curse aura refresh, slowfield
+# pulse. None of these three towers has a discrete shot, so they get sounds
+# tied to their actual events instead of an archetype (wired in a later task).
+# ---------------------------------------------------------------------------
+
+
+def sfx_tower_barracks():
+    """Muster call: a two-note rising horn call on soldier spawn — a fifth
+    apart (note 57 -> 64), which reads as a call/response fanfare rather
+    than a single blip repeating."""
+    a = square(note(57), 0.12, duty=0.25) * adsr(0.12, 0.01, 0.03, 0.8, 0.04)
+    b = square(note(64), 0.18, duty=0.25) * adsr(0.18, 0.01, 0.03, 0.7, 0.06)
+    return bitcrush(seq(a, b), bits=6)
+
+
+def sfx_aura_curse():
+    """Curse aura refresh: a slow low drone — long attack/release ADSR so it
+    never snaps in or out, because this fires on every aura tick and has to
+    sit under the mix rather than announce itself like an attack does."""
+    d = 0.50
+    body = saw(sweep(110.0, 88.0, d), d) * adsr(d, 0.12, 0.10, 0.55, 0.20)
+    sub = triangle(note(45), d) * adsr(d, 0.12, 0.1, 0.5, 0.2) * 0.4
+    return bitcrush(body + sub, bits=6)
+
+
+def sfx_field_slow():
+    """Slowfield pulse: a falling triangle tone with a slow 5Hz breathing
+    tremolo over it, so a repeating field pulse reads as one living thing
+    breathing rather than a metronome click."""
+    d = 0.44
+    body = triangle(sweep(340.0, 250.0, d), d) * adsr(d, 0.08, 0.08, 0.6, 0.16)
+    breath = 1.0 + 0.18 * np.sin(2.0 * np.pi * 5.0 * t(d))
+    return bitcrush(body * breath, bits=6)
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +835,16 @@ SOUNDS = {
     "sfx_atk_fire": sfx_atk_fire,
     "sfx_atk_frost": sfx_atk_frost,
     "sfx_atk_beam": sfx_atk_beam,
+    # SFX bus — tower attack, bespoke (mechanic doesn't fit an archetype)
+    "sfx_atk_poison": sfx_atk_poison,
+    "sfx_atk_boomerang": sfx_atk_boomerang,
+    "sfx_atk_thorn": sfx_atk_thorn,
+    "sfx_atk_magnet": sfx_atk_magnet,
+    "sfx_atk_teleport": sfx_atk_teleport,
+    # SFX bus — tower non-attack events (spawn / aura / field pulse)
+    "sfx_tower_barracks": sfx_tower_barracks,
+    "sfx_aura_curse": sfx_aura_curse,
+    "sfx_field_slow": sfx_field_slow,
     # SFX bus — monster deaths, one per family
     "sfx_die_goblin": sfx_die_goblin,
     "sfx_die_wolf": sfx_die_wolf,

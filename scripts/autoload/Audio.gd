@@ -31,32 +31,36 @@ var _bgm: AudioStreamPlayer
 var _bgm_name: String = ""
 var _missing: Dictionary = {}        # names already warned about
 
-## Tower attack sounds. Twenty towers share SIX synthesised archetypes, each
-## re-pitched — a distinct sample per tower would be twenty near-identical blips
-## and twenty things to keep in tune with each other, while pitch alone already
-## separates 狙擊塔 (heavy, low) from 機槍塔 (fast, high) on the same thwip.
+## 20 座塔嘅攻擊聲。原本 17 座共用六個 archetype 靠 pitch 分,而 barracks /
+## curse / slowfield 三座完全無聲 —— 因為佢哋冇「一發」可以對齊。
 ##
-## 兵營塔 / 詛咒塔 / 緩速力場塔 are absent on purpose: none of them has a discrete
-## attack to sync a sound to (a spawn, an aura, a field). They get their own
-## sounds with the rest of the set.
+## 而家:仲有 archetype 嘅係聲音上真係同一件事嘅塔(箭/機槍/狙擊 = 同一個
+## thwip 嘅輕重),而毒/迴旋鏢/荊棘/磁力/傳送呢五座各自有一個聽落唔似射擊嘅
+## 機制,借 pitch 只會令佢哋聽落似「走音嘅箭塔」,所以改咗做專屬。
+## 最後三座唔係攻擊,由各自嘅事件派聲,唔係逐幀。
 const TOWER_SOUND := {
 	"arrow":     ["sfx_atk_arrow", 1.00],
 	"gatling":   ["sfx_atk_arrow", 1.35],
 	"sniper":    ["sfx_atk_arrow", 0.72],
-	"boomerang": ["sfx_atk_arrow", 0.88],
 	"cannon":    ["sfx_atk_cannon", 1.00],
 	"mortar":    ["sfx_atk_cannon", 0.82],
 	"missile":   ["sfx_atk_cannon", 1.18],
 	"lightning": ["sfx_atk_electric", 1.00],
-	"magnet":    ["sfx_atk_electric", 0.72],
-	"teleport":  ["sfx_atk_electric", 1.50],
 	"fireball":  ["sfx_atk_fire", 1.00],
-	"poison":    ["sfx_atk_fire", 0.78],
-	"thorn":     ["sfx_atk_fire", 1.25],
 	"frost":     ["sfx_atk_frost", 1.00],
 	"alchemy":   ["sfx_atk_frost", 1.45],
 	"beam":      ["sfx_atk_beam", 1.00],
 	"holy":      ["sfx_atk_beam", 1.30],
+	# 專屬
+	"poison":    ["sfx_atk_poison", 1.00],
+	"boomerang": ["sfx_atk_boomerang", 1.00],
+	"thorn":     ["sfx_atk_thorn", 1.00],
+	"magnet":    ["sfx_atk_magnet", 1.00],
+	"teleport":  ["sfx_atk_teleport", 1.00],
+	# 唔係攻擊:出兵 / 光環刷新 / 力場脈衝,由各自事件派
+	"barracks":  ["sfx_tower_barracks", 1.00],
+	"curse":     ["sfx_aura_curse", 1.00],
+	"slowfield": ["sfx_field_slow", 1.00],
 }
 
 ## 每族一個死亡聲。共用一個「死亡」聲會令十族聽落一樣 —— 而玩家分辨怪物族群

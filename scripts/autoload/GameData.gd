@@ -7,6 +7,9 @@ const MAX_UP_LV := 15
 const UP_COST_MULT := 1.35
 ## 每關敵人強度成長率 (wave_scale = WAVE_GROWTH^(n-1))
 const WAVE_GROWTH := 1.13
+## 基地護盾跌穿呢個比例(相對於本局最高值)先響一次「危險」音效——
+## 見 Battle.on_reach_base()。
+const BASE_DANGER_FRAC := 0.30
 
 # --- world-render scales (B1: on-screen readability; visual only, no balance) --
 # Round 5 pixel-density rule: EVERY world sprite renders at the same integer

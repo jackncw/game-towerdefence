@@ -1,6 +1,7 @@
 extends Control
 
 func _ready() -> void:
+	Audio.play_bgm("bgm_menu")
 	UI.menu_backdrop(self)
 
 	# ornate title plate + title

@@ -29,6 +29,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 	var s: Dictionary = Meta.spell_stats(id)
 	var def: Dictionary = GameData.spell_by_id(id)
 	var centre := Vector2(540, 960)
+	Audio.play_spell(String(def.mech))
 	match def.mech:
 		"meteor":
 			# the rock itself: a long burning streak in from off-screen

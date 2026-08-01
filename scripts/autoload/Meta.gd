@@ -125,6 +125,7 @@ func spend_crystals(cost: int) -> bool:
 	return true
 
 func add_crystals(amount: int) -> void:
+	Audio.play("sfx_crystal_gain")
 	crystals += amount
 	save_game()
 
@@ -139,6 +140,7 @@ func unlock_tower(id: int) -> bool:
 		return false
 	unlocked_towers.append(id)
 	save_game()
+	Audio.play("sfx_unlock")
 	return true
 
 func unlock_spell(id: int) -> bool:
@@ -146,6 +148,7 @@ func unlock_spell(id: int) -> bool:
 		return false
 	unlocked_spells.append(id)
 	save_game()
+	Audio.play("sfx_unlock")
 	return true
 
 func spell_unlock_cost(id: int) -> int:
@@ -163,6 +166,7 @@ func buy_tower_upgrade(id: int, dir: int) -> bool:
 		return false
 	levels[dir] += 1
 	save_game()
+	Audio.play("sfx_upgrade")
 	return true
 
 func buy_spell_upgrade(id: int, dir: int) -> bool:
@@ -177,6 +181,7 @@ func buy_spell_upgrade(id: int, dir: int) -> bool:
 		return false
 	levels[dir] += 1
 	save_game()
+	Audio.play("sfx_upgrade")
 	return true
 
 func tower_up_cost(id: int, dir: int) -> int:

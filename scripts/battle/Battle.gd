@@ -34,6 +34,8 @@ var skeleton_boss_alive = null
 
 var gold: int = 0
 var base_shield: int = 0
+var _base_shield_max: int = 1
+var _danger_played: bool = false
 var barrier_reflect: float = 0.0
 var base_pos: Vector2
 
@@ -134,6 +136,7 @@ func _ready() -> void:
 	boss_time = cfg.boss_time
 	gold = cfg.start_gold
 	base_pos = route.pos_at(route.total - 20.0)
+	_base_shield_max = base_shield
 
 	Assets.prewarm_battle(cfg.families, cfg.boss_family)
 	_build_world()
@@ -406,6 +409,8 @@ func _spawn_boss() -> void:
 		skeleton_boss_alive = m
 	if hud:
 		hud.show_boss(m)
+	Audio.play("sfx_boss_warning")
+	Audio.queue_bgm("bgm_boss")
 
 func _spawn_monster(fam: String, lv: int, boss: bool, start_dist: float) -> Monster:
 	var m: Monster = monster_pool.acquire()
@@ -472,6 +477,12 @@ func on_boss_killed(m: Monster) -> void:
 func on_reach_base(m: Monster) -> void:
 	if base_shield > 0:
 		base_shield -= 1
+		# 基地危險:只喺跌穿三成嗰一刻響一次,唔係每次漏怪都響 —— 後者喺守唔住嘅
+		# 局入面會變成連續警報,而連續警報等於冇警報
+		if base_shield > 0 and float(base_shield) / float(_base_shield_max) < GameData.BASE_DANGER_FRAC \
+				and not _danger_played:
+			_danger_played = true
+			Audio.play("sfx_base_danger")
 		spawn_fx_ring(base_pos, 90, Color(0.5, 0.8, 1.0))
 		_barrier_reflect_burst(m)
 		if not m.alive:
@@ -507,6 +518,7 @@ func _remove(m: Monster) -> void:
 	monster_pool.release(m)
 
 func add_gold(amount: int) -> void:
+	Audio.play("sfx_gold_pop")
 	gold += amount
 
 func spend_gold(amount: int) -> bool:
@@ -898,11 +910,13 @@ func place_tower(id: int, pos: Vector2) -> bool:
 		holy_towers.append(t)
 	elif t.mech == "curse":
 		curse_towers.append(t)
+	Audio.play("sfx_place_tower")
 	return true
 
 func sell_tower(t) -> void:
 	if t == null:
 		return
+	Audio.play("sfx_sell_tower")
 	gold += t.sell_value()
 	spawn_damage(t.global_position, t.sell_value(), Color(1, 0.85, 0.2))
 	towers.erase(t)
@@ -1206,6 +1220,10 @@ func _win() -> void:
 	if ended: return
 	ended = true
 	Engine.time_scale = 1.0
+	Audio.stop_bgm()
+	Audio.play("jingle_win")
+	if not Meta.is_cleared(level):
+		Audio.play("jingle_first_clear")
 	var award := Meta.on_level_cleared(level)
 	Flow.last_result = {"win": true, "level": level, "kills": kills,
 		"crystals": award.total, "base": award.base, "first": award.first,
@@ -1219,6 +1237,8 @@ func _lose() -> void:
 	if ended: return
 	ended = true
 	Engine.time_scale = 1.0
+	Audio.stop_bgm()
+	Audio.play("jingle_lose")
 	var award := Meta.on_level_failed(level, kills, elapsed, boss_time, boss_best_frac)
 	Flow.last_result = {"win": false, "level": level, "kills": kills,
 		"crystals": award.crystals, "progress": award.progress, "cap": award.cap,

@@ -446,6 +446,7 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	hp -= d
 	battle.damage_dealt += minf(d, maxf(0.0, hp + d))
 	_flash()
+	Audio.play_hit(armor, mres)
 	var big := d >= max_hp * 0.18 and d >= 40.0
 	var ncol := Color(1, 0.85, 0.35) if big else Color(1, 1, 0.7)
 	battle.spawn_damage(global_position + Vector2(randf_range(-8, 8), -size * 0.5), int(round(d)), ncol, big)
@@ -512,6 +513,7 @@ func _die(force: bool) -> void:
 			battle.spawn_fx_ring(global_position, size, Color(0.8, 0.8, 0.7))
 			return
 	alive = false
+	Audio.play_death(fam)
 	if is_boss:
 		battle.on_boss_killed(self)
 		return

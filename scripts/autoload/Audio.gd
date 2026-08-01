@@ -31,6 +31,11 @@ var _bgm: AudioStreamPlayer
 var _bgm_name: String = ""
 var _missing: Dictionary = {}        # names already warned about
 
+## 測試用嘅觀察窗。冇呢個,「呢個事件有冇派聲」就只可以靠人手開音箱聽,
+## 而咁樣嘅嘢冇人會喺每次改動之後重做一次。預設關,零成本。
+var debug_capture: bool = false
+var debug_log: Array = []
+
 ## 20 座塔嘅攻擊聲。原本 17 座共用六個 archetype 靠 pitch 分,而 barracks /
 ## curse / slowfield 三座完全無聲 —— 因為佢哋冇「一發」可以對齊。
 ##
@@ -197,6 +202,8 @@ func stream(sound: String) -> AudioStream:
 ## Fire a one-shot. Safe to call every frame from anywhere; the dedup window and
 ## the pool absorb the volume.
 func play(sound: String, pitch := 1.0) -> void:
+	if debug_capture:
+		debug_log.append(sound)
 	var s := stream(sound)
 	if s == null:
 		return
@@ -279,6 +286,8 @@ func _commit_pending() -> void:
 func play_bgm(sound: String) -> void:
 	if _bgm_name == sound and _bgm.playing:
 		return
+	if debug_capture:
+		debug_log.append(sound)
 	var s := stream(sound)
 	if s == null:
 		return

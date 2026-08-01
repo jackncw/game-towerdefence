@@ -62,6 +62,10 @@ func base_tex() -> Texture2D:
 func soldier() -> Texture2D:
 	return _load(GEN + "ui/soldier.png", 20, Color(0.7, 0.7, 0.75))
 
+## 魔法召喚民兵 — a separate sprite from soldier() so the two never read alike.
+func militia() -> Texture2D:
+	return _load(GEN + "ui/militia.png", 20, Color(0.62, 0.86, 1.0))
+
 ## Generic UI texture (frames, icons, badges). Falls back to a flat panel colour.
 func ui(name: String) -> Texture2D:
 	return _load(GEN + "ui/%s.png" % name, 48, Color(0.4, 0.42, 0.5))
@@ -87,7 +91,7 @@ func prewarm_battle(families: Array, boss_family: String) -> void:
 		tower(id)
 	for id in Meta.unlocked_spells:
 		spell(id)
-	coin(); crystal(); base_tex(); soldier()
+	coin(); crystal(); base_tex(); soldier(); militia()
 
 func _fam_col(fam: String) -> Color:
 	match fam:

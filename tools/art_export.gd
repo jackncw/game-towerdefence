@@ -101,6 +101,7 @@ func _run() -> void:
 	await _shoot_scene("res://scenes/LevelSelect.tscn", "11_levelselect")
 	await _shoot_battle_states()
 	await _shoot_bottom_bar()
+	await _shoot_militia()
 	await _shoot_spell_casts()
 	await _shoot_curse_aura()
 	await _shoot_scene("res://scenes/Shop.tscn", "05_shop")
@@ -176,6 +177,10 @@ func _shoot_upgrades() -> void:
 	await _grab("06c_upgrade_barracks")
 	await _select_upgrade(up, "spell", 1, 0)
 	await _grab("06d_upgrade_spell")
+	# 召喚民兵: the one spell whose diagram had to change with the new militia
+	# body, so the upgrade screen teaches the same silhouette the field shows
+	await _select_upgrade(up, "spell", 5, 420)
+	await _grab("06m_upgrade_summon_mech")
 	# 磁力塔 + 傳送塔: the two towers whose upgrade stats collide by NAME with a
 	# probability stat on another tower (knock / stun). Shot so the px-vs-% and
 	# seconds-vs-% formatting can actually be eyeballed.
@@ -319,6 +324,34 @@ func _shoot_bottom_bar() -> void:
 	for i in 10:
 		await get_tree().process_frame
 	await _grab("21_bar_drawer")
+
+## Round 8: barracks trooper vs summoned militia, side by side and zoomed, which
+## is the only way to check the thing that matters — that they are told apart at
+## the size they actually appear on the field.
+func _shoot_militia() -> void:
+	var b := _make_battle(4)
+	await _mount(b)
+	var d0: float = b.route.total * 0.45
+	# left group: barracks troopers (permanent, no magic)
+	for i in 2:
+		b.spawn_soldier(d0 - 70.0 + i * 40.0, 120.0, 12.0, 2.0, null, -1.0, false)
+	# right group: summoned militia — one mid-summon, one steady, one expiring
+	var fresh = b.spawn_soldier(d0 + 60.0, 120.0, 12.0, 2.0, null, 20.0, true)
+	var steady = b.spawn_soldier(d0 + 110.0, 120.0, 12.0, 2.0, null, 20.0, true)
+	var dying = b.spawn_soldier(d0 + 160.0, 120.0, 12.0, 2.0, null, 20.0, true)
+	for i in 20:
+		await get_tree().process_frame
+	# force the three phases rather than waiting 18 seconds for the last one
+	fresh._age = 0.18
+	steady._age = 3.0
+	dying._age = 3.0
+	dying.life_time = 1.2
+	if b.cam:
+		b.cam.zoom = Vector2(2.4, 2.4)
+		b.cam.position = b.route.pos_at(d0 + 40.0)
+	for i in 3:
+		await get_tree().process_frame
+	await _grab("22_militia_vs_soldier")
 
 func _shoot_battle_states() -> void:
 	# 02: full combat (towers + monsters mid-fight, boss bar up)

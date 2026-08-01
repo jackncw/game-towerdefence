@@ -2256,6 +2256,54 @@ def gen_soldier():
     return 1
 
 
+def gen_militia():
+    """魔法召喚民兵 — deliberately NOT the barracks soldier.
+
+    The two used to share ui/soldier.png and were indistinguishable on the field,
+    which matters because one is permanent and the other expires. They are now
+    separated by SILHOUETTE first, colour second, so the difference survives the
+    20px source size: the soldier is a helmeted block with two legs and a sword
+    sticking out; the militia is a hooded, legless robe that tapers to a ragged
+    vapour hem, with nothing held. Even as a black shape they read apart.
+    """
+    ROBE = (150, 196, 246, 255)
+    HOOD = (198, 228, 255, 255)
+    VOID = (26, 42, 76, 255)
+    GLOW = (156, 228, 255, 255)
+
+    def draw(c):
+        # a halo where the soldier has a ground shadow: this one floats. Kept
+        # tight — a wide one turns into a visible box at 20px.
+        c.aura(0.5, 0.52, 0.26, GLOW)
+        # robe: narrow shoulders -> flare -> three-pointed vapour hem. No legs,
+        # no feet, nothing held.
+        body = [(0.50, 0.26), (0.66, 0.40), (0.75, 0.68), (0.68, 0.80),
+                (0.61, 0.97), (0.55, 0.82), (0.50, 0.99), (0.45, 0.82),
+                (0.39, 0.97), (0.32, 0.80), (0.25, 0.68), (0.34, 0.40)]
+        c.poly(body, ROBE)
+        # lit left side
+        c.poly([(0.50, 0.26), (0.34, 0.40), (0.25, 0.68), (0.32, 0.80),
+                (0.39, 0.97), (0.45, 0.82), (0.50, 0.99)],
+               mix(ROBE, WHITE, 0.32))
+        # tall peaked cowl — the shape a round helmet never makes
+        c.poly([(0.50, 0.01), (0.60, 0.16), (0.66, 0.42), (0.34, 0.42),
+                (0.40, 0.16)], HOOD)
+        # An empty cowl shadow, centred. NOT two eyes: at a 20px source each eye
+        # would be under two pixels and the pair merges into one blob, and NOT a
+        # wide band either — that downscales into the barracks soldier's visor
+        # slit, the one cue we cannot afford to duplicate. The rune glow the
+        # design calls for is drawn per-frame in Soldier._draw() instead, where
+        # it can pulse; baking it here would just be a static light smudge.
+        c.rect(0.42, 0.26, 0.58, 0.35, VOID)
+        # chest rune (a cross-slash), thick enough to survive the downscale
+        c.line([(0.50, 0.52), (0.50, 0.68)], GLOW, 0.07)
+        c.line([(0.41, 0.60), (0.59, 0.60)], GLOW, 0.07)
+
+    img = render(draw, 20, logical=120, outline=3)
+    save(img, "ui", "militia.png")
+    return 1
+
+
 def _noise(seed):
     import random
     return random.Random(seed)
@@ -3075,7 +3123,7 @@ def gen_contactsheet():
     for i in range(1, 16):
         tiles.append((Image.open(os.path.join(OUT, "spells", f"spell_{i}.png")),
                       f"S{i}"))
-    for nm in ("coin", "crystal", "base", "soldier"):
+    for nm in ("coin", "crystal", "base", "soldier", "militia"):
         tiles.append((Image.open(os.path.join(OUT, "ui", f"{nm}.png")), nm))
     # 2x nearest versions of coin/crystal/base
     for nm in ("coin", "crystal", "base"):
@@ -3135,6 +3183,7 @@ def main():
     ui += gen_crystal()
     ui += gen_base()
     ui += gen_soldier()
+    ui += gen_militia()
     ui += gen_ui_frames()
     ui += gen_bar_fills()
     ui += gen_ui_icons()

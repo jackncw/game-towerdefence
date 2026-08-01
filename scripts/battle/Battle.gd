@@ -725,9 +725,12 @@ func _apply_effect(m, e: Dictionary) -> void:
 		"stun": m.apply_stun(e.dur)
 		"vuln": m.apply_vuln(e.amp, e.dur)
 
-func spawn_soldier(dist_pos: float, hp: float, dmg: float, armor: float, tower = null, life := -1.0):
+## `magic` picks the 魔法民兵 body (hooded, timed, runed) over the barracks
+## trooper. It is explicit rather than inferred from `tower == null`, because a
+## future permanent summon would silently get the wrong look.
+func spawn_soldier(dist_pos: float, hp: float, dmg: float, armor: float, tower = null, life := -1.0, magic := false):
 	var sd: Soldier = soldier_pool.acquire()
-	sd.setup(self, route, clampf(dist_pos, 0, route.total - 10), hp, dmg, armor, soldier_pool, tower)
+	sd.setup(self, route, clampf(dist_pos, 0, route.total - 10), hp, dmg, armor, soldier_pool, tower, magic)
 	sd.life_time = life
 	return sd
 

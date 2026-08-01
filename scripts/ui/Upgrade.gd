@@ -57,7 +57,9 @@ const SPELL_MECH := {
 	"stormbolt": ["fullscreen", "SPELL_STORMBOLT_LORE"],
 	"freezenova": ["fullscreen", "SPELL_FREEZENOVA_LORE"],
 	"miasma": ["splash", "SPELL_MIASMA_LORE"],
-	"summon": ["segment", "SPELL_SUMMON_LORE"],
+	# not "segment": the summon diagram now shows hooded militia on their circles,
+	# matching what the spell actually puts on the field
+	"summon": ["militia", "SPELL_SUMMON_LORE"],
 	"midas": ["fullscreen", "SPELL_MIDAS_LORE"],
 	"timewarp": ["fullscreen", "SPELL_TIMEWARP_LORE"],
 	"warcry": ["fullscreen", "SPELL_WARCRY_LORE"],
@@ -578,6 +580,29 @@ class _MechDiagram extends Control:
 		draw_circle(c, 12, Color(0.55, 0.42, 0.28))
 		draw_rect(Rect2(c.x - 5, c.y - 22, 10, 14), Color(0.7, 0.55, 0.35))
 
+	## Barracks trooper: armoured, square-shouldered, feet on the ground.
+	func _trooper(c: Vector2) -> void:
+		draw_circle(c, 13, Color(0.2, 0.35, 0.6))
+		draw_circle(c + Vector2(0, -4), 9, Color(0.4, 0.62, 0.95))
+
+	## Summoned militia: hooded and legless over a rune circle. Deliberately not
+	## _trooper — on the field the two are told apart by silhouette, and the
+	## upgrade screen has to teach the same shape.
+	func _militia(c: Vector2) -> void:
+		var glow := Color(0.62, 0.86, 1.0)
+		# ground circle (squashed, like the one Soldier._draw_rune_circle draws)
+		var pts := PackedVector2Array()
+		for i in 21:
+			var a := TAU * float(i) / 20.0
+			pts.append(c + Vector2(cos(a) * 20.0, sin(a) * 8.0 + 16.0))
+		draw_polyline(pts, Color(glow.r, glow.g, glow.b, 0.7), 2.0)
+		# hooded robe tapering to a point — no legs
+		draw_colored_polygon(PackedVector2Array([
+			c + Vector2(0, -20), c + Vector2(9, -6), c + Vector2(12, 10),
+			c + Vector2(0, 18), c + Vector2(-12, 10), c + Vector2(-9, -6)]),
+			Color(glow.r, glow.g, glow.b, 0.85))
+		draw_rect(Rect2(c.x - 5, c.y - 14, 10, 6), Color(0.10, 0.16, 0.30))
+
 	func _enemy(c: Vector2, dim := false) -> void:
 		var e := Color(0.75, 0.35, 0.32) if not dim else Color(0.5, 0.45, 0.5)
 		draw_circle(c, 12, Color(0, 0, 0, 0.5))
@@ -849,8 +874,19 @@ class _MechDiagram extends Control:
 				for fx in [0.7, 0.82]:
 					_enemy(Vector2(w * fx, ry))
 				for sx in [0.34, 0.46, 0.58]:
-					draw_circle(Vector2(w * sx, ry), 13, Color(0.2, 0.35, 0.6))
-					draw_circle(Vector2(w * sx, ry - 4), 9, Color(0.4, 0.62, 0.95))
+					_trooper(Vector2(w * sx, ry))
+			"militia":
+				# Same road-blocking idea as "soldiers", drawn with the magic body
+				# so the upgrade screen matches the field: hooded, on a rune
+				# circle, no barracks behind them.
+				var mry := h * 0.5
+				draw_rect(Rect2(w * 0.06, mry - 34, w * 0.88, 68), Color(0.45, 0.34, 0.22, 0.6))
+				draw_line(Vector2(w * 0.06, mry - 34), Vector2(w * 0.94, mry - 34), Color(0.6, 0.46, 0.3), 3.0)
+				draw_line(Vector2(w * 0.06, mry + 34), Vector2(w * 0.94, mry + 34), Color(0.6, 0.46, 0.3), 3.0)
+				for fx in [0.74, 0.88]:
+					_enemy(Vector2(w * fx, mry))
+				for sx in [0.20, 0.36, 0.52]:
+					_militia(Vector2(w * sx, mry))
 			"fullscreen":
 				draw_rect(Rect2(w * 0.06, h * 0.12, w * 0.88, h * 0.76), Color(col.r, col.g, col.b, 0.16))
 				draw_rect(Rect2(w * 0.06, h * 0.12, w * 0.88, h * 0.76), Color(col.r, col.g, col.b, 0.6), false, 3.0)

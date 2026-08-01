@@ -85,7 +85,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 					Color(0.68, 0.86, 1.0), 8, 0.3)
 				battle.spawn_fx_ring(sp, 60, Color(0.6, 0.82, 1.0))
 				battle.spawn_sparks(sp, 6, Color(0.75, 0.9, 1.0), 150.0, 5.0, 0.5)
-				battle.spawn_soldier(rd + off, s.hp, s.dmg, 2.0, null, 20.0)
+				battle.spawn_soldier(rd + off, s.hp, s.dmg, 2.0, null, 20.0, true)
 		"midas":
 			battle.add_gold(int(s.gold))
 			battle.spawn_damage(pos, int(s.gold), Color(1, 0.85, 0.2), true)

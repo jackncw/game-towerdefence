@@ -87,9 +87,15 @@ func registered_sounds() -> Array:
 	arr.sort()
 	return arr
 
-## 按怪物嘅防禦形態揀受擊聲。門檻(甲 8 / 魔抗 15)取自 GameData.FAMILIES:
-## golem(甲 12)同 beetle(甲 6,但 lvl 加成後過 8)算「硬」,ghost(魔抗 25)
-## 同 bat(10)算「魔」,其餘算「軟」。
+## 按怪物嘅防禦形態揀受擊聲,唔係按傷害類型 —— 呢兩個數係傳入嗰刻嘅實際
+## 甲/魔抗(已經計埋 lvl 同 boss 加成,GameData.creature_stats/boss_stats),
+## 唔係 FAMILIES 表原始值,所以邊隻算邊款會隨 lvl/boss 改變。核過
+## GameData.FAMILIES(scripts/autoload/GameData.gd:31-40)同埋嗰兩個 stats
+## function 之後:淨係 ghost(魔抗 25)原始值就過 15,穩企企算「魔」;
+## golem(甲 12)原始值就過 8,穩企企算「硬」。其餘族(包括 bat,魔抗淨係
+## 10)喺普通等級都跌落「軟」——bat 淨係做 boss(魔抗 +5 = 15)先會轉「魔」,
+## beetle/treant 呢啲甲薄嘅族要夠高 lvl(甲 +最多 4)或者做 boss(甲 +6)
+## 先跳得過 8 變「硬」。門檻本身(甲 8 / 魔抗 15)係設計選定值,唔改。
 func play_hit(armor: float, mres: float) -> void:
 	var key := "soft"
 	if mres >= 15.0:

@@ -4,10 +4,34 @@ Verification and publish pass for round 9 (2026-08-01). Covers: full 64-sound au
 system, the one-gesture quick-build row + `QuickBar` pinning screen, and an honest
 account of the difficulty-wall feature that was measured and withheld.
 
+> **Corrections (2026-08-01, post-review fix pass).** A whole-branch review after
+> this report was written found three claims here that were wrong, and they are
+> corrected inline below rather than quietly edited away:
+>
+> 1. **§6 attributed a 51MB pack increase to the audio.** It was ~50MB of developer
+>    QA screenshots that the Web preset's hand-maintained blocklist had stopped
+>    covering. Audio is ~1.4MB imported. Corrected in §6.
+> 2. **The three "silent tower" sounds were not actually dispatched.** The sound
+>    files existed and were registered in `Audio.TOWER_SOUND`, but no call site was
+>    ever written, so 兵營 / 詛咒塔 / 緩速力場 were still silent when this report said
+>    they were fixed. Four `SYSTEM_SOUNDS` names were unhooked for the same reason.
+>    Corrected in §1's table and in the TL;DR.
+> 3. **`--verify` reported "0 clipping" from a check that could not fail**, and its
+>    loop-seam check was measuring a fade the generator itself applied. Corrected in
+>    §1. Known open item 2 (shared RNG) is also now fixed.
+>
+> All of the above are fixed in the follow-up commit; see
+> `.superpowers/sdd/2026-08-01-round9/final-fix-report.md`.
+
 ## TL;DR
 
-- **Audio: shipped complete.** 64 sounds (up from 11), `gen_audio.py --verify` reports
-  0 problems, `AudioTest` and `AudioHookTest` both pass.
+- **Audio: 64 files shipped; 7 of them were not yet dispatched.** ~~shipped
+  complete~~ — the files, the buses and the registries were all correct, but
+  `sfx_tower_barracks` / `sfx_aura_curse` / `sfx_field_slow` / `sfx_gold_bank` /
+  `sfx_teleport_hit` / `sfx_knockback` / `sfx_summon_circle` had no call site, so
+  those events stayed silent. Both audio tests passed anyway because neither asked
+  "does anything play this?". Hooked, and the gap closed with a new coverage case, in
+  the post-review fix pass.
 - **One-gesture building: shipped complete.** Permanent 6-slot quick row + `More`
   drawer button replaces the old build handle; `QuickBar` main-menu screen lets the
   player arrange the six slots. Visual self-check done in both locales, no layout
@@ -21,7 +45,9 @@ account of the difficulty-wall feature that was measured and withheld.
 - **Performance: no regression by the pass/fail gate** (min fps must stay ≥55; it's
   109–116). Average fps reads lower than the previously recorded figure but the two
   runs aren't the same measurement window — see the Performance section.
-- **Web export rebuilt**, `docs/index.pck` 7.1MB → 58.5MB (all the new WAV content).
+- **Web export rebuilt**, `docs/index.pck` → 58.5MB. ~~(all the new WAV content)~~
+  **Wrong — see §6.** ~50MB of that was QA screenshots leaking into the pack. Now
+  6.9MB after the export filter fix.
 
 ---
 
@@ -45,9 +71,28 @@ account of the difficulty-wall feature that was measured and withheld.
 
 ## 1. Audio — complete list of 64 sounds
 
-Confirmed via `python tools/gen_audio.py --verify` (0 clipping, 0 near-silent, 0
-format problems, 0 loop-seam problems, 64 files). 11 of these existed before round 9
-(6 tower archetypes, `bgm_battle`, 4 `ui_*`); 53 are new this round.
+Confirmed via `python tools/gen_audio.py --verify` (64 files, 0 problems). 11 of these
+existed before round 9 (6 tower archetypes, `bgm_battle`, 4 `ui_*`); 53 are new this
+round.
+
+> **Correction:** ~~0 clipping … 0 loop-seam problems~~ — those two numbers were not
+> measurements. `norm()` clamps every peak to 0.92 before anything is written, so the
+> clipping check (`|x| >= 0.999`) could not fire on any input; and `save()` ran
+> `fade_edges()` on BGM files too, forcing both loop ends to exactly 0, so the seam
+> check was reading its own fade. That fade was itself the artifact — `play_bgm` sets
+> `LOOP_FORWARD`, so every BGM loop carried a ~6ms amplitude notch that `--verify`
+> certified as perfect.
+>
+> In the post-review pass the clipping check was deleted, BGM files are no longer
+> faded, and the missing-file check the docstring had always promised was actually
+> implemented (both directions: a name in `SOUNDS` with no file, and a stale orphan
+> `.wav` with no name). Measured BGM seams after the fix: `bgm_battle`, `bgm_boss`,
+> `bgm_menu` all 0.0000 — now a real result rather than a manufactured one.
+>
+> The same pass also fixed the fade/normalise ORDER (`fade_edges` then `norm`, not the
+> reverse), which had been leaving short clips below their stated `LOUDNESS` — e.g.
+> `sfx_hit_soft` shipped at 0.0476 RMS against a stated 0.055. All 64 now land on
+> their table value, and `--verify` asserts that too.
 
 ### Music (3)
 | Sound | Description |
@@ -81,9 +126,14 @@ format problems, 0 loop-seam problems, 64 files). 11 of these existed before rou
 | `sfx_atk_poison` | Wet band-pass spray + gooey low end |
 | `sfx_atk_teleport` | Rising-then-falling square sweep pair |
 | `sfx_atk_thorn` | Sharp spike snap + high-frequency crackle |
-| `sfx_tower_barracks` | Two-note muster horn on troop spawn |
-| `sfx_aura_curse` | Slow low drone on curse-aura refresh; mixed at RMS 0.06 so it stays under combat sounds |
-| `sfx_field_slow` | Breathing field tone on the slow-field pulse; also RMS 0.06 |
+| `sfx_tower_barracks` | Two-note muster horn on troop spawn — **file only when this report was written; the dispatch was added in the post-review pass** (`Tower._spawn_soldier`, fires when a soldier is actually created) |
+| `sfx_aura_curse` | Slow low drone on curse-aura refresh; mixed at RMS 0.06 so it stays under combat sounds — **dispatch added post-review** (`Battle._tick_curse_auras`, once per tick that actually cursed something) |
+| `sfx_field_slow` | Breathing field tone on the slow-field pulse; also RMS 0.06 — **dispatch added post-review** (`Tower._proc_slowfield`, only when the field actually caught something) |
+
+All three are rate-limited at the call site by `Tower.play_event_sound()` on a
+REAL-time window (450/800/650ms), not on `delta`: `Audio.play()`'s 60ms name dedup
+exists to collapse one frame's worth of simultaneous shots, and at 5x a barracks'
+0.5s game-time respawn is only 0.1s of wall clock, which walks straight through it.
 
 ### Death sounds — one per family (10, Task 1)
 | Sound | Description |
@@ -376,9 +426,32 @@ exists precisely to prevent 5x audio overload is doing its job.
 ## 6. Web export
 
 Rebuilt via `--headless --export-release "Web" "docs/index.html"`, exit 0, no errors.
-`docs/index.pck` grew from 7.1MB to 58.5MB (all 64 audio assets now included, up from
-11). `docs/index.wasm` unchanged in size (39.5MB) as expected — engine binary, not
-asset content.
+`docs/index.wasm` unchanged in size (39.5MB) as expected — engine binary, not asset
+content.
+
+> ~~`docs/index.pck` grew from 7.1MB to 58.5MB (all 64 audio assets now included, up
+> from 11).~~ **This was wrong by roughly 36×, and it hid a real defect.**
+>
+> The whole 64-sound set is ~1.4MB once imported. The other ~50MB was developer QA
+> screenshots: `art_r8_en/` (15M), `art_r8_zh/` (16M), `art_r9/` (16M), `art_r9_en/`
+> (16M) and `heal_shots/` (1.6M). The Web preset uses
+> `export_filter="all_resources"` with a hand-maintained blocklist of directory
+> names, and that list had not been updated since round 7 — so every GitHub Pages
+> visitor was downloading 50MB of screenshots before the game started. Worse, all
+> those directories are `.gitignore`d, so the committed pack could not be rebuilt
+> from a clean clone at all: a fresh checkout re-exporting produced a different,
+> much smaller file.
+>
+> **Fixed** in the post-review pass, and fixed in a shape that cannot rot the same
+> way: `tools/art_export.gd` and `tools/heal_shots.gd` now force whatever `--out=`
+> they are given underneath a single `res://qa/` parent, so one `qa/*` rule covers
+> every future round without anyone remembering to edit the list. The eight
+> hand-listed legacy directory names collapsed into two shape patterns (`art_*`,
+> `*_shots/*`) for the folders that already exist on disk.
+>
+> **`docs/index.pck` after the fix: 58,545,496 → 7,247,492 bytes (55.8 MiB → 6.9
+> MiB).** All 64 `.wav` paths verified present in the rebuilt pack; no `art_r9`,
+> `art_i18n` or `Claude art` path remains in it.
 
 ---
 
@@ -391,12 +464,13 @@ asset content.
    did not additionally run it windowed this session (no new information expected
    beyond what round 9 Task 5 already established when it verified the windowed
    pass).
-2. **`gen_audio.py` uses one shared RNG.** Adding a new synthesized sound anywhere in
-   the file shifts the random draws every later `def` sees, so regenerating after an
-   edit silently changes the exact bytes of unrelated existing sounds (still passes
-   `--verify`, since it checks objective properties, not byte-identity — but a
-   "just retune this one sound" request will, in practice, touch every `.wav` after
-   it in generation order).
+2. ~~**`gen_audio.py` uses one shared RNG.**~~ **FIXED in the post-review pass.** The
+   defect was real and worse than logged: 36 of the 64 sounds did not reproduce when
+   generated on their own, which contradicts the per-sound workflow the module
+   docstring advertises. `main()` now reseeds from the sound's NAME
+   (`_SEED_BASE ^ crc32(name)`, following `tools/gen_art.py`'s per-item seeding)
+   before each generation. Verified: rendering each of the 64 solo, and rendering
+   them in reverse order, both produce bytes identical to a full run.
 3. **`I18nTest` validates non-emptiness and glyph coverage, not grammatical
    completeness.** 688 checks pass, confirming every `tr()` key resolves to a
    non-empty, font-coverable string in both languages — it does not check that a

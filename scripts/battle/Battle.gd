@@ -516,8 +516,10 @@ func on_boss_killed(m: Monster) -> void:
 ## 於冇警報。冇「基地生命值」呢樣嘢可以睇跌到幾多,所以呢個係以路程做距離代
 ## 理,唔係以殘餘量——見 GameData.BASE_DANGER_ROUTE_FRAC 嘅註解。
 ##
-## 喺 Monster._process() 度叫,嗰度本身就已經逐幀讀緊呢隻怪嘅 dist/route.total
-## (跟住嗰句就係 on_reach_base 嘅到達判斷),所以呢度唔使加多一次逐怪嘅 traversal。
+## 喺 Monster._process() 度叫,逐隻怪逐幀一次。成本就係嗰度多咗一個
+## dist/route.total 嘅除法加一個函數呼叫 —— 之前嗰個迴圈淨係做緊 dist >= total
+## 嘅比較,冇除過。呢個成本細到唔使諗(一幀百幾隻怪),但佢係一個真成本,
+## 唔係「順手借咗人哋一個已經計咗嘅數」。
 func _maybe_warn_base_danger(route_frac: float) -> void:
 	# MEASUREMENT ONLY (see the sim_* block): the deepest any enemy ever got along
 	# the road, as a fraction. 1.0 means something reached the gate, i.e. the run
@@ -532,7 +534,11 @@ func _maybe_warn_base_danger(route_frac: float) -> void:
 	Audio.play("sfx_base_danger")
 
 func on_reach_base(m: Monster) -> void:
-	sim_leak_flying = m.flying                              # measurement only
+	# MEASUREMENT ONLY: did ANY leak fly? `=` lost that — a run where a flyer
+	# leaked first and a ground unit leaked last reported "no flyers leaked",
+	# which is exactly backwards for the question this field exists to answer
+	# (did the player's anti-air fail?). `or` accumulates.
+	sim_leak_flying = sim_leak_flying or m.flying
 	if base_shield > 0:
 		base_shield -= 1
 		spawn_fx_ring(base_pos, 90, Color(0.5, 0.8, 1.0))
@@ -569,8 +575,14 @@ func _remove(m: Monster) -> void:
 		boss_ref = null
 	monster_pool.release(m)
 
-func add_gold(amount: int) -> void:
-	Audio.play("sfx_gold_pop")
+## `lump` = 一筆過嘅大額入賬(鍊金塔落成嗰刻嘅起始金、點金術嘅一次過派錢),
+## 對「一隻怪掉幾個金」嘅涓滴收入。兩者聽落要唔同:sfx_gold_bank 就係為咗
+## 呢個寫嘅(兩粒上行音,同 sfx_gold_pop 一樣嘅金屬音色,所以仲係「金」)。
+##
+## 用一個明確嘅參數而唔係用 amount 嘅門檻:門檻係一個會爛嘅魔術數字 ——
+## 第 20 關一隻普通怪掉嘅金已經夠過任何一個今日揀得落嘅門檻。
+func add_gold(amount: int, lump := false) -> void:
+	Audio.play("sfx_gold_bank" if lump else "sfx_gold_pop")
 	gold += amount
 
 func spend_gold(amount: int) -> bool:
@@ -679,6 +691,7 @@ func _tick_curse_auras() -> void:
 			curse_towers.remove_at(i)
 	if curse_towers.is_empty():
 		return
+	var refreshed := false
 	for m in monsters:
 		if not m.alive:
 			continue
@@ -702,8 +715,14 @@ func _tick_curse_auras() -> void:
 		for i in golds.size():
 			gold_total += golds[i] * pow(0.5, i)
 		m.apply_curse_aura(amp, gold_total, linger)
+		refreshed = true
 		if slow > 0.0:
 			m.apply_slow(slow, maxf(0.3, linger))
+	# 光環聲接喺「真係有怪俾佢上到咒」嗰個位,唔係接喺 Tower._proc_curse_aura
+	# (嗰度淨係郁緊個圈嘅動畫,逐幀行,同場上有冇嘢完全無關)。派一次,唔係
+	# 逐隻怪派 —— 一個光環刷新係一件事,唔係二十件。限流見 Tower.play_event_sound。
+	if refreshed:
+		Tower.play_event_sound("curse")
 
 ## `except` is the caster: a boss heals ITSELF out of its capped heal budget
 ## (Monster.request_heal, metered by the ceiling), not out of the full group

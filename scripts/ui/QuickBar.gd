@@ -54,7 +54,11 @@ func _build_preview() -> void:
 	add_child(_preview_root)
 	_slot_btns.resize(Meta.QUICK_SLOTS)
 	for i in Meta.QUICK_SLOTS:
+		# 呢六格特登用赤裸 Button.new()(唔用 UI.button):佢哋要保持戰鬥入面
+		# 嗰行嘅外觀,由 _refresh() 逐格貼圖。但「唔行 UI.button」順手連
+		# UI._click_sound 都冇咗 —— 結果係成個畫面得呢六個主要控制係啞嘅。
 		var btn := Button.new()
+		UI._click_sound(btn)
 		btn.size = Vector2(cw, UI.QUICK_RECT.size.y)
 		btn.custom_minimum_size = btn.size
 		btn.position = Vector2(i * (cw + UI.QUICK_GAP), 0)

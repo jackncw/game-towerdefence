@@ -23,7 +23,13 @@
 /index.side.wasm
 
 # generated art exports / screenshots (re-renderable via tools/art_export.gd,
-# tools/heal_shots.gd)
+# tools/heal_shots.gd).
+#
+# 新嘅輸出全部落 /qa/ 之下 —— 兩個 exporter 都會將 --out= 拉入去(見
+# tools/art_export.gd QA_ROOT)。咁樣 export_presets.cfg 個排除表就唔使再逐個
+# 目錄名追:一條 `qa/*` 覆蓋晒將來所有輪次。下面嗰堆係歷史目錄,由
+# `art_*` / `*_shots/*` 兩條 pattern 排除,留喺度淨係為咗本機仲有嗰幾份。
+/qa/
 /art_export/
 /heal_shots/
 /art_export_round6/

@@ -29,7 +29,6 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 	var s: Dictionary = Meta.spell_stats(id)
 	var def: Dictionary = GameData.spell_by_id(id)
 	var centre := Vector2(540, 960)
-	Audio.play_spell(String(def.mech))
 	match def.mech:
 		"meteor":
 			# the rock itself: a long burning streak in from off-screen
@@ -77,6 +76,10 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 			battle.spawn_fx_burst(pos, s.radius * 0.8, Color(0.5, 0.9, 0.2), 0.5)
 			battle.spawn_sparks(pos, 10, Color(0.62, 0.95, 0.3), 130.0, 6.0, 0.9, -40.0)
 		"summon":
+			# 召喚陣成形嘅聲。派一次(唔係逐個兵派)—— 幾個陣同時亮起係一個
+			# 法術嘅一下,唔係三下。同 sfx_spell_summon 疊住播:嗰個係「有嘢
+			# 嚟緊」嘅號角,呢個係地上個陣本身喺度畫緊。
+			Audio.play("sfx_summon_circle")
 			# a rally beacon so the call-to-arms is visible, not just 3 tokens
 			var rd: float = battle.route.nearest_dist_param(pos)
 			for i in int(s.count):
@@ -88,7 +91,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 				battle.spawn_sparks(sp, 6, Color(0.75, 0.9, 1.0), 150.0, 5.0, 0.5)
 				battle.spawn_soldier(rd + off, s.hp, s.dmg, 2.0, null, 20.0, true)
 		"midas":
-			battle.add_gold(int(s.gold))
+			battle.add_gold(int(s.gold), true)       # 一次過派錢,唔係涓滴收入
 			battle.spawn_damage(pos, int(s.gold), Color(1, 0.85, 0.2), true)
 			# a coin fountain at the cast point and over the base
 			battle.spawn_coin_pop(pos, 10)
@@ -193,4 +196,9 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 					Color(0.55, 0.3, 0.85), 0.5)
 			battle.spawn_fx_burst(pos, s.radius * 0.5, Color(0.35, 0.16, 0.55), 0.5)
 			battle.shake(6.0, 0.3)
+	# 法術聲派喺呢度,唔係派喺 match 之前。`smite` 揾唔到目標會 return false ——
+	# 冇施放、冇入 cooldown、乜都冇發生 —— 而舊寫法照樣響咗一下完整嘅神罰聲。
+	# 一個「乜都冇做」嘅點擊出到一個「做咗嘢」嘅聲,係最難查嘅嗰種騙人回饋。
+	# 呢度係 cast() 唯一嘅成功出口,所以擺喺呢度先真係「派得成先出聲」。
+	Audio.play_spell(String(def.mech))
 	return true

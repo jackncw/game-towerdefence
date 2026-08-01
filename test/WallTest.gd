@@ -22,7 +22,6 @@ func _ready() -> void:
 	_case_period()
 	_case_mechanism()
 	_case_all_levels_baseline()
-	_case_non_wall_untouched()
 	_case_hints()
 	print("WALL %s fails=%d" % ["PASS" if fails == 0 else "FAIL", fails])
 	get_tree().quit(0 if fails == 0 else 1)
@@ -109,8 +108,10 @@ func _case_mechanism() -> void:
 		"spawn_interval_min=%.3f(期望 0.45)" % float(dup.spawn_interval_min))
 
 	GameData.WALLS = saved
-	_ok("M 還原之後 WALLS 仲係空", GameData.WALLS.is_empty(),
-		"還原失敗,WALLS 有 %d 個 entry" % GameData.WALLS.size())
+	# 呢度本來仲有一句「還原之後 WALLS 仲係空」。刪咗:saved 就係 WALLS 開始
+	# 嗰刻嘅副本,而嗰刻佢係空嘅,所以嗰句真正做緊嘅事係「攞 {} 出嚟問佢空唔空」
+	# —— 點改 level_config 都紅唔到。下面兩句先係真證據:還原之後 is_wall() 同
+	# level_config() 都要跟返個新內容行,即係個還原真係入到去。
 	_ok("M 還原之後 is_wall() 返 false", not GameData.is_wall(M_SLOT), "is_wall 仲係 true")
 	_ok("M 還原之後第 %d 關返返基準" % M_SLOT,
 		Array(GameData.level_config(M_SLOT).families) == proc_fams,
@@ -138,23 +139,11 @@ func _procedural_families(n: int) -> Array:
 		want.append(GameData.FAMILY_ORDER[(base_i + 6) % 10])
 	return want
 
-func _case_non_wall_untouched() -> void:
-	## 非牆關要同「冇加過牆」一模一樣。程序生成嘅規則喺 level_config 入面寫死,
-	## 所以呢度直接重算一次同一條式做對照 —— 如果 merge 寫漏咗個 if,呢個 case
-	## 就會捉到「所有關都加咗 bat」呢類最貴嘅 bug。
-	for n in [1, 5, 8, 12, 14, 19, 20]:
-		var cfg: Dictionary = GameData.level_config(n)
-		var base_i: int = (n - 1) % 10
-		var want: Array = [GameData.FAMILY_ORDER[base_i],
-			GameData.FAMILY_ORDER[(base_i + 3) % 10]]
-		if n % 2 == 0:
-			want.append(GameData.FAMILY_ORDER[(base_i + 6) % 10])
-		_ok("N 第 %d 關家族冇被污染" % n, Array(cfg.families) == want,
-			"got %s want %s" % [str(cfg.families), str(want)])
-		_ok("N 第 %d 關 spawn 間隔冇被污染" % n,
-			is_equal_approx(float(cfg.spawn_interval_min), 0.45),
-			"got %.3f" % float(cfg.spawn_interval_min))
-		_ok("N 第 %d 關冇標記做牆" % n, not bool(cfg.get("is_wall", false)), "is_wall true")
+## `_case_non_wall_untouched` 喺呢度拆走咗。佢行 [1,5,8,12,14,19,20] 七關,用嘅
+## 係同 _procedural_families() 一模一樣嗰條式(當時抄咗一份 inline),斷言嘅亦係
+## 同三句 —— 即係 _case_all_levels_baseline 行 1..20 嗰個嘅真子集。兩個一齊擺
+## 喺度,報告會多七關嘅 ok 行,但捉唔到多一個 bug:任何令佢紅嘅改動,強嗰個一定
+## 先紅。留返強嗰個。
 
 func _case_hints() -> void:
 	## 四條 key 特登留低,等牆返嚟嗰陣用,亦都記錄咗三幅牆本來想教嘅嘢

@@ -51,7 +51,7 @@ func setup(b, tower_id: int, world_pos: Vector2) -> void:
 	if mech == "barracks":
 		rally_dist = battle.route.nearest_dist_param(world_pos)
 	if mech == "alchemy" and s.get("startgold", 0.0) > 0.0:
-		battle.add_gold(int(s.startgold))
+		battle.add_gold(int(s.startgold), true)      # 一次過入賬,唔係涓滴收入
 
 func dtype() -> String:
 	if mech in TRUEDMG:
@@ -317,7 +317,11 @@ func _fire_holy(tgt) -> void:
 
 func _fire_teleport(tgt) -> void:
 	if _roll(s.tpchance):
-		tgt.displace(s.tpdist)
+		# 傳送真係成功嗰下先響 —— tpchance 唔中就冇嘢傳送過。displace 嗰個
+		# 推撞聲要熄咗:同一件事已經有 sfx_teleport_hit 講緊,兩個聲疊住就
+		# 變成「傳送」聽落似「傳送 + 被打」。
+		tgt.displace(s.tpdist, false)
+		Audio.play("sfx_teleport_hit")
 		if s.stun > 0.0:
 			tgt.apply_stun(s.stun)
 		battle.spawn_fx_ring(tgt.global_position, 40, Color(0.6, 0.3, 0.9))
@@ -350,11 +354,18 @@ func _fire_magnet() -> void:
 	battle.spawn_fx_ring(global_position, range_val, Color(0.8, 0.5, 0.4))
 
 func _proc_slowfield(delta: float) -> void:
+	var caught := false
 	for m in battle.monsters_in_radius(global_position, range_val, true):
+		caught = true
 		var f: float = s.slow * (s.bosseff if m.is_boss else 1.0)
 		m.apply_slow(f, 0.2)
 		if s.vuln > 0.0:
 			m.apply_vuln(s.vuln, 0.3)
+	# 力場嘅「脈衝」聲接喺場入面真係有嘢俾佢緩到嗰陣,唔係接喺 s.pulse 嗰條
+	# 傷害線度:pulse 係一個升級,基礎值 0,咁樣接嘅話絕大部分玩家嘅緩速塔
+	# 由頭到尾都係啞嘅。空場唔響 —— 一個乜都冇困住嘅力場冇嘢好報。
+	if caught:
+		play_event_sound(mech)
 	if s.pulse > 0.0:
 		_cd -= delta
 		if _cd <= 0.0:
@@ -410,6 +421,39 @@ func _proc_beam(delta: float) -> void:
 		var o = battle.nearest_other(global_position, range_val, [tgt])
 		if o: o.take_hit(dps * delta, "magic")
 
+## 出兵 / 詛咒光環 / 緩速力場 呢三個聲同攻擊聲唔同:佢哋唔係「一發」,而係一個
+## 持續狀態嘅節拍,所以要自己限流。
+##
+## Audio.play() 嗰個 60ms 去重窗係為咗擋「同一幀二十座箭塔一齊射」,唔係為咗擋
+## 一個每隔零點幾秒就再嚟一次嘅事件 —— 而且 5x 之下遊戲時間壓縮咗五倍:兵營嘅
+## 最短補兵間隔 0.5 秒遊戲時間喺真實時間只係 0.1 秒,60ms 窗完全放得過,結果就
+## 係一秒十次號角。
+##
+## 所以呢三個喺呼叫端再限一次流,而且用真實時間(Time.get_ticks_msec)唔用
+## delta:玩家聽到嘅密度係按真實時間計嘅,跟住 Engine.time_scale 縮放就等於冇限。
+## 窗口 keyed by 音名而唔係 by 塔,跨塔共用 —— 五座力場塔同時脈衝要係一個聲,
+## 唔係五個。每個窗取返自己音檔長度嘅一倍幾,兩次之間就唔會疊聲。
+const EVENT_SND_GAP_MS := {
+	"sfx_tower_barracks": 450,   # 音長 0.30s
+	"sfx_aura_curse": 800,       # 音長 0.50s —— 環境聲,派得最疏
+	"sfx_field_slow": 650,       # 音長 0.44s
+}
+static var _event_snd_at: Dictionary = {}
+
+## 派一個「持續事件」聲,窗口未夠就靜靜咁丟。呢個唔係 _process 度叫嘅 ——
+## 每個呼叫點都係一件真係發生咗嘅事(出到兵 / 光環真係上到身 / 力場真係緩到嘢)。
+static func play_event_sound(mech: String) -> void:
+	var e: Array = Audio.TOWER_SOUND.get(mech, [])
+	if e.is_empty():
+		return
+	var n := String(e[0])
+	var gap: int = int(EVENT_SND_GAP_MS.get(n, 400))
+	var now := Time.get_ticks_msec()
+	if now - int(_event_snd_at.get(n, -gap * 2)) < gap:
+		return
+	_event_snd_at[n] = now
+	Audio.play_tower(mech)
+
 func _proc_barracks(delta: float) -> void:
 	# prune dead
 	for i in range(soldiers.size() - 1, -1, -1):
@@ -425,7 +469,11 @@ func _proc_barracks(delta: float) -> void:
 func _spawn_soldier() -> void:
 	var off := randf_range(-40, 40)
 	var sd = battle.spawn_soldier(rally_dist + off, s.soldierhp, s.dmg, s.armor, self)
-	if sd: soldiers.append(sd)
+	if sd:
+		soldiers.append(sd)
+		# 號角響喺真係出到兵嗰下,唔係響喺「想出兵」嗰下 —— spawn_soldier() 返
+		# null 就係冇兵出到,冇兵而有號角就係一個講大話嘅提示。
+		play_event_sound(mech)
 
 func on_soldier_died(sd) -> void:
 	soldiers.erase(sd)

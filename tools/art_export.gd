@@ -2,21 +2,40 @@ extends Node
 ## Art-export / self-review pipeline (round 5 — full-game audit).
 ## Renders every game screen + every asset gallery to an output dir at full
 ## 1080x1920 via a SubViewport, then quits. Run windowed (needs a GPU):
-##   Godot --path . tools/art_export.tscn -- --out=res://art_r5_before/
+##   Godot --path . tools/art_export.tscn -- --out=r5_before
+## 輸出永遠喺 res://qa/ 之下(見 QA_ROOT),`--out=` 淨係揀個仔目錄名。
 ## The SubViewport gives exact resolution regardless of the OS window size.
 
 const VW := 1080
 const VH := 1920
 const UPG_PATH := "res://scripts/ui/Upgrade.gd"
 
-var OUTDIR := "res://art_export/"
+## 每一輪嘅 QA 截圖統一落喺呢個 parent 之下,`--out=` 傳咩名都好。
+##
+## 理由唔係整齊。Web export preset 用 export_filter="all_resources",排除表係
+## 一份人手維護嘅目錄名單 —— 而人手名單漏咗兩次:round 9 export 出嚟嘅
+## docs/index.pck 有 58.5MB,入面 50MB 係 art_r8_*/art_r9*/heal_shots 嘅 QA
+## 截圖,每個 GitHub Pages 訪客開場前都要落載一次。一個固定 parent 換到一條
+## `qa/*` 排除規則,之後開幾多個新目錄都自動喺遊戲外面,唔使有人記得去改個表。
+const QA_ROOT := "res://qa/"
+
+## 無論 `--out=` 傳咩入嚟,都拉返入 QA_ROOT 之下。已經喺 qa/ 入面就唔郁。
+static func qa_dir(out: String) -> String:
+	var p: String = out.replace("\\", "/").trim_prefix("res://").trim_prefix("/")
+	if not p.ends_with("/"):
+		p += "/"
+	if p.begins_with("qa/"):
+		return "res://" + p
+	return QA_ROOT + p
+
+var OUTDIR := QA_ROOT + "art_export/"
 var sub: SubViewport
 var done := false
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="):
-			OUTDIR = a.substr(6)
+			OUTDIR = qa_dir(a.substr(6))
 		elif a.begins_with("--locale="):
 			# shoot the whole game in one language: --locale=en / --locale=zh_TW
 			TranslationServer.set_locale(a.substr(9))

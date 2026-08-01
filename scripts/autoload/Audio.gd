@@ -62,7 +62,8 @@ const TOWER_SOUND := {
 	"thorn":     ["sfx_atk_thorn", 1.00],
 	"magnet":    ["sfx_atk_magnet", 1.00],
 	"teleport":  ["sfx_atk_teleport", 1.00],
-	# 唔係攻擊:出兵 / 光環刷新 / 力場脈衝,由各自事件派
+	# 唔係攻擊:出兵 / 光環刷新 / 力場脈衝。呢三個唔可以逐幀派,要接喺各自嗰個
+	# 真事件度,再喺呼叫端限流 —— 見 Tower.play_event_sound()。
 	"barracks":  ["sfx_tower_barracks", 1.00],
 	"curse":     ["sfx_aura_curse", 1.00],
 	"slowfield": ["sfx_field_slow", 1.00],
@@ -108,8 +109,18 @@ const SYSTEM_SOUNDS := [
 	"sfx_place_tower", "sfx_sell_tower",
 ]
 
-## 每個註冊表引用過嘅音名。AudioTest 用佢做「改名唔會靜靜雞收聲」嘅防線:
-## 任何一個表指去一個唔存在嘅檔,測試就紅,而唔係遊戲入面靜咗。
+## UI 音。呢四個唔經任何一張「事件 → 音名」表 —— UI.gd 直接叫名。列喺度嘅
+## 原因同下面 registered_sounds() 一樣:唔列就冇任何測試知道佢哋存在,而
+## ui_panel_close 之前就正正係咁,連「有冇隻檔」都冇人問過。
+const UI_SOUNDS := ["ui_click", "ui_panel_open", "ui_panel_close", "ui_error"]
+
+## 遊戲引用過嘅每一個音名,一個都唔少。AudioTest 用佢做「改名唔會靜靜雞收聲」
+## 嘅防線(每個名都要有實檔),AudioHookTest 用佢做「註冊咗就一定有人派」嘅
+## 防線(每個名都要喺一場代表性嘅跑動入面真係派過)。
+##
+## BGM_META 同 UI_SOUNDS 一定要計埋:之前呢個表淨係行五張事件表,所以 64 個音
+## 入面有 7 個(四個 ui_*、bgm_menu、bgm_boss、bgm_battle)喺任何地方都冇被
+## 斷言過存在 —— 而 ui_panel_close / bgm_menu / bgm_boss 更加係一個測試都冇掂過。
 func registered_sounds() -> Array:
 	var out: Dictionary = {}
 	for e in TOWER_SOUND.values():
@@ -121,6 +132,10 @@ func registered_sounds() -> Array:
 	for n in SPELL_SOUND.values():
 		out[String(n)] = true
 	for n in SYSTEM_SOUNDS:
+		out[String(n)] = true
+	for n in UI_SOUNDS:
+		out[String(n)] = true
+	for n in BGM_META:
 		out[String(n)] = true
 	var arr: Array = out.keys()
 	arr.sort()
@@ -259,6 +274,12 @@ static func time_to_bar(pos: float, meta: Dictionary) -> float:
 ## 「換咗歌」,只會覺得「卡咗一下」。等最多一個小節(132bpm 之下 1.82 秒)
 ## 換返一個真係接得上嘅過渡,係抵嘅。
 func queue_bgm(sound: String) -> void:
+	# 觀察窗喺呢度都要記一筆:排隊本身就係一個派聲決定。真正嘅 play_bgm() 要
+	# 等到下一條小節線先行,而測試問嘅係「有冇人叫過呢個名」——如果淨係喺
+	# play_bgm() 記,bgm_boss 就要靠一個郁得嘅播放位置先睇得到,而 headless
+	# 底下嗰個 dummy driver 唔會郁。
+	if debug_capture:
+		debug_log.append(sound)
 	if _bgm_name == sound and _bgm.playing:
 		_bgm_pending = ""
 		return

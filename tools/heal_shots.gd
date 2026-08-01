@@ -2,21 +2,25 @@ extends Node
 ## Visual confirmation for the boss-heal rework (視覺誠實 acceptance item).
 ## Renders, at full 1080x1920 through a SubViewport, the moments the rework is
 ## supposed to make legible, then quits. Needs a GPU — run WINDOWED:
-##   Godot --path . tools/heal_shots.tscn --log-file <log> -- --out=res://heal_shots/
+##   Godot --path . tools/heal_shots.tscn --log-file <log> -- --out=heal_shots
+## 輸出永遠喺 res://qa/ 之下 —— 見 tools/art_export.gd 嘅 QA_ROOT 註解:
+## Web export 嘅排除表係人手維護嘅目錄名單,而人手名單已經漏咗兩次。
 ## Treat "HEAL_SHOTS: DONE" in the log plus the PNGs as the completion signal;
 ## the Windows GUI exe detaches from the console.
 
 const VW := 1080
 const VH := 1920
 
-var OUTDIR := "res://heal_shots/"
+const ArtExport := preload("res://tools/art_export.gd")
+
+var OUTDIR := ArtExport.QA_ROOT + "heal_shots/"
 var sub: SubViewport
 var done := false
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--out="):
-			OUTDIR = a.substr(6)
+			OUTDIR = ArtExport.qa_dir(a.substr(6))
 	if not OUTDIR.ends_with("/"):
 		OUTDIR += "/"
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUTDIR))

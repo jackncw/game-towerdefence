@@ -19,6 +19,7 @@ Naming is the contract with scripts/autoload/Audio.gd:
 import os
 import sys
 import wave
+import zlib
 
 import numpy as np
 
@@ -63,7 +64,22 @@ def sine(freq, dur):
     return np.sin(_phase(freq, dur))
 
 
-_rng = np.random.default_rng(0xA0D10)
+_SEED_BASE = 0xA0D10
+_rng = np.random.default_rng(_SEED_BASE)
+
+
+def reseed(name):
+    """Reseed the shared RNG from a sound's NAME, before generating it.
+
+    One module-level RNG consumed cumulatively made every noise-using sound
+    depend on which sounds were generated before it, so `gen_audio.py ui_click`
+    and a full run produced different bytes for the same name — which breaks the
+    per-sound workflow this module advertises at the top. Seeding from the name
+    makes each sound reproducible on its own. crc32, not hash(): Python's hash()
+    is salted per process and would not even be stable run to run.
+    """
+    global _rng
+    _rng = np.random.default_rng(_SEED_BASE ^ zlib.crc32(name.encode("utf-8")))
 
 
 def noise(dur):
@@ -207,7 +223,17 @@ DEFAULT_LOUDNESS = 0.10          # every sfx_atk_* archetype
 
 
 def save(name, x):
-    x = fade_edges(norm(x, LOUDNESS.get(name, DEFAULT_LOUDNESS)))
+    # Fade BEFORE normalising, not after. The other order silently undershot the
+    # LOUDNESS table: fading 3ms off both ends of a 0.07s clip removes ~8% of its
+    # energy, so sfx_hit_soft shipped at 0.0476 RMS against a stated 0.055.
+    #
+    # And no fade at all on bgm_*: those are LOOPS (Audio.play_bgm sets
+    # LOOP_FORWARD with loop_begin=0, loop_end=0), so forcing both ends to zero
+    # does not remove an artifact, it creates one — a ~6ms amplitude notch heard
+    # once per loop, forever. A loop's ends have to meet, not vanish.
+    if not name.startswith("bgm_"):
+        x = fade_edges(x)
+    x = norm(x, LOUDNESS.get(name, DEFAULT_LOUDNESS))
     data = np.clip(x, -1.0, 1.0)
     pcm = (data * 32767.0).astype("<i2")
     os.makedirs(OUT, exist_ok=True)
@@ -1143,16 +1169,29 @@ def verify():
     """Report the objective properties of every generated file.
 
     This exists because "sounds fine" is not a claim anyone can check later.
-    Four things go wrong silently in a synthesised set and all four are visible
-    in numbers: a clipped waveform (audible as crunch on loud speakers only), a
-    sound whose RMS is far off its neighbours (it will bury or vanish under
-    them), a loop whose ends do not meet (a tick once per bar, forever), and a
-    file that is simply not there because a name was typo'd.
+    Three things go wrong silently in a synthesised set and all three are
+    visible in numbers:
+
+      * a sound whose RMS is far off its neighbours — it will bury the rest of
+        the set or vanish under it;
+      * a loop whose ends do not meet — a tick once per bar, forever. Only
+        meaningful now that save() no longer fades the ends of bgm_* files; when
+        it did, this check measured its own fade and always reported 0.0000;
+      * a name in SOUNDS with no file, or a file with no name in SOUNDS. The
+        first is a sound the game asks for and never gets; the second is a stale
+        orphan left behind by a rename, which keeps shipping in the export.
+
+    A fourth check (peak >= 0.999 = clipping) used to live here and was deleted:
+    norm() clamps every peak to ceiling=0.92 before anything is written, so it
+    could not fire on any input and was measuring its own upstream guarantee.
     """
     import glob
     bad = 0
     rows = []
-    for path in sorted(glob.glob(os.path.join(OUT, "*.wav"))):
+    files = sorted(glob.glob(os.path.join(OUT, "*.wav")))
+    have = set(os.path.splitext(os.path.basename(p))[0] for p in files)
+    missing_files = sorted(set(SOUNDS) - have)
+    for path in files:
         name = os.path.splitext(os.path.basename(path))[0]
         with wave.open(path, "rb") as w:
             n = w.getnframes()
@@ -1163,27 +1202,36 @@ def verify():
         dur = n / float(sr)
         peak = float(np.max(np.abs(pcm))) if n else 0.0
         rms = float(np.sqrt(np.mean(pcm * pcm))) if n else 0.0
-        clip = int(np.sum(np.abs(pcm) >= 0.999))
         seam = abs(float(pcm[0]) - float(pcm[-1])) if n else 0.0
+        want = LOUDNESS.get(name, DEFAULT_LOUDNESS)
         problems = []
         if sr != SR or ch != 1 or sw != 2:
             problems.append("format %dHz/%dch/%dbit" % (sr, ch, sw * 8))
-        if clip > 0:
-            problems.append("clip=%d" % clip)
         # A loop is the only kind that ticks; one-shots fade to silence anyway.
         if name.startswith("bgm_") and seam > 0.01:
             problems.append("loop seam %.4f" % seam)
         if rms < 0.02:
             problems.append("near silent")
+        if name not in SOUNDS:
+            problems.append("orphan: no entry in SOUNDS")
+        # The LOUDNESS table is a claim about what ships; hold it to it. The
+        # tolerance absorbs the peak clamp in norm(), which legitimately pulls a
+        # very peaky waveform below its target.
+        elif peak < 0.919 and abs(rms - want) > 0.10 * want:
+            problems.append("rms %.4f vs target %.4f" % (rms, want))
         if problems:
             bad += 1
-        rows.append((name, dur, peak, rms, clip, seam, problems))
-    print("  %-24s %6s %6s %6s %5s %7s  %s"
-          % ("name", "sec", "peak", "rms", "clip", "seam", "problems"))
-    for name, dur, peak, rms, clip, seam, problems in rows:
-        print("  %-24s %6.2f %6.3f %6.3f %5d %7.4f  %s"
-              % (name, dur, peak, rms, clip, seam, ", ".join(problems) or "ok"))
-    print("%d file(s), %d with problems" % (len(rows), bad))
+        rows.append((name, dur, peak, rms, seam, problems))
+    print("  %-24s %6s %6s %6s %7s  %s"
+          % ("name", "sec", "peak", "rms", "seam", "problems"))
+    for name, dur, peak, rms, seam, problems in rows:
+        print("  %-24s %6.2f %6.3f %6.3f %7.4f  %s"
+              % (name, dur, peak, rms, seam, ", ".join(problems) or "ok"))
+    for name in missing_files:
+        bad += 1
+        print("  MISSING  %s - in SOUNDS, no .wav on disk" % name)
+    print("%d file(s), %d name(s) in SOUNDS, %d problem(s)"
+          % (len(rows), len(SOUNDS), bad))
     return 1 if bad else 0
 
 
@@ -1198,6 +1246,11 @@ def main(argv):
         return 1
     total = 0.0
     for name in want:
+        # Per-sound seed, so `gen_audio.py sfx_die_golem` and a full run write
+        # the same bytes. Without this, adding one early-sorting sound shifted
+        # the shared RNG stream and silently rewrote every noise-using sound
+        # after it.
+        reseed(name)
         path, dur = save(name, SOUNDS[name]())
         total += dur
         print("  %-20s %5.2fs  %s" % (name, dur, os.path.relpath(path, os.getcwd())))

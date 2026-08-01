@@ -38,6 +38,7 @@ func _ready() -> void:
 	await _case_quick_persist()
 	await _case_quick_layout()
 	await _case_one_gesture()
+	await _case_quick_preview_width()
 	await _case_quickbar_screen()
 	await _case_quickbar_no_bleed()
 	_restore_save()
@@ -350,8 +351,10 @@ func _case_one_gesture() -> void:
 		b.towers.size() > before and int(b.towers[b.towers.size() - 1].id) == tid,
 		"placed a different tower")
 	_ok("Q 有扣金", b.gold < gold0, "gold %d -> %d" % [gold0, b.gold])
-	_ok("Q 全程冇開過抽屜", not hud._drawer_open, "drawer opened during the gesture")
-	_ok("Q 抽屜真係冇現身", not hud.drawer.visible, "drawer became visible")
+	# 上面兩句原本仲有兩個「手勢完之後 _drawer_open / drawer.visible 係 false」嘅
+	# assertion。刪咗:佢哋自己上面嗰段註解已經講明呢兩個終態值同 0.16s tween
+	# 賽緊跑,即係佢哋擺喺度唯一嘅作用係扮成有覆蓋。中途嗰個 opened_mid_drag
+	# 檢查係確定性嘅,而且問嘅係同一條問題,佢先係真嘅防線。
 
 	# 空槽撳一下 = 開抽屜
 	var empty_btn: Button = _empty_slot_btn(hud)
@@ -379,6 +382,33 @@ func _empty_slot_btn(hud) -> Button:
 
 
 # ---------------------------------------------------------------------------
+# QW — 釘選畫面嘅預覽格,同戰鬥列真係起出嚟嗰格,一樣闊
+# ---------------------------------------------------------------------------
+## 原本呢個斷言喺 _case_quickbar_screen 入面,寫嘅係
+## `qb.preview_cell_w() == UI.quick_cell_w()` —— 而 preview_cell_w() 本身就係
+## 一句 `return UI.quick_cell_w()`。即係喺度斷言 f() == f():無論兩邊嘅擺位
+## 程式碼點樣行開,呢句都紅唔到,佢唯一嘅作用係喺報告度佔一行扮覆蓋。
+##
+## 而家量返兩邊真係 instantiate 咗出嚟嗰個掣嘅 size.x。戰鬥列嗰張卡(BattleHUD)
+## 同釘選畫面嗰格預覽(QuickBar)係兩段獨立嘅擺位程式碼,任何一邊自己再定一套
+## 尺寸、或者漏咗跟 UI.quick_cell_w(),都會喺呢度爆。
+func _case_quick_preview_width() -> void:
+	var b = await _start(3, 4)
+	await _idle(2)
+	var hud_w: float = float(b.hud.quick_cards[0].btn.size.x)
+	await _end(b)
+
+	var qb = load("res://scripts/ui/QuickBar.gd").new()
+	add_child(qb)
+	await _idle(3)
+	var qb_w: float = float(qb._slot_btns[0].size.x)
+	_ok("QW 預覽格闊度 = 戰鬥列實際起出嚟嗰格",
+		absf(qb_w - hud_w) < 0.5,
+		"preview %.2f vs battle card %.2f" % [qb_w, hud_w])
+	qb.queue_free()
+	await _idle(2)
+
+# ---------------------------------------------------------------------------
 # Q — 主選單嘅釘選畫面
 # ---------------------------------------------------------------------------
 func _case_quickbar_screen() -> void:
@@ -390,10 +420,6 @@ func _case_quickbar_screen() -> void:
 	add_child(qb)
 	await _idle(3)
 
-	# 預覽用嘅係實際尺寸,唔係另一套數
-	_ok("QB 預覽格闊度 = 戰鬥實際",
-		is_equal_approx(qb.preview_cell_w(), UI.quick_cell_w()),
-		"preview %.2f vs battle %.2f" % [qb.preview_cell_w(), UI.quick_cell_w()])
 
 	# 撳槽 -> 撳塔 = 指派
 	var before: Array = Meta.quick_slot_ids()

@@ -596,11 +596,17 @@ func apply_haste(amp: float, dur: float) -> void:
 func heal(frac: float) -> void:
 	request_heal(max_hp * frac)
 
-func displace(amount: float) -> void:
+## `snd` = false 俾嗰啲已經有一個更專屬嘅聲講緊同一件事嘅呼叫點用(傳送塔嘅
+## sfx_teleport_hit)。其餘呼叫點照響:磁力塔嘅脈衝同龍捲風一 push 就係一堆怪,
+## 但 Audio.play() 嘅 60ms 同名去重窗會將成個迴圈收埋成一下 —— 而「一下」正正
+## 就係啱嘅粒度,一次推撞係一件事,唔係二十件,所以呢度唔使再加限流。
+func displace(amount: float, snd := true) -> void:
 	## push back along route; bosses 80% resist
 	var eff := amount * (0.2 if is_boss else 1.0)
 	dist = maxf(0.0, dist - eff)
 	position = route.pos_at(dist)
+	if snd and eff > 0.0:
+		Audio.play("sfx_knockback")
 
 ## Hit flash. This used to allocate a Tween per hit — with ~130 monsters being
 ## shot by 43 towers at 5x that is thousands of Tween objects a second, which is

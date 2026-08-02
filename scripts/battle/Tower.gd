@@ -98,6 +98,7 @@ func get_rate() -> float:
 
 func _process(delta: float) -> void:
 	_tick_recoil(delta)
+	_tick_holy_glow(delta)
 	if mech == "holy" and t3():
 		_proc_oracle(delta)
 	match mech:
@@ -805,9 +806,52 @@ func on_soldier_died(sd) -> void:
 func sell_value() -> int:
 	return int(place_cost * 0.7)
 
+## 聖光光環嘅表現。一個「全場受惠」嘅光環最大嘅風險係佢完全睇唔出 ——
+## 冇範圍圈可以畫,而數字喺畫面上係隱形嘅。所以分兩邊講同一件事:
+##
+##   * 受惠嘅塔:塔身上一圈細細嘅金色微光粒子,強度跟住光環實際幾強。
+##     喺**每一座**塔上面出現,先至讀得出「全場」呢個意思。
+##   * 聖光塔本體:一條向上嘅光柱 —— 光源喺邊,睇一眼就知。
+##
+## 逐幀 queue_redraw 只喺光環真係存在嗰陣先做(_holy_glow 由 0 變非 0 嗰下),
+## 唔係無條件逐幀 —— 冇聖光塔嘅局唔應該為咗一個唔存在嘅光環重畫四十三次。
+var _holy_glow: float = 0.0
+
+func _tick_holy_glow(delta: float) -> void:
+	var want: float = battle.holy_haste_total + battle.holy_power_total
+	if want > 0.0:
+		_glow_phase += delta
+	if absf(want - _holy_glow) > 0.0005 or want > 0.0:
+		_holy_glow = want
+		queue_redraw()
+
+var _glow_phase: float = 0.0
+
+func _draw_holy_marks() -> void:
+	if _holy_glow <= 0.0:
+		return
+	var k: float = clampf(_holy_glow * 2.2, 0.25, 1.0)
+	# 受惠標記:三粒繞住塔頂轉嘅金色微光
+	for i in 3:
+		var a: float = _glow_phase * 1.5 + TAU * i / 3.0
+		var p := Vector2(cos(a) * 26.0, -34.0 + sin(a) * 7.0)
+		draw_circle(p, 3.4 * k, Color(1.0, 0.92, 0.58, 0.75 * k))
+		draw_circle(p, 1.6 * k, Color(1.0, 0.99, 0.88, 0.9 * k))
+	if mech != "holy":
+		return
+	# 光源本體:一條由塔身向上散開嘅光柱
+	var pulse: float = 0.75 + 0.25 * sin(_glow_phase * 2.4)
+	for w in [26.0, 13.0]:
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(-w * 0.45, -18.0), Vector2(w * 0.45, -18.0),
+			Vector2(w, -190.0), Vector2(-w, -190.0)]),
+			Color(1.0, 0.95, 0.72, 0.10 * pulse if w > 20.0 else 0.16 * pulse))
+	draw_circle(Vector2(0, -20.0), 12.0 * pulse, Color(1.0, 0.97, 0.80, 0.35))
+
 func _draw() -> void:
 	if mech == "curse":
 		_draw_curse_aura()
+	_draw_holy_marks()
 	if selected:
 		draw_arc(Vector2.ZERO, range_val, 0, TAU, 48, Color(1, 1, 1, 0.5), 3.0)
 		draw_circle(Vector2.ZERO, range_val, Color(1, 1, 1, 0.06))

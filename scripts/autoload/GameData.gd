@@ -6,7 +6,30 @@ extends Node
 const MAX_UP_LV := 15
 const UP_COST_MULT := 1.35
 ## 每關敵人強度成長率 (wave_scale = WAVE_GROWTH^(n-1))
+##
+## 第十輪加咗第二段。理由唔係「後面要難啲」呢種感覺,係一個量出嚟嘅斷層:
+## 二十關嘅曲線係喺一個「冇進化系統、而且六條軸永遠課唔滿」嘅世界入面
+## 定同量嘅。進化上線之後,一個專精玩家喺第 24 關拎到 tier 2(輸出 x16)、
+## 第 38 關拎到 tier 3(再 x16),而敵人喺 20→40 淨係 1.13^20 = 11.5 倍。
+## BalanceSim --evolve 量到嘅結果就係一次過通過率 40/40 —— 難度曲線唔係
+## 「變淺咗」,係由第 20 關開始就冇咗。
+##
+## 所以第 21 關起換一個較急嘅倍率。呢個唔係一堵牆:牆係「某一關特別難」,
+## 而呢個係同一條指數曲線換咗個斜率,每一關都照樣比上一關難少少 ——
+## 亦即係 brief 講嘅「沿用現有 wave scaling」。
+##
+## 第 1-20 關嘅 wave_scale 一個字都冇變(WAVE_LATE_FROM = 21),所以已經
+## 量過、已經出過街嗰二十關嘅平衡完全冇被呢個改動掂過。
 const WAVE_GROWTH := 1.13
+const WAVE_LATE_FROM := 21
+const WAVE_GROWTH_LATE := 1.28
+
+## 第 n 關嘅敵人強度倍率。
+func wave_scale(n: int) -> float:
+	if n < WAVE_LATE_FROM:
+		return pow(WAVE_GROWTH, n - 1)
+	return pow(WAVE_GROWTH, WAVE_LATE_FROM - 2) \
+		* pow(WAVE_GROWTH_LATE, n - WAVE_LATE_FROM + 1)
 ## 冇「基地生命值」呢樣嘢可以睇跌到幾多——一隻怪冇 Barrier 罩住走到底就係直接
 ## 輸,冧咗都冇一個「跌穿三成」嘅時刻存在。所以「危險」音效改以路程做距離代理:
 ## 一隻怪嘅路程比例(dist/route.total)第一次跨過呢個值,並且冇 Barrier 罩住
@@ -752,9 +775,31 @@ func effective_stats(def: Dictionary, up_levels: Array, tier := 1) -> Dictionary
 				s[stat] = clampf(s.get(stat, 0.0) + d.step * lv, 0.0, 1.0)
 	return s
 
+## 升級價曲線 —— 兩段。
+##
+## 舊版係一條純幾何線 base * 1.35^lv,而喺 15 級之下佢嘅尾巴大到荒謬:
+## 第 15 級收 base * 1.35^14 = 45 倍 base,亦即係**最後三級貴過頭十二級加埋**。
+## 呢件事一直冇人察覺,係因為冇任何嘢需要「六條軸全部課滿」——
+## 而進化嘅門檻正正就係嗰件事。第一次量度(BalanceSim --evolve)拎到嘅答案係
+## tier 2 喺第 32 關先出現,而目標係 15-25;拆開條數之後,樽頸唔係進化費
+## (6000,佔 7%),係六條軸嘅尾巴(75000,佔 88%)。
+##
+## 所以尾段換一個較平嘅倍率:頭 KNEE 級照舊 1.35(早期每一級都要係一個
+## 感覺得到嘅決定),之後轉 1.10。六條軸課滿由 254.6 x base 跌到 96.6 x base
+## (38%),而頭六級一個仙都冇平過 —— 即係話呢個改動完全冇掂到頭十五關嘅
+## 節奏,佢淨係令一條**本來冇人行得完**嘅路變成行得完。
+##
+## 注意:C(N)(玩家下一級升級嘅中位價,見 UPGRADE_COST_BASE)係由呢條曲線
+## 量出嚟嘅,而敗仗獎勵釘住 C(N)。改完呢度就要重跑 --curve 再擬合,唔係
+## 敗仗獎勵會靜靜咁飄離佢應該追蹤嗰樣嘢。
+const UP_COST_KNEE := 6
+const UP_COST_MULT_LATE := 1.10
+
 func upgrade_cost(base_cost: int, current_lv: int) -> int:
 	# cost of buying the (current_lv+1)-th level
-	return int(round(base_cost * pow(UP_COST_MULT, current_lv)))
+	var head: int = mini(maxi(0, current_lv), UP_COST_KNEE)
+	var tail: int = maxi(0, current_lv - UP_COST_KNEE)
+	return int(round(base_cost * pow(UP_COST_MULT, head) * pow(UP_COST_MULT_LATE, tail)))
 
 ## 同一條曲線,但級數係**全域**嘅:tier 2 嘅第 0 級接住 tier 1 嘅第 15 級。
 ## 所以進化之後嗰六條軸唔係「平返晒重新嚟過」,而係繼續向上 —— 呢個係
@@ -858,7 +903,8 @@ func level_config(n: int) -> Dictionary:
 	# wave scaling: exponential HP/density growth. 1.16 compounds to 17.0x by
 	# level 20, which no amount of gold or 魔晶 income could keep up with; 1.13
 	# reaches 9.9x, which the (now wave-scaled) economy can actually track.
-	var wave_scale := pow(WAVE_GROWTH, n - 1)
+	# 第 21 關起轉第二段斜率 —— 見 WAVE_GROWTH_LATE。
+	var wave_scale := self.wave_scale(n)
 	# which families appear this level (2-3 families rotating)
 	var base_i := (n - 1) % 10
 	var fams := []
@@ -957,11 +1003,31 @@ func level_first_clear_bonus(n: int) -> int:
 ##
 ## If the upgrade cost curve or the payouts move, re-run --curve and refit these,
 ## or the loss payout silently drifts off the thing it is supposed to track.
-const UPGRADE_COST_BASE := 47.36
-const UPGRADE_COST_GROWTH := 1.1668
+##
+## 第十輪重新擬合,而且**換咗個模型**。升級價曲線加咗第二段(UP_COST_KNEE)
+## 之後,實測 C(N) 由 45 → 804 變成 45 → 439,而舊嘅擬合仍然以 1.1668 增長 ——
+## 即係敗仗獎勵由第 13 關起越飄越高,到第 20 關已經係 C(20) 嘅 2.3 倍。呢個
+## 唔係「派多咗」咁簡單:敗仗獎勵存在嘅唯一理由就係釘住「輸一場 = 一級升級」,
+## 而一個派 2.3 級嘅敗仗會令「贏」變成一個可選項。
+##
+## 直接換個增長率解決唔到:實測 C(N) 而家喺對數空間係**凹**嘅(頭段 1.178/關,
+## 後段 1.082/關),一條幾何線點擬合都會喺中段跌穿實測值 —— 試過對數最小二乘,
+## 結果係 20 關入面得 14 關滿足「輸一場 >= 一級」。
+##
+## 所以呢度用返同一個形狀:兩段。C(N) 之所以係兩段,係因為升級價曲線本身
+## 就係兩段 —— 模型跟返被模型嘅嘢嘅形狀,擬合就唔使靠緩衝硬食。
+## 實測對照:C(1) 45 vs 45、C(10) 199 vs 199、C(20) 439 vs 438。
+const UPGRADE_COST_BASE := 45.0
+const UPGRADE_COST_GROWTH := 1.178        # 頭段(對應升級價嘅 1.35 段)
+const UPGRADE_COST_GROWTH_LATE := 1.082   # 後段(對應升級價嘅 1.10 段)
+const UPGRADE_COST_KNEE := 9              # 以 n-1 計
 
 func typical_upgrade_cost(n: int) -> int:
-	return int(round(UPGRADE_COST_BASE * pow(UPGRADE_COST_GROWTH, maxi(1, n) - 1)))
+	var x: int = maxi(1, n) - 1
+	var head: int = mini(x, UPGRADE_COST_KNEE)
+	var tail: int = maxi(0, x - UPGRADE_COST_KNEE)
+	return int(round(UPGRADE_COST_BASE * pow(UPGRADE_COST_GROWTH, head)
+		* pow(UPGRADE_COST_GROWTH_LATE, tail)))
 
 # --- loss payout ------------------------------------------------------------
 # Losing pays a small progress-based amount so a failed run still feeds the

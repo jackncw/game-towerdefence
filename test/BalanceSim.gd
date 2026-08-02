@@ -62,6 +62,8 @@ func _ready() -> void:
 		await _curve_table()
 	elif "--walls" in args:
 		await _walls_table()
+	elif "--evolve" in args:
+		await _evolve_table()
 	else:
 		await _playthrough()
 	get_tree().paused = false
@@ -577,6 +579,152 @@ func _buy_core_upgrade() -> bool:
 	if best_id == 0 or not Meta.can_afford(best_cost):
 		return false
 	return Meta.buy_tower_upgrade(best_id, best_dir)
+
+# ===========================================================================
+# MODE 8 — 進化投資模型 (--evolve),第 1..40 關
+# ===========================================================================
+## 條 brief 有兩個可以量嘅目標:「tier 2 大約喺 15–25 關開始出現」同
+## 「tier 3 係 30 關後嘅長線目標」。呢兩句都係關於**時間**嘅,而時間喺呢個
+## 遊戲入面唯一嘅單位就係「打到第幾關」,所以呢個 mode 要做嘅唔係計數,
+## 係由第一關打上去,睇住個玩家幾時真係買得起。
+##
+## 買嘢政策同 _spend_crystals() 唔同,而且必須唔同:嗰個只會課三條核心軸
+## (攻擊/攻速/射程),而進化嘅條件係**六條全部**課滿 15 級。一個永遠唔掂
+## 其餘三條軸嘅玩家,對「幾時進化得到」呢條問題嚟講係一個唔存在嘅人。
+##
+## 政策:
+##   1. 解鎖到 UNLOCK_TARGET 座塔(同其餘 mode 一樣,先要有得揀)
+##   2. 揀一座「主力」塔,由頭到尾深耕佢 —— 六條軸一齊向上,買最平嗰條
+##   3. 主力六軸滿咗就進化,然後繼續耕
+##   4. 主力進化完,順手用剩錢課其餘塔嘅核心軸(唔然錢會閒置)
+## 呢個係一個**專精**玩家,亦即係最快見到 tier 2 嗰種玩家。佢見唔到嘅時間,
+## 就係所有人都見唔到嘅時間下限。
+const EVOLVE_LEVELS := 40
+const EVOLVE_MAIN_ID := 1        # 箭塔:一開波就有,唔使等解鎖
+
+func _evolve_table() -> void:
+	Meta.reset_save()
+	print("SIM 進化投資模型 (第 1-%d 關;主力 = %s)"
+		% [EVOLVE_LEVELS, GameData.tower_by_id(EVOLVE_MAIN_ID).name])
+	# 塔數上限:冇佢嘅話「一次過通過率」量唔到難度。呢個 harness 嘅玩家用金
+	# 買塔,而金收入本身跟住 wave_scale 走(GOLD_WAVE_EXP)—— 所以敵人硬咗
+	# 十倍,佢就多買十倍塔,通過率永遠貼住 100%。呢件事喺第九輪 --walls 嗰邊
+	# 已經撞過一次,答案就係 _wall_field_cap()。
+	#
+	# 而且就算封咗頂,通過率仍然係一個飽和訊號(贏就係 1)。真正睇得出難度嘅
+	# 係**贏嘅幅度**:sim_max_frac = 全場敵人行得最深嗰個路程比例。0.4 = 輕鬆,
+	# 0.9 = 差啲守唔住,1.0 = 輸咗。呢個唔會飽和。
+	print("SIM  lv | 嘗試 | 結果 | 主力階 | 六軸滿 | 塔/上限 | 最深推進 | 期末魔晶 | 累積收入 | 進化事件")
+	var t_in := 0
+	var tier2_at := 0
+	var tier3_at := 0
+	var cleared := 0
+	var first_try := 0
+	var margins: Array = []
+	for lv in range(1, EVOLVE_LEVELS + 1):
+		var attempt := 0
+		var won := false
+		var income := 0
+		var events: Array = []
+		var cap: int = _evolve_field_cap(lv)
+		var margin := 0.0
+		var towers := 0
+		while attempt < MAX_ATTEMPTS and not won:
+			attempt += 1
+			var c0: int = Meta.crystals
+			var r: Dictionary = await _play_attempt(lv, false, cap, true)
+			won = r.win
+			margin = float((r.get("sig", {}) as Dictionary).get("max_frac", 0.0))
+			towers = int(r.get("towers", 0))
+			income += maxi(0, Meta.crystals - c0)
+			events += _spend_for_evolution()
+		if won:
+			cleared += 1
+			if attempt == 1:
+				first_try += 1
+		else:
+			Meta.on_level_cleared(lv)   # 唔好停喺第一堵牆,要量完成條曲線
+			events += _spend_for_evolution()
+		t_in += income
+		var tier: int = Meta.tower_tier(EVOLVE_MAIN_ID)
+		if tier >= 2 and tier2_at == 0:
+			tier2_at = lv
+		if tier >= 3 and tier3_at == 0:
+			tier3_at = lv
+		var dt: Array = Meta.axes_maxed_count(EVOLVE_MAIN_ID, true)
+		margins.append(margin)
+		print("SIM  %2d | %4d | %s | T%d | %d/%d | %3d/%3d | %7.0f%% | %8d | %8d | %s"
+			% [lv, attempt, "通關" if won else "失守", tier, dt[0], dt[1],
+			towers, cap, margin * 100.0,
+			Meta.crystals, t_in, "" if events.is_empty() else str(events)])
+	print("SIM ---- 總結 ----")
+	print("SIM 通關 %d/%d,一次過 %d 關" % [cleared, EVOLVE_LEVELS, first_try])
+	print("SIM 主力塔 tier 2 喺第 %s 關出現(目標 15-25)"
+		% ("冇出現過" if tier2_at == 0 else str(tier2_at)))
+	print("SIM 主力塔 tier 3 喺第 %s 關出現(目標 30+)"
+		% ("冇出現過" if tier3_at == 0 else str(tier3_at)))
+	print("SIM 第 %d 關完:魔晶累積收入 %d,期末餘額 %d" % [EVOLVE_LEVELS, t_in, Meta.crystals])
+	# 「唔准一 tier 通殺」= 進化之後嘅關卡唔可以變成散步。用**贏嘅幅度**判,
+	# 唔用通過率:通過率係飽和訊號(贏就係 1),而最深推進唔會飽和 ——
+	# 一個一 tier 通殺嘅玩家,佢每一關嘅最深推進都會塌落去 30% 以下。
+	print("SIM 一次過通過率 %.0f%%(飽和訊號,只作參考)"
+		% (100.0 * float(first_try) / maxf(1.0, float(EVOLVE_LEVELS))))
+	for band in [[1, 20], [21, 30], [31, 40]]:
+		var sum := 0.0
+		var n := 0
+		for i in margins.size():
+			var lv2: int = i + 1
+			if lv2 >= int(band[0]) and lv2 <= int(band[1]):
+				sum += float(margins[i])
+				n += 1
+		print("SIM 第 %d-%d 關平均最深推進 %.0f%%(越接近 100%% 越險;塌落 30%% 以下 = 散步)"
+			% [band[0], band[1], 100.0 * sum / maxf(1.0, float(n))])
+
+## 塔數上限。同 --walls 一樣嘅理由,曲線延伸到 40 關:第 1 關 6 座,
+## 第 40 關 26 座 —— 一個真人玩家喺一張地圖上面擺得落嘅數量係有限嘅,
+## 而呢個 harness 冇呢個限制就會用錢淹死任何難度。
+func _evolve_field_cap(level: int) -> int:
+	var t: float = clampf(float(level - 1) / 39.0, 0.0, 1.0)
+	return maxi(1, int(round(lerpf(6.0, 26.0, t))))
+
+## 專精玩家嘅買嘢規則。返一個「發生咗乜」嘅清單,方便逐關印出嚟。
+func _spend_for_evolution() -> Array:
+	var events: Array = []
+	var guard := 0
+	while guard < 600:
+		guard += 1
+		if Meta.unlocked_towers.size() < UNLOCK_TARGET and _buy_best_unlock():
+			continue
+		# 主力夠條件就進化 —— 進化永遠優先過再買一級,因為佢係嗰條路嘅出口
+		if Meta.can_evolve(EVOLVE_MAIN_ID, true):
+			var cost: int = Meta.evolve_cost(EVOLVE_MAIN_ID, true)
+			if Meta.can_afford(cost) and Meta.evolve(EVOLVE_MAIN_ID, true):
+				events.append("進化 -> T%d (-%d)" % [Meta.tower_tier(EVOLVE_MAIN_ID), cost])
+				continue
+			break      # 夠條件但唔夠錢:儲錢,唔好散去買第二啲嘢
+		if _buy_cheapest_axis(EVOLVE_MAIN_ID):
+			continue
+		if _buy_core_upgrade():
+			continue
+		break
+	return events
+
+## 主力塔:六條軸入面買最平嗰條未滿嘅。買最平 = 六條一齊爬,而進化條件係
+## 「六條全部滿」,所以任何偏心一條軸嘅策略都只會令佢遲啲先進化到。
+func _buy_cheapest_axis(id: int) -> bool:
+	var levels: Array = Meta.tower_levels(id)
+	var best_dir := -1
+	var best_cost := 1 << 30
+	for d in levels.size():
+		if int(levels[d]) >= GameData.MAX_UP_LV:
+			continue
+		var c: int = Meta.tower_up_cost(id, d)
+		if c < best_cost:
+			best_cost = c
+			best_dir = d
+	if best_dir < 0 or not Meta.can_afford(best_cost):
+		return false
+	return Meta.buy_tower_upgrade(id, best_dir)
 
 # ===========================================================================
 # MODE 7 — 難度牆驗收 (--walls)

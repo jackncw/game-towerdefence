@@ -16,6 +16,9 @@ const BATTLE := "res://scenes/Battle.tscn"
 const RESULT := "res://scenes/Result.tscn"
 const FAIL := "res://scenes/Fail.tscn"
 const SETTINGS := "res://scenes/Settings.tscn"
+## **開發工具,唔喺出貨版入面。** 主選單由 2026-08-02 起冇咗佢嘅入口,而
+## export_presets.cfg 亦都唔再打包佢 —— 所以喺一個匯出咗嘅 build 度
+## `Flow.goto(GALLERY)` 會載入失敗。由原始碼跑嘅工具同測試照用得。
 const GALLERY := "res://scenes/Gallery.tscn"
 const BESTIARY := "res://scenes/Bestiary.tscn"
 const QUICKBAR := "res://scenes/QuickBar.tscn"

@@ -97,61 +97,15 @@ func _case_no_5x_in_code() -> void:
 	var re := RegEx.new()
 	# 0.5x / 1.5x / 3x5 / 0x5EED 全部唔算 —— 前面係數字或者字母就唔係「五倍速」。
 	re.compile("(?<![0-9A-Za-z_.])5(\\.0)?\\s*[xX](?![0-9])|(?<![0-9A-Za-z_.])[xX]\\s*5(?![0-9])|time_scale\\s*=\\s*5|SPEEDS\\s*\\.\\s*find\\s*\\(\\s*5")
+	# 呢個檔本身就係規則嘅定義,佢一定要講得出 "5x" 三個字。
+	var lines := SourceScan.code_lines(CODE_DIRS, ["SpeedScaleTest.gd"])
 	var hits: Array = []
-	for d in CODE_DIRS:
-		_scan_dir(d, re, hits)
+	for l in lines:
+		if re.search(String(l.code)) != null:
+			hits.append("%s:%d %s" % [String(l.file).get_file(), int(l.line_no),
+				String(l.code).strip_edges()])
 	_ok("A1 程式碼冇 5x 殘留", hits.is_empty(), "%s" % [hits.slice(0, 8)])
-	_ok("A1 真係掃過嘢", _scanned_files > 40, "只掃到 %d 個檔" % _scanned_files)
-
-var _scanned_files := 0
-
-func _scan_dir(path: String, re: RegEx, hits: Array) -> void:
-	var d := DirAccess.open(path)
-	if d == null:
-		return
-	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		var full := path + "/" + name
-		if d.current_is_dir():
-			if not name.begins_with("."):
-				_scan_dir(full, re, hits)
-		elif name.ends_with(".gd") and name != "SpeedScaleTest.gd":
-			# 呢個檔本身就係規則嘅定義,佢一定要講得出 "5x" 三個字。
-			_scan_file(full, re, hits)
-		name = d.get_next()
-	d.list_dir_end()
-
-func _scan_file(path: String, re: RegEx, hits: Array) -> void:
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return
-	_scanned_files += 1
-	var n := 0
-	while not f.eof_reached():
-		n += 1
-		var code := _strip_comment(f.get_line())
-		if code.strip_edges() == "":
-			continue
-		if re.search(code) != null:
-			hits.append("%s:%d %s" % [path.get_file(), n, code.strip_edges()])
-	f.close()
-
-## 剝走 `#` 註解,但唔可以斬斷字串入面嘅 `#`(顏色碼 "#1c1611" 就係一個)。
-func _strip_comment(line: String) -> String:
-	var quote := ""
-	for i in line.length():
-		var c := line[i]
-		if quote != "":
-			if c == "\\":
-				continue
-			if c == quote:
-				quote = ""
-		elif c == "\"" or c == "'":
-			quote = c
-		elif c == "#":
-			return line.substr(0, i)
-	return line
+	_ok("A1 真係掃過嘢", lines.size() > 4000, "只掃到 %d 行" % lines.size())
 
 # ---------------------------------------------------------------------------
 # A — boss countdown reaches zero after the same amount of game time

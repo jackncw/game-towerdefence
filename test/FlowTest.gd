@@ -32,6 +32,8 @@ func _walk() -> void:
 	# --- 1. 主選單 ---------------------------------------------------------
 	var menu = await _screen("res://scenes/MainMenu.tscn")
 	_check(Meta.next_level() == 1, "全新存檔:主選單指向第 1 關")
+	_check_no_dev_screens(menu)
+	_check_export_excludes()
 	await _drop(menu)
 
 	# --- 2. 第 1 關,打到通關 ------------------------------------------------
@@ -132,6 +134,59 @@ func _walk() -> void:
 		_check((d.get("tower_up", {}).get("1", [0]))[0] == 1, "存檔記住箭塔升級")
 
 # ---------------------------------------------------------------------------
+## 出貨版唔可以有路去開發畫面。
+##
+## 兩邊都要查,因為佢哋擋唔同嘅嘢:
+##   * **主選單冇入口** —— 玩家撳唔到。一粒掣好易喺重排選單嗰陣「順手」加返。
+##   * **export 唔打包** —— 就算有人加返一粒掣,出貨版都冇嗰個檔。
+## 淨係做第一樣,下一個改主選單嘅人可以靜靜咁還原;淨係做第二樣,還原完就
+## 變成一個載入失敗嘅掣。
+##
+## 美術畫廊本身冇刪:tools/art_export.gd 同 SoakTest 由原始碼開得到佢。
+const DEV_ONLY_SCENES := ["res://scenes/Gallery.tscn"]
+## 開發畫面喺出貨腳本入面嘅名。`Flow.GALLERY` 係嗰個常數,而場景路徑本身
+## 係任何人繞過個常數嘅寫法。
+const DEV_ONLY_TOKENS := ["Flow.GALLERY", "scenes/Gallery.tscn"]
+## 常數自己嘅宣告喺 Flow.gd,佢一定要提到個名。
+const DEV_TOKEN_HOME := "Flow.gd"
+
+## 第一版係去撳主選單每一粒掣,睇吓有冇切場景。佢**假綠**:掣接住嘅係
+## lambda,而 `Flow.goto()` 喺 `nav_enabled = false` 之下(即係呢個 harness)
+## 未行到麵包屑嗰行就已經 return,所以量到零條路,而「冇路去畫廊」就係
+## 喺零條路入面成立 —— 一條乜都證明唔到嘅斷言。
+##
+## 改為問 source:出貨嗰批腳本(scripts/**)入面,冇一句**程式碼**提到開發
+## 畫面。註解照計唔中 —— 上面 MainMenu.gd 嗰段解釋點解拎走佢,而嗰段要留得低。
+func _check_no_dev_screens(_menu: Node) -> void:
+	var lines := SourceScan.code_lines(["res://scripts"], [DEV_TOKEN_HOME])
+	_check(lines.size() > 400, "真係掃過出貨腳本 (%d 行程式碼)" % lines.size())
+	for token in DEV_ONLY_TOKENS:
+		var hits: Array = []
+		for l in lines:
+			if String(l.code).contains(token):
+				hits.append("%s:%d" % [String(l.file).get_file(), int(l.line_no)])
+		_check(hits.is_empty(), "出貨腳本冇提 %s (%s)" % [token, hits.slice(0, 4)])
+
+## 出貨嗰份 pack 有冇打包開發畫面 —— 問 export_presets.cfg,唔係問檔案系統。
+func _check_export_excludes() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://export_presets.cfg") != OK:
+		_check(false, "讀到 export_presets.cfg")
+		return
+	var checked := 0
+	for sect in cfg.get_sections():
+		if sect.ends_with(".options"):
+			continue
+		var preset_name := String(cfg.get_value(sect, "name", ""))
+		var ex := String(cfg.get_value(sect, "exclude_filter", ""))
+		if preset_name == "":
+			continue
+		checked += 1
+		for dev in DEV_ONLY_SCENES:
+			_check(ex.contains(dev.trim_prefix("res://")),
+				"[%s] exclude_filter 隔走 %s" % [preset_name, dev])
+	_check(checked >= 2, "掃過每一個 export preset (%d 個)" % checked)
+
 func _screen(path: String):
 	var n = load(path).instantiate()
 	n.process_mode = Node.PROCESS_MODE_ALWAYS

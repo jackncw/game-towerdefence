@@ -68,9 +68,16 @@ func _ready() -> void:
 	settings.pressed.connect(func(): Flow.goto(Flow.SETTINGS))
 	vb.add_child(settings)
 
-	var gallery := UI.button(tr("MENU_GALLERY"), Vector2(600, 90), UI.PANEL, 30)
-	gallery.pressed.connect(func(): Flow.goto(Flow.GALLERY))
-	vb.add_child(gallery)
+	# 美術畫廊(除錯)嘅入口喺呢度除名咗 —— 佢係一個開發工具,唔係一個玩家
+	# 功能,而佢一路都喺出街版嘅主選單度一撳就入。
+	#
+	# 唔係「整潔」問題,係量出嚟嘅:嗰一頁一次過砌 95 個 sprite 格,峰值比
+	# 主選單多 5.03 MB / 496 個節點(tools/menu_leak.gd)。喺一部已經貼住
+	# Safari tab 上限嘅 iPhone 上面,呢個數唔細 —— 而佢喺 2026-08-02 嗰單
+	# 閃退嘅麵包屑入面,正正就係死之前最後去嗰個畫面。
+	#
+	# 畫廊本身冇刪:tools/art_export.gd 同 SoakTest 仲會由原始碼開佢。佢淨係
+	# 唔再出貨 —— 見 export_presets.cfg 嘅 exclude_filter。
 
 	# 上次啟動係閃退嘅話,喺呢度彈報告。主選單係開機必經嘅第一個畫面,而
 	# 一份寫咗但冇人讀得到嘅閃退記錄(iOS 網頁版嘅 user:// 收喺 IndexedDB)

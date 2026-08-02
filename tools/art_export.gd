@@ -156,7 +156,42 @@ func _run() -> void:
 	# 快捷列釘選畫面:全部 20 座塔解鎖情況下,4 欄 grid 排唔排得晒 —— 呢個先係
 	# 英文塔名(比中文闊 1.7 倍)真正會爆嘅地方
 	await _shoot_scene("res://scenes/QuickBar.tscn", "23_quickbar")
+	await _shoot_tier3_battle()
 	await _gen_galleries()
+
+## 全部第三階嘅戰場。要影呢張嘅理由:進化嘅視覺承諾(外觀進化 + 更多特效 +
+## 全圖聖光光環嘅金光粒子同光柱)全部只有喺**場上一齊出現**嗰陣先睇得出夠唔夠
+## 分得開 —— 一張塔卡 gallery 影唔到「二十座塔同時發光會唔會變成一嚿光」。
+func _shoot_tier3_battle() -> void:
+	for id in range(1, 21):
+		Meta.tower_tiers[str(id)] = 3
+	for id in range(1, 16):
+		Meta.spell_tiers[str(id)] = 3
+	var b: Node = _make_battle(12)
+	await _mount(b)
+	b.gold = 9999999
+	b.base_shield = 99999
+	var TowerScript := load("res://scripts/battle/Tower.gd")
+	# 聖光塔(18)一定要喺呢張圖入面 —— 佢係全圖光環嘅光源,而「受惠塔身上
+	# 有金光粒子」呢個表現冇佢就一粒都唔會出,即係影完都驗唔到。
+	var ids: Array = [18, 1, 2, 3, 5, 6, 7, 9, 10, 12, 13, 16, 17, 20]
+	for i in ids.size():
+		var t = TowerScript.new()
+		b.towers_root.add_child(t)
+		t.setup(b, int(ids[i]), Vector2(150 + (i % 4) * 250, 380 + (i / 4) * 250))
+		b.towers.append(t)
+		match t.mech:
+			"alchemy": b.alchemy_towers.append(t)
+			"holy": b.holy_towers.append(t)
+			"curse": b.curse_towers.append(t)
+	for fam in ["goblin", "cultist", "golem", "bat"]:
+		for k in 3:
+			b._spawn_monster(fam, 4, false, 120.0 + k * 90.0)
+	for i in 90:
+		await get_tree().process_frame
+	await _grab("25_battle_tier3")
+	Meta.tower_tiers.clear()
+	Meta.spell_tiers.clear()
 
 ## 詛咒塔 in the field: the standing sigil on the ground plus the little hex/flame
 ## mark on every monster caught inside it. Both are new this round and neither
@@ -223,6 +258,38 @@ func _shoot_upgrades() -> void:
 	await _grab("06k_upgrade_missile_mech")
 	await _select_upgrade(up, "tower", 16, 1050)
 	await _grab("06l_upgrade_missile_rows")
+	# --- 進化區 (round 10) ----------------------------------------------------
+	# 三個狀態全部要影,因為佢哋係三張唔同嘅畫面,而唔係一張畫面嘅三個數值:
+	#   未夠條件 = 剪影 + 「差幾多」;夠條件 = 亮起 + 新機制;滿階 = 封印。
+	# 「未夠條件」嗰張最重要 —— 佢係大部分玩家大部分時間見到嗰張。
+	Meta.tower_up["17"] = [15, 15, 15, 4, 0, 0]
+	await _select_upgrade(up, "tower", 17, 1700)
+	await _grab("24_evolve_locked")
+	var maxed6: Array = [15, 15, 15, 15, 15, 15]
+	Meta.tower_up["7"] = maxed6.duplicate()
+	Meta.crystals = 99999
+	await _select_upgrade(up, "tower", 7, 1700)
+	await _grab("24b_evolve_ready")
+	# 已經進化咗嘅塔:展示區個名 / 個圖要跟階,唔係仲叫舊名
+	Meta.tower_tiers["7"] = 2
+	Meta.tower_up["7"] = maxed6.duplicate()
+	await _select_upgrade(up, "tower", 7, 0)
+	await _grab("24c_evolved_showcase")
+	await _select_upgrade(up, "tower", 7, 1700)
+	await _grab("24d_evolve_to_t3")
+	Meta.tower_tiers["7"] = 3
+	await _select_upgrade(up, "tower", 7, 1700)
+	await _grab("24e_evolve_maxed")
+	Meta.spell_tiers["13"] = 2
+	Meta.spell_up["13"] = [15, 15, 15]
+	await _select_upgrade(up, "spell", 13, 1400)
+	await _grab("24f_evolve_spell")
+	Meta.tower_tiers.clear()
+	Meta.spell_tiers.clear()
+	Meta.tower_up.erase("17")
+	Meta.tower_up.erase("7")
+	Meta.spell_up.erase("13")
+
 	Meta.tower_up["1"] = [15, 7, 0, 0, 0, 0]
 	await _select_upgrade(up, "tower", 1, 980)
 	await _grab("06e_upgrade_maxed")

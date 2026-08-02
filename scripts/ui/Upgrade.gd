@@ -477,7 +477,10 @@ func _zone_evolve(def: Dictionary) -> Control:
 	var is_tower := _is_tower()
 	var tier: int = Meta.item_tier(sel_id, is_tower)
 	var z := UI.panel_rect()
-	z.custom_minimum_size = Vector2(1000, 470)
+	# 540 唔係 470:條「全部軸已滿」提示喺英文係兩行(繁中一行),而 470 之下
+	# 佢會被進化掣壓住最後半行 —— 一句被切走一半嘅提示比冇提示更差,因為佢
+	# 睇落好似完整咁。高度按最長嗰個語言嚟訂,唔係按最短嗰個。
+	z.custom_minimum_size = Vector2(1000, 540)
 	var head := _section_head(tr("EVO_SECTION"), "ic_star")
 	head.position = Vector2(30, 20)
 	z.add_child(head)
@@ -489,11 +492,11 @@ func _zone_evolve(def: Dictionary) -> Control:
 
 	if tier >= GameData.MAX_TIER:
 		var maxed := UI.label(tr("EVO_MAXED"), 34, UI.GOLD)
-		maxed.position = Vector2(60, 180); maxed.size = Vector2(880, 60)
+		maxed.position = Vector2(60, 200); maxed.size = Vector2(880, 60)
 		maxed.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		z.add_child(maxed)
 		var seal := UI.badge_max(Vector2(120, 120))
-		seal.position = Vector2(480, 250)
+		seal.position = Vector2(480, 290)
 		z.add_child(seal)
 		return z
 
@@ -518,7 +521,9 @@ func _zone_evolve(def: Dictionary) -> Control:
 	mbox.position = Vector2(256, 152); mbox.size = Vector2(690, 110)
 	mbox.clip_contents = true
 	z.add_child(mbox)
-	var mech := UI.label("%s:%s" % [tr("EVO_NEW_MECH"), tr(mk)] if ready else "???",
+	# 破折號而唔係冒號:繁中「新機制:」後面唔加空格,英文 "New mechanic:" 後面
+	# 一定要加,而同一句 format 出唔到兩種標點習慣 —— 破折號兩邊都成立。
+	var mech := UI.label("%s — %s" % [tr("EVO_NEW_MECH"), tr(mk)] if ready else "???",
 		24, UI.TEXT if ready else Color(0.55, 0.52, 0.5))
 	mech.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mech.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -528,7 +533,7 @@ func _zone_evolve(def: Dictionary) -> Control:
 	# 條件 / 提示
 	var done_total: Array = Meta.axes_maxed_count(sel_id, is_tower)
 	var hintbox := Control.new()
-	hintbox.position = Vector2(56, 288); hintbox.size = Vector2(890, 80)
+	hintbox.position = Vector2(56, 286); hintbox.size = Vector2(890, 96)
 	hintbox.clip_contents = true
 	z.add_child(hintbox)
 	var hint := UI.label(tr("EVO_READY_HINT") if ready
@@ -543,7 +548,7 @@ func _zone_evolve(def: Dictionary) -> Control:
 	# 進化掣 + 費用
 	var cost: int = GameData.evolve_cost(is_tower, next_tier)
 	var btn := UI.button("", Vector2(300, 116), UI.GOLD if ready else UI.PANEL, 30)
-	btn.position = Vector2(620, 372 - 40)
+	btn.position = Vector2(620, 398)
 	var lbl := UI.label(tr("EVO_BUTTON"), 30, Color(0.28, 0.18, 0.05) if ready else UI.TEXT_DIM)
 	lbl.position = Vector2(0, 16); lbl.size = Vector2(300, 38)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -561,7 +566,7 @@ func _zone_evolve(def: Dictionary) -> Control:
 	btn.pressed.connect(func(): _try_evolve(cost, z))
 	z.add_child(btn)
 	var costlbl := UI.label(tr("EVO_COST"), 26, UI.TEXT_DIM)
-	costlbl.position = Vector2(56, 372); costlbl.size = Vector2(400, 40)
+	costlbl.position = Vector2(56, 434); costlbl.size = Vector2(400, 40)
 	z.add_child(costlbl)
 	return z
 

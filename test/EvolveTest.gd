@@ -32,6 +32,7 @@ func _ready() -> void:
 	_case_evolve_transaction()
 	_case_save_roundtrip()
 	await _case_tier3_battle()
+	await _case_ui_flow()
 	_tree.paused = false
 	Flow.nav_enabled = true
 	_restore_save()
@@ -277,6 +278,73 @@ func _case_tier3_battle() -> void:
 	_ok("D6 第三階真係打得死嘢", b.kills > 0, "kills=%d" % b.kills)
 	b.queue_free()
 	await get_tree().process_frame
+
+# ---------------------------------------------------------------------------
+# 6. 由介面真係撳落去 —— 課滿 → 進化 → 再課 → 再進化
+# ---------------------------------------------------------------------------
+## 前面五個 case 全部係直接叫 Meta 嘅 API。呢個唔係:佢起返成個升級畫面,
+## 喺入面搵嗰粒進化掣,emit 佢個 pressed signal,再問返 Meta 有冇變。
+##
+## 點解值得多寫一個:一個「Meta.evolve() 啱但個掣冇接到」嘅世界,喺前面
+## 五個 case 底下係全綠嘅,而喺玩家手上係一個撳極都冇反應嘅掣。
+func _case_ui_flow() -> void:
+	Meta.reset_save()
+	Meta.unlocked_towers = range(1, 21)
+	Meta.unlocked_spells = range(1, 16)
+	Meta.crystals = 9999999
+	var up: Node = load("res://scenes/Upgrade.tscn").instantiate()
+	add_child(up)
+	await get_tree().process_frame
+	up.sel_type = "tower"
+	up.sel_id = 1
+	# 由零課到滿,行返玩家真正嗰條路(逐級買,唔係直接寫個 Array)
+	var bought := 0
+	for dir in GameData.tower_by_id(1).ups.size():
+		for lv in GameData.MAX_UP_LV:
+			if Meta.buy_tower_upgrade(1, dir):
+				bought += 1
+	_ok("D7 由介面路徑逐級課滿六軸", bought == 6 * GameData.MAX_UP_LV,
+		"bought %d levels" % bought)
+	up._rebuild()
+	await get_tree().process_frame
+	for tier in [2, 3]:
+		var btn := _find_evolve_button(up)
+		_ok("D7 進化掣搵得到 (T%d)" % tier, btn != null, "no evolve button in the tree")
+		if btn == null:
+			break
+		btn.emit_signal("pressed")
+		await get_tree().process_frame
+		_ok("D7 撳完真係升到第 %d 階" % tier, Meta.tower_tier(1) == tier,
+			"tier=%d" % Meta.tower_tier(1))
+		# 再課滿,行下一階
+		for dir in GameData.tower_by_id(1).ups.size():
+			for lv in GameData.MAX_UP_LV:
+				Meta.buy_tower_upgrade(1, dir)
+		_ok("D7 第 %d 階嘅軸再課得滿" % tier, Meta.all_axes_maxed(1, true), "not maxed")
+		up._rebuild()
+		await get_tree().process_frame
+	# 滿階之後個掣要唔見咗,唔係仲喺度俾人撳
+	_ok("D7 滿階之後冇進化掣", _find_evolve_button(up) == null,
+		"evolve button still present at max tier")
+	up.queue_free()
+	await get_tree().process_frame
+
+## 進化掣冇 name 亦冇 group —— 佢係 UI.button() 出嚟嘅裸 Button。用「掛住一個
+## 寫住 EVO_BUTTON 文字嘅 Label」嚟認佢:呢個正正就係玩家用嚟認佢嗰樣嘢。
+func _find_evolve_button(root: Node) -> Button:
+	var want := tr("EVO_BUTTON")
+	for n in _walk(root):
+		if n is Button and not n.disabled:
+			for c in n.get_children():
+				if c is Label and c.text == want:
+					return n
+	return null
+
+func _walk(n: Node) -> Array:
+	var out: Array = [n]
+	for c in n.get_children():
+		out += _walk(c)
+	return out
 
 # ===========================================================================
 func _ok(label: String, cond: bool, detail: String) -> void:

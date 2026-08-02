@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cmenuleak00001"]
+
+[ext_resource type="Script" path="res://tools/menu_leak.gd" id="1_leak"]
+
+[node name="MenuLeak" type="Node"]
+script = ExtResource("1_leak")

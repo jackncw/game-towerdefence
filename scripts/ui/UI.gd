@@ -184,13 +184,25 @@ static func panel_parch() -> Panel:
 	p.add_theme_stylebox_override("panel", frame_box("panel_parch9", 24, 26, 18))
 	return p
 
+## 一條 stat bar 佔幾高。Upgrade.box_height() 要同呢個數對齊,所以佢住喺呢度。
+const STAT_BAR_H := 74
+## 三段分區嘅底色。tier 1 最暗、tier 3 最亮 —— 一個「越後面越貴重」嘅漸變,
+## 而唔係三隻分得出但冇次序嘅顏色。
+const TIER_ZONE := [Color(1, 1, 1, 0.05), Color(1, 1, 1, 0.10), Color(1, 1, 1, 0.17)]
+
 ## A labelled horizontal stat bar: [icon] name .......... value / gradient fill.
 ## frac (0..1) sets fill length (relative strength among peers). fill_tex picks
 ## the gradient (bar_gold9 / bar_green9 / bar_crystal9).
+##
+## `bands` = 呢件嘢每一階**滿課**落喺呢條刻度嘅邊(0..1),由細到大,長度
+## MAX_TIER-1。有 bands 就會喺 track 底畫三段淺色分區 + 界線,所以一條 bar
+## 除咗講「而家幾強」仲講埋「一階夠唔夠、仲有幾多段路」。空 = 唔畫。
+## `tier` = 玩家而家嗰階,用嚟將佢自己嗰段分區畫光啲。
 static func stat_bar(icon_name: String, name: String, value_txt: String,
-		frac: float, fill_tex := "bar_gold9", width := 620) -> Control:
+		frac: float, fill_tex := "bar_gold9", width := 620,
+		bands: Array = [], tier := 0) -> Control:
 	var row := Control.new()
-	row.custom_minimum_size = Vector2(width, 62)
+	row.custom_minimum_size = Vector2(width, STAT_BAR_H if not bands.is_empty() else 62)
 	var ic := tex_rect(Assets.ui(icon_name), Vector2(40, 40))
 	ic.position = Vector2(2, 8)
 	row.add_child(ic)
@@ -211,14 +223,74 @@ static func stat_bar(icon_name: String, name: String, value_txt: String,
 	track.position = Vector2(50, 40)
 	track.size = Vector2(width - 60, 18)
 	row.add_child(track)
+	var inner := width - 68.0
+	# 分區喺 fill 之前入 track,所以佢哋永遠喺條 bar 下面 —— 佢哋係刻度,唔係數值。
+	if not bands.is_empty():
+		var edges: Array = [0.0]
+		for b in bands:
+			edges.append(clampf(float(b), 0.0, 1.0))
+		edges.append(1.0)
+		for i in range(edges.size() - 1):
+			var x0: float = float(edges[i]) * inner
+			var x1: float = float(edges[i + 1]) * inner
+			if x1 - x0 < 0.5:
+				continue
+			var zone := ColorRect.new()
+			zone.color = TIER_ZONE[mini(i, TIER_ZONE.size() - 1)]
+			# 玩家而家嗰段亮啲:一條 bar 上面「你喺邊一段」係第一眼要答嘅問題。
+			if tier == i + 1:
+				zone.color = Color(GOLD.r, GOLD.g, GOLD.b, 0.20)
+			zone.position = Vector2(4 + x0, 3)
+			zone.size = Vector2(x1 - x0, 12)
+			zone.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			track.add_child(zone)
 	var fill := TextureRect.new()
 	fill.texture = Assets.ui(fill_tex)
 	fill.position = Vector2(4, 3)
-	fill.size = Vector2((width - 68) * clampf(frac, 0.03, 1.0), 12)
+	fill.size = Vector2(inner * clampf(frac, 0.03, 1.0), 12)
 	fill.stretch_mode = TextureRect.STRETCH_SCALE
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	track.add_child(fill)
+	# 界線最後入,所以佢喺 fill 上面 —— 一條已經越過咗 tier 1 界線嘅 bar,
+	# 條界線要仲睇得到,唔係嘅話「我過咗第一段」呢件事就冇咗。
+	if not bands.is_empty():
+		for b in bands:
+			var tick := ColorRect.new()
+			tick.color = Color(0.10, 0.08, 0.06, 0.85)
+			tick.position = Vector2(4 + clampf(float(b), 0.0, 1.0) * inner - 1.0, 1)
+			tick.size = Vector2(2, 16)
+			tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			track.add_child(tick)
+		for i in bands.size():
+			var num := label(_ROMAN[mini(i + 1, _ROMAN.size() - 1)], 15, TEXT_DIM)
+			num.position = Vector2(50 + 4 + clampf(float(bands[i]), 0.0, 1.0) * inner - 14, 58)
+			num.size = Vector2(28, 16)
+			num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			row.add_child(num)
 	return row
+
+const _ROMAN := ["", "I", "II", "III"]
+
+## 階級徽章 —— 羅馬數字。tier 1 都畫:呢個徽章嘅位置係「面板標題旁」,
+## 而喺嗰度「你係第一階」係一句有用嘅話(tier_pips 唔畫 tier 1 係因為佢貼喺
+## 幾十張卡嘅角落,情況唔同)。
+static func tier_badge(tier: int) -> Control:
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(64, 40)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var p := Panel.new()
+	p.add_theme_stylebox_override("panel", frame_box("card9", 12, 4, 2))
+	p.size = Vector2(64, 40)
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(p)
+	var l := label(_ROMAN[clampi(tier, 1, 3)], 24,
+		GOLD if tier >= 3 else (Color(0.85, 0.92, 1.0) if tier == 2 else PARCH))
+	l.size = Vector2(64, 40)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(l)
+	return wrap
 
 ## A gold MAX seal medallion.
 static func badge_max(size := Vector2(72, 72)) -> Control:
@@ -345,7 +417,7 @@ static func slider(width := 560.0) -> HSlider:
 ## 右上角。
 ##
 ## 用星星唔用數字:呢個角落喺快捷槽度得 141px 闊,而一個「T2」要一個夠大先
-## 讀得到嘅字級,搶咗塔 icon 嘅位。星星數得出,而且喺 5x 之下用餘光都分得到。
+## 讀得到嘅字級,搶咗塔 icon 嘅位。星星數得出,而且喺 3x 之下用餘光都分得到。
 ## tier 1 特登唔畫任何嘢 —— 三十五件嘢入面絕大部分成世都係 tier 1,而喺每一
 ## 張卡上面畫一粒「你冇進化過」嘅星等於將雜訊變成常態。
 static func tier_pips(tier: int, size := 14.0) -> Control:

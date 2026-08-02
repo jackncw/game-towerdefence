@@ -18,9 +18,20 @@ var tab_tower: Button
 var tab_spell: Button
 
 var STAT_LABEL: Dictionary = {}
-var STAT_MAX: Dictionary = {}
-var SPELL_STAT_MAX: Dictionary = {}
-var DPS_MAX: float = 1.0
+## 跨三階統一刻度。`_HI` = 呢類數值喺「同類物件 tier 3 六軸滿課」嘅全遊戲上限,
+## `_LO` = 同類物件喺 tier 1 一級時嘅最細正值。兩個一齊定義咗成條 bar 嘅量程。
+##
+## 點解要跨階:舊刻度嘅上限係「tier 1 基礎值入面最大嗰個」,所以一座塔淨係
+## 課到 tier 1 十級就已經滿格,而一進化就成塊面板頂爆 —— 一條永遠滿嘅 bar
+## 講唔到任何嘢,而玩家喺進化之後最需要知嘅正正就係「我行到邊」。
+var STAT_HI: Dictionary = {}
+var STAT_LO: Dictionary = {}
+var SPELL_STAT_HI: Dictionary = {}
+var SPELL_STAT_LO: Dictionary = {}
+## 每秒傷害唔係一個 stat(佢係 dmg x rate),但佢係塔嘅第一指標,所以佢有
+## 自己一對量程。
+var DPS_HI: float = 1.0
+var DPS_LO: float = 1.0
 
 const ELEM_COL := {
 	"fire": Color(1.0, 0.55, 0.25), "ice": Color(0.55, 0.82, 1.0),
@@ -85,21 +96,51 @@ func _ready() -> void:
 	_rebuild()
 
 # ---------------------------------------------------------------------------
+## 全部軸都喺某一級嘅等級向量。
+static func level_vector(def: Dictionary, lv: int) -> Array:
+	var a: Array = []
+	for _i in def.ups.size():
+		a.append(lv)
+	return a
+
 func _build_stat_tables() -> void:
 	for t in GameData.TOWERS:
 		for up in t.ups:
 			STAT_LABEL[up.stat] = up.name
-		for stat in t.stats.keys():
-			var v: float = t.stats[stat]
-			STAT_MAX[stat] = maxf(STAT_MAX.get(stat, 0.0), absf(v))
-		var dps: float = float(t.stats.get("dmg", 0.0)) * float(t.stats.get("rate", 0.0))
-		DPS_MAX = maxf(DPS_MAX, dps)
 	for sp in GameData.SPELLS:
 		for up in sp.ups:
 			STAT_LABEL[up.stat] = up.name
-		for stat in sp.stats.keys():
-			var v: float = sp.stats[stat]
-			SPELL_STAT_MAX[stat] = maxf(SPELL_STAT_MAX.get(stat, 0.0), absf(v))
+	_scan_range(GameData.TOWERS, STAT_HI, STAT_LO)
+	_scan_range(GameData.SPELLS, SPELL_STAT_HI, SPELL_STAT_LO)
+	DPS_LO = INF
+	for t in GameData.TOWERS:
+		var top: Dictionary = GameData.effective_stats(t,
+			level_vector(t, GameData.MAX_UP_LV), GameData.MAX_TIER)
+		DPS_HI = maxf(DPS_HI, float(top.get("dmg", 0.0)) * float(top.get("rate", 0.0)))
+		var bottom: Dictionary = GameData.effective_stats(t, level_vector(t, 1), 1)
+		var d: float = float(bottom.get("dmg", 0.0)) * float(bottom.get("rate", 0.0))
+		if d > 0.0:
+			DPS_LO = minf(DPS_LO, d)
+	if not is_finite(DPS_LO):
+		DPS_LO = 1.0
+
+## 一類物件(塔 / 魔法)每個 stat 嘅量程。
+##
+## 上限用 tier 3 六軸滿課 —— 即係「呢個遊戲入面呢個數字最大得幾多」。
+## 下限用 tier 1 **一級**而唔係零級:好多軸嘅基礎值就係 0(爆毒、起手金、
+## 流血…),而一個 0 做唔到對數刻度嘅原點。
+func _scan_range(defs: Array, hi: Dictionary, lo: Dictionary) -> void:
+	for d in defs:
+		var top: Dictionary = GameData.effective_stats(d,
+			level_vector(d, GameData.MAX_UP_LV), GameData.MAX_TIER)
+		for stat in top.keys():
+			hi[stat] = maxf(hi.get(stat, 0.0), absf(float(top[stat])))
+		var bottom: Dictionary = GameData.effective_stats(d, level_vector(d, 1), 1)
+		for stat in bottom.keys():
+			var v: float = absf(float(bottom[stat]))
+			if v <= 0.0:
+				continue
+			lo[stat] = minf(lo[stat], v) if lo.has(stat) else v
 
 func _build_topbar() -> void:
 	var bar := Panel.new()
@@ -289,27 +330,27 @@ func _zone_stats(def: Dictionary) -> Control:
 	box.position = Vector2(30, 20)
 	box.custom_minimum_size = Vector2(940, 0)
 	z.add_child(box)
-	box.add_child(_section_head(tr("UPG_PERF"), "ic_stats"))
 	var is_spell := sel_type == "spell"
+	var tier: int = Meta.item_tier(sel_id, not is_spell)
+	var head := _section_head(tr("UPG_PERF"), "ic_stats")
+	head.add_child(UI.tier_badge(tier))
+	box.add_child(head)
 	var stats: Dictionary = Meta.tower_stats(sel_id) if not is_spell else Meta.spell_stats(sel_id)
-	var mx: Dictionary = STAT_MAX if not is_spell else SPELL_STAT_MAX
 	if not is_spell:
-		box.add_child(UI.stat_bar("ic_sword", tr("UP_ATK"), _fmt(stats.get("dmg", 0.0), "dmg"),
-			_frac("dmg", stats.get("dmg", 0.0), mx), "bar_gold9", 940))
-		box.add_child(UI.stat_bar("ic_speed", tr("UP_RATE"),
+		box.add_child(_bar(def, tier, "ic_sword", tr("UP_ATK"), "dmg",
+			_fmt(stats.get("dmg", 0.0), "dmg"), float(stats.get("dmg", 0.0)), "bar_gold9"))
+		box.add_child(_bar(def, tier, "ic_speed", tr("UP_RATE"), "rate",
 			tr("UPG_RATE_VALUE").format({"v": _fmt(stats.get("rate", 0.0), "rate")}),
-			_frac("rate", stats.get("rate", 0.0), mx), "bar_gold9", 940))
-		box.add_child(UI.stat_bar("ic_scope", tr("UP_RANGE"), _fmt(stats.get("range", 0.0), "range"),
-			_frac("range", stats.get("range", 0.0), mx), "bar_gold9", 940))
+			float(stats.get("rate", 0.0)), "bar_gold9"))
+		box.add_child(_bar(def, tier, "ic_scope", tr("UP_RANGE"), "range",
+			_fmt(stats.get("range", 0.0), "range"), float(stats.get("range", 0.0)), "bar_gold9"))
 		var dps: float = float(stats.get("dmg", 0.0)) * float(stats.get("rate", 0.0))
-		box.add_child(UI.stat_bar("ic_star", tr("UPG_DPS_LABEL"),
-			tr("UPG_DPS_VALUE").format({"v": _fmt(dps, "dmg")}),
-			clampf(dps / DPS_MAX, 0.03, 1.0), "bar_green9", 940))
+		box.add_child(_dps_bar(def, tier, dps))
 		# the tower's signature special (first non-core upgrade direction)
 		var sp := _signature_stat(def)
 		if sp != "":
-			box.add_child(UI.stat_bar("ic_spark", tr(STAT_LABEL.get(sp, sp)),
-				_fmt(stats.get(sp, 0.0), sp), _frac(sp, stats.get(sp, 0.0), mx), "bar_crystal9", 940))
+			box.add_child(_bar(def, tier, "ic_spark", tr(STAT_LABEL.get(sp, sp)), sp,
+				_fmt(stats.get(sp, 0.0), sp), float(stats.get(sp, 0.0)), "bar_crystal9"))
 		box.add_child(_kv_row(tr("UPG_COST"), "ic_coin",
 			tr("UPG_GOLD_VALUE").format({"n": int(def.place_cost)}), UI.GOLD))
 	else:
@@ -318,19 +359,74 @@ func _zone_stats(def: Dictionary) -> Control:
 			var st: String = up.stat
 			if st == "cd":
 				has_cd = true
-			box.add_child(UI.stat_bar(_stat_icon(st), tr(up.name), _fmt(stats.get(st, 0.0), st),
-				_frac(st, stats.get(st, 0.0), mx), "bar_gold9", 940))
+			box.add_child(_bar(def, tier, _stat_icon(st), tr(up.name), st,
+				_fmt(stats.get(st, 0.0), st), float(stats.get(st, 0.0)), "bar_gold9"))
 		if not has_cd:
 			box.add_child(_kv_row(tr("UP_CD"), "ic_speed",
 				tr("UPG_SEC_VALUE").format({"v": _fmt(stats.get("cd", def.cd), "cd")}),
 				UI.CRYSTAL.lightened(0.2)))
+	box.add_child(_scale_legend())
 	return z
 
 func box_height(def: Dictionary) -> float:
+	var n: int = def.ups.size()
 	if sel_type == "tower":
-		var n: int = 4 + (1 if _signature_stat(def) != "" else 0)
-		return 20 + 52 + n * 68 + 56 + 30
-	return 20 + 52 + def.ups.size() * 68 + 56 + 30
+		n = 4 + (1 if _signature_stat(def) != "" else 0)
+	# +38: 刻度圖例嗰行
+	return 20 + 52 + n * UI.STAT_BAR_H + 56 + 38 + 30
+
+## 一條跨三階刻度嘅 bar。
+##
+## `stat` 決定量程同分區:跟 tier 放大嘅 stat 用對數刻度 + 三段分區,
+## 唔跟階嘅(射程、機率、持續)照舊線性而且**唔畫**分區 —— 畫咗就係喺一個
+## 冇三段路可行嘅數字上面畫三段路。
+func _bar(def: Dictionary, tier: int, icon: String, name: String, stat: String,
+		value_txt: String, value: float, fill_tex: String) -> Control:
+	var sc := _scale_for(def, stat, value)
+	return UI.stat_bar(icon, name, value_txt, sc.frac, fill_tex, 940, sc.bands, tier)
+
+func _dps_bar(def: Dictionary, tier: int, dps: float) -> Control:
+	var bands: Array = []
+	for t in range(1, GameData.MAX_TIER):
+		var e: Dictionary = GameData.effective_stats(def,
+			level_vector(def, GameData.MAX_UP_LV), t)
+		bands.append(_log_frac(float(e.get("dmg", 0.0)) * float(e.get("rate", 0.0)),
+			DPS_LO, DPS_HI))
+	return UI.stat_bar("ic_star", tr("UPG_DPS_LABEL"),
+		tr("UPG_DPS_VALUE").format({"v": _fmt(dps, "dmg")}),
+		_log_frac(dps, DPS_LO, DPS_HI), "bar_green9", 940, bands, tier)
+
+## 一個 stat 值喺統一刻度上面嘅位置,連埋呢件嘢自己 tier 1 / tier 2 滿課
+## 落喺邊 —— 嗰兩點就係 bar 底下三段淺色分區嘅界線。
+func _scale_for(def: Dictionary, stat: String, val: float) -> Dictionary:
+	var is_tower := sel_type == "tower"
+	var hi: float = float((STAT_HI if is_tower else SPELL_STAT_HI).get(stat, 0.0))
+	var lo: float = float((STAT_LO if is_tower else SPELL_STAT_LO).get(stat, 0.0))
+	if stat in GameData.TIER_SCALED_STATS and hi > 0.0 and lo > 0.0 and hi > lo * 1.01:
+		var full := level_vector(def, GameData.MAX_UP_LV)
+		var bands: Array = []
+		for t in range(1, GameData.MAX_TIER):
+			bands.append(_log_frac(
+				float(GameData.effective_stats(def, full, t).get(stat, 0.0)), lo, hi))
+		return {"frac": _log_frac(val, lo, hi), "bands": bands}
+	if _is_pct(stat):
+		return {"frac": clampf(absf(val), 0.03, 1.0), "bands": []}
+	return {"frac": clampf(absf(val) / maxf(hi, 0.0001), 0.03, 1.0), "bands": []}
+
+## 對數位置。三千幾倍嘅量程之下線性刻度會令頭兩階完全睇唔見,而每一階本身
+## 就係一個固定倍率 —— 對數就係「將倍率變成等距」嗰個轉換,所以三段分區
+## 喺對數之下自然係差唔多闊嘅三段。
+static func _log_frac(v: float, lo: float, hi: float) -> float:
+	if v <= 0.0 or lo <= 0.0 or hi <= lo:
+		return 0.0
+	return clampf(log(maxf(absf(v), lo) / lo) / log(hi / lo), 0.0, 1.0)
+
+## bar 底三段分區代表乜。冇呢行嘅話啲淺色格就係裝飾。
+func _scale_legend() -> Control:
+	var l := UI.label(tr("UPG_SCALE_LEGEND"), 20, UI.TEXT_DIM)
+	l.custom_minimum_size = Vector2(940, 34)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return l
 
 func _signature_stat(def: Dictionary) -> String:
 	# first upgrade direction whose stat isn't one of the three core stats
@@ -643,21 +739,27 @@ func _kv_row(name: String, icon: String, val: String, col: Color) -> Control:
 	h.add_child(v)
 	return h
 
-func _now_next(def: Dictionary, levels: Array, dir: int) -> Array:
-	var cur: Dictionary = GameData.effective_stats(def, levels)
+## 升級欄嘅「而家 → 下一級」。
+##
+## 第十一輪之前呢兩個數係用 effective_stats(def, levels) 計 —— 冇傳 tier,
+## 所以 tier 參數食咗預設值 1。即係話一座已經進化嘅塔,升級欄報返嘅係
+## 「如果佢仲係第一階」嗰個數。劇毒瘴氣嘅例:15 級每秒毒傷實際 130,
+## 進化上 tier 2、六條軸歸零之後,升級欄寫住 25 → 32,而引擎實際用緊
+## 400 → 512。差咗 16 倍,而且個方向係**倒退**,睇落好似進化整衰咗件嘢。
+##
+## 而家所有數都經呢度出,而 test/StatDisplayTest.gd 逐項將呢個函數同
+## Meta.tower_stats() / Meta.spell_stats()(引擎真正讀嗰個)對數。
+static func now_next_values(def: Dictionary, levels: Array, tier: int, dir: int) -> Array:
+	var cur: Dictionary = GameData.effective_stats(def, levels, tier)
 	var nxt_levels := levels.duplicate()
 	nxt_levels[dir] = mini(int(levels[dir]) + 1, GameData.MAX_UP_LV)
-	var nxt: Dictionary = GameData.effective_stats(def, nxt_levels)
+	var nxt: Dictionary = GameData.effective_stats(def, nxt_levels, tier)
 	var stat: String = def.ups[dir].stat
 	return [cur.get(stat, 0.0), nxt.get(stat, 0.0)]
 
-func _frac(stat: String, val: float, mx: Dictionary) -> float:
-	if _is_pct(stat):
-		return clampf(val, 0.03, 1.0)
-	var m: float = mx.get(stat, 0.0)
-	if m <= 0.0:
-		return 0.5
-	return clampf(absf(val) / m, 0.03, 1.0)
+func _now_next(def: Dictionary, levels: Array, dir: int) -> Array:
+	return now_next_values(def, levels, Meta.item_tier(sel_id, sel_type == "tower"), dir)
+
 
 # Stats that are a FRACTION even though their upgrade kind is "add" (a 0..1
 # multiplier, not a count). Probability stats are detected from the upgrade's own
@@ -680,13 +782,37 @@ const _PCT_STATS := ["curse", "vuln", "slow", "slowafter", "haste", "pct",
 # stat -> upgrade `kind` for the entry currently on screen, rebuilt per selection
 var _cur_kind: Dictionary = {}
 
-func _refresh_kind_map(def: Dictionary) -> void:
-	_cur_kind.clear()
+## 同一個 map,但係 static —— 測試同圖鑑都要問「呢個 stat 喺呢件嘢上面係
+## 咩 kind」,而三個地方各自砌一次就一定會有一日答案唔同。
+static func kind_map(def: Dictionary) -> Dictionary:
+	var m := {}
 	for up in def.ups:
-		_cur_kind[up.stat] = up.kind
+		m[up.stat] = up.kind
+	return m
+
+static func is_pct_stat(stat: String, kind: String) -> bool:
+	return kind == "prob" or stat in _PCT_STATS
+
+## 一個 stat 值嘅顯示文字。呢個係全遊戲**唯一**將數字變成字嘅地方(升級介面、
+## 圖鑑、效能面板都經佢),所以「畫面上見到嘅」同「引擎用緊嘅」之間只有一層
+## 轉換,而嗰層有得逐項對數。
+static func fmt_value(v: float, stat: String, kind: String) -> String:
+	if is_pct_stat(stat, kind):
+		return "%d%%" % int(round(v * 100.0))
+	if stat == "cd":
+		return "%.1f" % v
+	if absf(v) >= 1000.0:
+		# tier 3 之後傷害去到四五位數,而 "2560.0" 呢類尾數係純粹噪音。
+		return str(int(round(v)))
+	if absf(v - round(v)) < 0.05:
+		return str(int(round(v)))
+	return "%.1f" % v
+
+func _refresh_kind_map(def: Dictionary) -> void:
+	_cur_kind = kind_map(def)
 
 func _is_pct(stat: String) -> bool:
-	return _cur_kind.get(stat, "") == "prob" or stat in _PCT_STATS
+	return is_pct_stat(stat, String(_cur_kind.get(stat, "")))
 
 func _stat_icon(stat: String) -> String:
 	# money first: 掉金加成 is a percentage but it should read as gold, not as a
@@ -708,13 +834,7 @@ func _stat_icon(stat: String) -> String:
 	return "ic_spark"
 
 func _fmt(v: float, stat: String) -> String:
-	if _is_pct(stat):
-		return "%d%%" % int(round(v * 100.0))
-	if stat == "cd":
-		return "%.1f" % v
-	if absf(v - round(v)) < 0.05:
-		return str(int(round(v)))
-	return "%.1f" % v
+	return fmt_value(v, stat, String(_cur_kind.get(stat, "")))
 
 # ---------------------------------------------------------------------------
 # Schematic mechanic diagram — drawn per `kind` so arrow/poison/barracks/etc.

@@ -125,8 +125,8 @@ func _rebuild() -> void:
 # ===========================================================================
 ## 一件一張卡,由上到下捲。塔卡高過魔法卡(六條軸 vs 三條)。
 const CARD_W := 1000.0
-const TOWER_CARD_H := 470.0
-const SPELL_CARD_H := 440.0
+const TOWER_CARD_H := 506.0
+const SPELL_CARD_H := 474.0
 
 func _build_catalogue(is_tower: bool) -> void:
 	var scroll := ScrollContainer.new()
@@ -200,6 +200,7 @@ func _entry_card(def: Dictionary, is_tower: bool) -> Control:
 
 	card.add_child(_tier_chain(def, is_tower, tier, owned))
 	if owned:
+		card.add_child(_mech_line(def, is_tower, tier))
 		card.add_child(_stat_summary(def, is_tower, tier))
 		card.add_child(_axis_grid(def, is_tower))
 	else:
@@ -213,20 +214,22 @@ func _entry_card(def: Dictionary, is_tower: bool) -> Control:
 func _unlock_cost(id: int, is_tower: bool) -> int:
 	return int(GameData.tower_by_id(id).unlock) if is_tower else Meta.spell_unlock_cost(id)
 
-## 三階演進鏈,橫排。已到嘅階全彩,未到嘅剪影 + 「進化後解鎖」。
+## 三階演進鏈,橫排:sprite + 名 + 羅馬數字。已到嘅階全彩,未到嘅剪影。
 ##
-## 未到嘅階**照樣寫個名同畫個形**:一條「你唔知佢會變成乜」嘅升級路冇人會行,
-## 而呢個鏈就係嗰條路嘅樣。升級介面嘅進化區只睇得到下一階,呢度睇得到成條。
+## 未到嘅階**照樣畫個形**:一條「你唔知佢會變成乜」嘅升級路冇人會行,而呢個鏈
+## 就係嗰條路嘅樣。升級介面嘅進化區只睇得到下一階,呢度睇得到成條。
+## 該階嘅機制描述唔喺格入面(三格得 198px 闊,英文一定斷喺半句)——
+## 見 _mech_line()。
 func _tier_chain(def: Dictionary, is_tower: bool, tier: int, owned: bool) -> Control:
 	var wrap := Control.new()
-	wrap.position = Vector2(28, 160)
-	wrap.size = Vector2(944, 132)
+	wrap.position = Vector2(28, 162)
+	wrap.size = Vector2(944, 124)
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cw := 314.0
 	for t in range(1, GameData.MAX_TIER + 1):
 		var cell := Control.new()
 		cell.position = Vector2((t - 1) * cw, 0)
-		cell.size = Vector2(cw - 12, 132)
+		cell.size = Vector2(cw - 12, 124)
 		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var have: bool = owned and t <= tier
 		var tex: Texture2D = Assets.tower(def.id, t) if is_tower else Assets.spell(def.id, t)
@@ -235,11 +238,11 @@ func _tier_chain(def: Dictionary, is_tower: bool, tier: int, owned: bool) -> Con
 		if not have:
 			ic.modulate = SILHOUETTE
 		cell.add_child(ic)
-		# 名同機制都要**入一個 clip 過嘅框**,唔可以淨係擺個 size 落 Label:
+		# 個名要**入一個 clip 過嘅框**,唔可以淨係擺個 size 落 Label:
 		# Label 嘅 size 會被佢自己嘅 minimum size(由文字長度決定)頂返大,
 		# 所以一個長 tier 名會直接畫過隔籬格。呢個係 _zone_mech 用開嗰個做法。
 		var nbox := Control.new()
-		nbox.position = Vector2(98, 10); nbox.size = Vector2(cw - 116, 56)
+		nbox.position = Vector2(98, 8); nbox.size = Vector2(cw - 116, 62)
 		nbox.clip_contents = true
 		nbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		cell.add_child(nbox)
@@ -254,30 +257,40 @@ func _tier_chain(def: Dictionary, is_tower: bool, tier: int, owned: bool) -> Con
 		nbox.add_child(nm)
 		var rn := UI.label(["", "I", "II", "III"][t], 20,
 			UI.GOLD if have else UI.TEXT_DIM)
-		rn.position = Vector2(6, 92); rn.size = Vector2(84, 30)
+		rn.position = Vector2(6, 94); rn.size = Vector2(84, 28)
 		rn.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		cell.add_child(rn)
-		# 該階嘅新機制一句。第一階冇「新機制」,寫佢自己嘅定位。
-		var mk: String = GameData.tier_mech_key(def, is_tower, t)
-		if have and mk != "":
-			var mbox := Control.new()
-			mbox.position = Vector2(98, 66); mbox.size = Vector2(cw - 116, 62)
-			mbox.clip_contents = true
-			mbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			cell.add_child(mbox)
-			var mech := UI.label(tr(mk), 18, UI.TEXT_DIM)
-			mech.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			mech.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			mech.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-			mbox.add_child(mech)
 		wrap.add_child(cell)
 	return wrap
+
+## 當前階嘅機制描述,整行闊。
+##
+## 呢句本來塞喺演進鏈嗰三格入面,而三格得 198px 闊 —— 英文機制描述長過繁中
+## 大約三倍,結果每一格都喺半句度斷("becomes a triple, and")。一句斷喺
+## 連接詞度嘅描述比冇描述更差,因為佢睇落好似完整咁。
+##
+## 第一階冇「新機制」—— 嗰陣講嘅係佢本身點運作,而嗰句就係卡頂嗰句 desc,
+## 所以第一階呢一行唔畫。
+func _mech_line(def: Dictionary, is_tower: bool, tier: int) -> Control:
+	var box := Control.new()
+	box.position = Vector2(28, 286)
+	box.size = Vector2(944, 34)
+	box.clip_contents = true
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mk: String = GameData.tier_mech_key(def, is_tower, tier)
+	if mk == "":
+		return box
+	var l := UI.label("%s — %s" % [tr("EVO_NEW_MECH"), tr(mk)], 20, UI.TEXT_DIM)
+	l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	l.clip_text = true
+	box.add_child(l)
+	return box
 
 ## 當前階嘅實際數值摘要。用 Meta.*_stats() —— 即係引擎真正讀嗰個 dictionary,
 ## 同升級介面同一個來源,所以「圖鑑寫嘅」同「打出嚟嘅」係同一個數。
 func _stat_summary(def: Dictionary, is_tower: bool, _tier: int) -> Control:
 	var wrap := Control.new()
-	wrap.position = Vector2(28, 300)
+	wrap.position = Vector2(28, 324)
 	wrap.size = Vector2(944, 56)
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var s: Dictionary = Meta.tower_stats(def.id) if is_tower else Meta.spell_stats(def.id)
@@ -321,7 +334,7 @@ func _axis_grid(def: Dictionary, is_tower: bool) -> Control:
 	var cols := 3
 	var rows: int = int(ceilf(float(def.ups.size()) / float(cols)))
 	var wrap := Control.new()
-	wrap.position = Vector2(28, 366)
+	wrap.position = Vector2(28, 388)
 	wrap.size = Vector2(944, rows * 30 + 36)
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var levels: Array = Meta.tower_levels(def.id) if is_tower else Meta.spell_levels(def.id)

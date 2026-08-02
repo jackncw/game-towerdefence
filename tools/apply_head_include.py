@@ -56,11 +56,42 @@ def flatten_css(src: str) -> str:
     return src.strip()
 
 
+def syntax_check(js: str) -> bool:
+    """有 node 就順手驗一驗壓平之後嗰段 JS 仲 parse 得到。
+
+    點解值得做:壓平係將幾十行接埋做一行,而一個少咗嘅分號喺原始碼度睇落
+    完全正常,壓完就變成語法錯。錯咗嘅話成段 script 唔會行 —— 遊戲照樣載入
+    (所以測試唔會紅),但 DPR 封頂、context-lost 同暫停鈎全部靜靜咁冇咗。
+    冇 node 就跳過:呢個係額外保險,唔係依賴。
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if node is None:
+        print("(冇 node,跳過 JS 語法檢查)")
+        return True
+    with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8",
+                                     delete=False) as f:
+        f.write(js)
+        path = f.name
+    r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+    if r.returncode != 0:
+        print("JS 語法錯:\n" + (r.stderr or r.stdout))
+        return False
+    print("JS 語法 OK")
+    return True
+
+
 def build() -> str:
     parts = []
     if CSS.is_file():
         parts.append("<style>%s</style>" % flatten_css(CSS.read_text(encoding="utf-8")))
-    parts.append("<script>%s</script>" % flatten_js(JS.read_text(encoding="utf-8")))
+    js = flatten_js(JS.read_text(encoding="utf-8"))
+    if not syntax_check(js):
+        raise SystemExit(1)
+    parts.append("<script>%s</script>" % js)
     return "".join(parts)
 
 

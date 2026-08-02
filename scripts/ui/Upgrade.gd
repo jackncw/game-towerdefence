@@ -134,33 +134,40 @@ func _build_stat_tables() -> void:
 	_scan_range(GameData.SPELLS, SPELL_STAT_HI, SPELL_STAT_LO)
 	DPS_LO = INF
 	for t in GameData.TOWERS:
-		var top: Dictionary = GameData.effective_stats(t,
-			level_vector(t, GameData.MAX_UP_LV), GameData.MAX_TIER)
-		DPS_HI = maxf(DPS_HI, float(top.get("dmg", 0.0)) * float(top.get("rate", 0.0)))
-		var bottom: Dictionary = GameData.effective_stats(t, level_vector(t, 1), 1)
-		var d: float = float(bottom.get("dmg", 0.0)) * float(bottom.get("rate", 0.0))
-		if d > 0.0:
-			DPS_LO = minf(DPS_LO, d)
+		for pt in _endpoints(t):
+			var d: float = float(pt.get("dmg", 0.0)) * float(pt.get("rate", 0.0))
+			DPS_HI = maxf(DPS_HI, d)
+			if d > 0.0:
+				DPS_LO = minf(DPS_LO, d)
 	if not is_finite(DPS_LO):
 		DPS_LO = 1.0
 
-## 一類物件(塔 / 魔法)每個 stat 嘅量程。
+## 一件嘢喺量程兩端(同埋中間一個非零起點)嘅樣。
 ##
-## 上限用 tier 3 六軸滿課 —— 即係「呢個遊戲入面呢個數字最大得幾多」。
-## 下限用 tier 1 **一級**而唔係零級:好多軸嘅基礎值就係 0(爆毒、起手金、
-## 流血…),而一個 0 做唔到對數刻度嘅原點。
+## 三個點而唔係兩個,而且上下限**兩個都由三個點一齊摺出嚟**:唔係每一個 stat
+## 都係越課越大。冷卻、連鎖衰減、補兵間隔嗰幾條軸嘅步長係**負**嘅,所以佢哋
+## 喺「tier 3 六軸滿課」嗰點係最**細**。淨係攞嗰一點做上限嘅話,一個未課過嘅
+## 守護結界(冷卻 30 秒)就會除以 7.5,條 bar 永遠爆滿。
+##
+## 中間嗰點用 tier 1 一級:好多軸嘅零級值就係 0(爆毒、起手金、流血…),
+## 而 0 做唔到對數刻度嘅原點。
+func _endpoints(d: Dictionary) -> Array:
+	return [
+		GameData.effective_stats(d, level_vector(d, 0), 1),
+		GameData.effective_stats(d, level_vector(d, 1), 1),
+		GameData.effective_stats(d, level_vector(d, GameData.MAX_UP_LV), GameData.MAX_TIER),
+	]
+
+## 一類物件(塔 / 魔法)每個 stat 嘅量程。
 func _scan_range(defs: Array, hi: Dictionary, lo: Dictionary) -> void:
 	for d in defs:
-		var top: Dictionary = GameData.effective_stats(d,
-			level_vector(d, GameData.MAX_UP_LV), GameData.MAX_TIER)
-		for stat in top.keys():
-			hi[stat] = maxf(hi.get(stat, 0.0), absf(float(top[stat])))
-		var bottom: Dictionary = GameData.effective_stats(d, level_vector(d, 1), 1)
-		for stat in bottom.keys():
-			var v: float = absf(float(bottom[stat]))
-			if v <= 0.0:
-				continue
-			lo[stat] = minf(lo[stat], v) if lo.has(stat) else v
+		for pt in _endpoints(d):
+			for stat in pt.keys():
+				var v: float = absf(float(pt[stat]))
+				hi[stat] = maxf(hi.get(stat, 0.0), v)
+				if v <= 0.0:
+					continue
+				lo[stat] = minf(lo[stat], v) if lo.has(stat) else v
 
 func _build_topbar() -> void:
 	var bar := Panel.new()

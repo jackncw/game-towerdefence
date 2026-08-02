@@ -222,7 +222,7 @@ var TOWERS := []
 func _build_towers() -> void:
 	# helper
 	var t := func(id,name,desc,mech,place,unlock,stats,ups):
-		TOWERS.append({"id":id,"name":name,"desc":desc,"mech":mech,
+		TOWERS.append({"id":id,"kind":"tower","name":name,"desc":desc,"mech":mech,
 			"place_cost":place,"unlock":unlock,"stats":stats,"ups":ups})
 
 	t.call(1,"TOWER_ARROW_NAME","TOWER_ARROW_DESC","arrow",60,0,
@@ -402,19 +402,52 @@ func holy_stack_factor(index: int) -> float:
 #     lv + MAX_UP_LV*(tier-1),所以 tier 2 嘅第一級已經貴過 tier 1 嘅第十五級。
 #     「進化唔係重來,係繼續」呢句嘢喺數字上面就係咁講。
 #
-# TIER_POWER 點揀:一座六軸滿課嘅 tier 1 塔大約係佢自己基礎值嘅 12 倍輸出
-# (箭塔 5.5 倍傷害 x 2.23 倍攻速)。16 倍即係「tier N 嘅基礎值 ≈ tier N-1
-# 滿課再強三成」——「明顯強過 tier 1 滿課」呢個要求就係咁滿足。同時 16 倍
-# 對得住 WAVE_GROWTH^20 = 11.5 倍,所以「大約每二十關升一個 tier」會令玩家
-# 力量同關卡難度沿住同一條斜線行,唔會一 tier 通殺。
+# --- 逐階倍率點揀 (第十一輪重訂) --------------------------------------------
+#
+# 設計目標:**tier N+1 基礎 ≈ tier N 滿課 x 1.15**。即係話進化嗰一下要明顯
+# 強過你之前課到盡嘅嘢(所以佢係一個躍升),但唔可以強到令新開嘅十五級變成
+# 裝飾(所以佢唔係一個斷層,進化完仲有嘢追)。
+#
+# 呢個比例由兩樣嘢決定,而只有一樣係我哋揀嘅:
+#   R    = 一件嘢六條(或者三條)軸課滿之後係佢自己基礎值嘅幾多倍 —— 由 ups 表決定
+#   STEP = 逐階倍率 —— 我哋揀
+#   tier N+1 基礎 / tier N 滿課 = STEP / R
+# 所以 STEP = 1.15 x R。
+#
+# 第十輪用一個 16 服侍晒塔同魔法,而嗰個就係「進化上 tier 2 之後面板全部頂爆」
+# 嘅來源。tools/tier_curve.gd 量到嘅 R 分佈解釋咗點解一個數服侍唔到兩邊:
+#
+#   塔  (六條軸)  R 中位數 12.75  ->  16 / 12.75 = 1.26 倍  (略高過目標)
+#   魔法 (三條軸)  R 中位數  4.90  ->  16 /  4.90 = 3.27 倍  (**斷層**)
+#
+# 魔法只得三條軸,而其中一條通常係冷卻(唔係輸出),所以佢哋課到盡都只係
+# 基礎值嘅五倍左右。同一個 16 打落去,一個 tier 2 魔法一出世就已經係佢
+# tier 1 課足十五級嘅三倍幾 —— 之前課嗰十五級全部一鋪清袋。
+#
+# 所以兩邊各有各嘅 STEP,而兩個數都係由量出嚟嗰個 R 乘 1.15 得返:
 const MAX_TIER := 3
-const TIER_POWER := [0.0, 1.0, 16.0, 256.0]
+## 進化嗰一下相對「上一階課到盡」嘅躍升幅度。
+const TIER_JUMP := 1.15
+## tools/tier_curve.gd 量到嘅 R 中位數。改咗 ups 表就要重跑佢再改呢兩個數,
+## 唔係嘅話上面條 1.15 就變成一句冇兌現嘅說話。
+const TOWER_AXIS_GAIN := 12.75
+const SPELL_AXIS_GAIN := 4.9
+const TIER_STEP_TOWER := TIER_JUMP * TOWER_AXIS_GAIN     # 14.66
+const TIER_STEP_SPELL := TIER_JUMP * SPELL_AXIS_GAIN     # 5.64
 ## 跟住 tier 放大嘅 stat。全部都係「每秒幾多輸出 / 幾多金 / 幾多血」嗰類。
 const TIER_SCALED_STATS := ["dmg", "dps", "pulse", "bleed", "pstack", "burn",
 	"gold", "startgold", "soldierhp", "bossdmg", "hp", "reflect", "block"]
 
-func tier_power(tier: int) -> float:
-	return TIER_POWER[clampi(tier, 1, MAX_TIER)]
+## 一件嘢喺第 `tier` 階嘅輸出倍率。塔同魔法唔同 step —— 見上面。
+func tier_power(tier: int, is_tower := true) -> float:
+	var step: float = TIER_STEP_TOWER if is_tower else TIER_STEP_SPELL
+	return pow(step, clampi(tier, 1, MAX_TIER) - 1)
+
+## 一個 def 係塔定魔法。`kind` 由 _build_towers / _build_spells 落,所以
+## effective_stats() 唔使呼叫端話俾佢知 —— 一個要靠呼叫端記得傳嘅參數
+## 遲早會有一個呼叫端唔記得傳,而嗰次就係一座塔靜靜咁用咗魔法嘅倍率。
+static func def_is_tower(def: Dictionary) -> bool:
+	return String(def.get("kind", "tower")) == "tower"
 
 ## 進化費。塔貴過魔法(六軸 vs 三軸,而且塔係場上嘅實體),第三階貴過第二階
 ## 四倍 —— 進化本身要係一個「儲一排」嘅決定,唔係順手撳嘅。
@@ -681,7 +714,7 @@ var SPELLS := []
 
 func _build_spells() -> void:
 	var s := func(id,name,desc,mech,cd,target,stats,ups):
-		SPELLS.append({"id":id,"name":name,"desc":desc,"mech":mech,"cd":cd,
+		SPELLS.append({"id":id,"kind":"spell","name":name,"desc":desc,"mech":mech,"cd":cd,
 			"target":target,"stats":stats,"ups":ups})
 	s.call(1,"SPELL_METEOR_NAME","SPELL_METEOR_DESC","meteor",8.0,true,
 		{"dmg":120.0,"radius":120.0,"cd":8.0},
@@ -749,7 +782,7 @@ func _build_spells() -> void:
 ## 重新開放嘅選擇」變成裝飾品,而條 brief 講明係「重開 15 級繼續課」。
 func effective_stats(def: Dictionary, up_levels: Array, tier := 1) -> Dictionary:
 	var s := (def.stats as Dictionary).duplicate(true)
-	var mult: float = tier_power(tier)
+	var mult: float = tier_power(tier, def_is_tower(def))
 	if mult != 1.0:
 		for stat in TIER_SCALED_STATS:
 			if s.has(stat):

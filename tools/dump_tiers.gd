@@ -15,8 +15,12 @@ func _ready() -> void:
 	lines.append("# 進化 tier 表 — 35 個項目 x 3 階 = 105 項")
 	lines.append("")
 	lines.append("由 `tools/dump_tiers.gd` 讀 `GameData.TOWER_TIERS` / `SPELL_TIERS` 產生。")
-	lines.append("倍率:tier 1 = x%.0f、tier 2 = x%.0f、tier 3 = x%.0f(只打落每秒輸出類 stat)。"
-		% [GameData.TIER_POWER[1], GameData.TIER_POWER[2], GameData.TIER_POWER[3]])
+	lines.append("塔倍率:tier 1 = x%.0f、tier 2 = x%.1f、tier 3 = x%.0f(只打落每秒輸出類 stat)。"
+		% [GameData.tier_power(1), GameData.tier_power(2), GameData.tier_power(3)])
+	lines.append("魔法倍率:tier 1 = x%.0f、tier 2 = x%.1f、tier 3 = x%.0f。魔法只得三條軸,"
+		% [GameData.tier_power(1, false), GameData.tier_power(2, false),
+		GameData.tier_power(3, false)]
+		+ "課滿只係基礎值嘅五倍左右,所以佢哋要一個細啲嘅逐階倍率先唔會斷層 —— 見 GameData.TIER_STEP_SPELL。")
 	lines.append("進化費:塔 %d / %d 魔晶,魔法 %d / %d 魔晶。" % [
 		GameData.EVOLVE_COST_TOWER[2], GameData.EVOLVE_COST_TOWER[3],
 		GameData.EVOLVE_COST_SPELL[2], GameData.EVOLVE_COST_SPELL[3]])

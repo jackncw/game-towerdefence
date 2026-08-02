@@ -134,14 +134,24 @@ func _case_stat_scaling() -> void:
 	var t2_max := GameData.effective_stats(def, maxed, 2)
 	var t3_base := GameData.effective_stats(def, zero, 3)
 	# 「基礎能力大幅躍升(明顯強過 tier 1 滿課)」—— 呢句係一個可以量嘅要求
+	# 第十一輪:呢兩條由「大過就得」改成一條**帶**。
+	# 「大過」只擋到斷崖嘅一邊 —— 一個 3.3 倍嘅跳幅一樣過得到,而嗰個正正就係
+	# 第十輪魔法嗰邊發生嘅事(見 GameData 逐階倍率嗰段)。設計目標係 1.15,
+	# 所以測試要問「係咪 1.15 左右」,唔係「有冇大過 1.1」。
 	var dps1_max: float = float(t1_max.dmg) * float(t1_max.rate)
 	var dps2_base: float = float(t2_base.dmg) * float(t2_base.rate)
-	_ok("D3 tier 2 基礎 > tier 1 滿課", dps2_base > dps1_max * 1.1,
-		"t2base=%.0f t1max=%.0f" % [dps2_base, dps1_max])
+	_in_band("D3 tier 2 基礎 / tier 1 滿課", dps2_base / dps1_max, 1.05, 1.35)
 	var dps2_max: float = float(t2_max.dmg) * float(t2_max.rate)
 	var dps3_base: float = float(t3_base.dmg) * float(t3_base.rate)
-	_ok("D3 tier 3 基礎 > tier 2 滿課", dps3_base > dps2_max * 1.1,
-		"t3base=%.0f t2max=%.0f" % [dps3_base, dps2_max])
+	_in_band("D3 tier 3 基礎 / tier 2 滿課", dps3_base / dps2_max, 1.05, 1.35)
+	# 魔法只得三條軸,所以佢要一個細啲嘅逐階倍率先落到同一條帶入面。
+	# 呢條 assertion 就係「一個倍率服侍唔到兩邊」呢個發現嘅守門員。
+	var sp := GameData.spell_by_id(4)          # 劇毒瘴氣
+	var sp_zero: Array = [0, 0, 0]
+	var sp_max: Array = [GameData.MAX_UP_LV, GameData.MAX_UP_LV, GameData.MAX_UP_LV]
+	_in_band("D3 魔法 tier 2 基礎 / tier 1 滿課",
+		float(GameData.effective_stats(sp, sp_zero, 2).dps)
+			/ float(GameData.effective_stats(sp, sp_max, 1).dps), 1.05, 1.35)
 	# 射程唔跟 tier 放大 —— 一座 tier 3 塔唔應該打得晒成張地圖
 	_near("D3 射程唔跟階放大", float(t3_base.range), float(t1_base.range), 0.001)
 	# 步長要一齊放大,唔係六條軸就變裝飾
@@ -356,6 +366,11 @@ func _ok(label: String, cond: bool, detail: String) -> void:
 
 func _near(label: String, got: float, want: float, tol: float) -> void:
 	_ok(label, absf(got - want) <= tol, "got %.4f want %.4f (tol %.4f)" % [got, want, tol])
+
+## 兩邊都有牆嘅斷言。一個「大過 X」嘅斷言只擋到一邊,而平衡出事嘅方向
+## 通常係另一邊 —— 太強。
+func _in_band(label: String, got: float, lo: float, hi: float) -> void:
+	_ok(label, got >= lo and got <= hi, "got %.3f，要喺 %.2f..%.2f 之間" % [got, lo, hi])
 
 func _step(b, dt: float) -> void:
 	b._process(dt)

@@ -659,9 +659,12 @@ func _evolve_table() -> void:
 			Meta.crystals, t_in, "" if events.is_empty() else str(events)])
 	print("SIM ---- 總結 ----")
 	print("SIM 通關 %d/%d,一次過 %d 關" % [cleared, EVOLVE_LEVELS, first_try])
-	print("SIM 主力塔 tier 2 喺第 %s 關出現(目標 15-25)"
+	# 第十一輪收窄咗兩個窗:tier 3 由「30 關後」變成一個有上限嘅區間。
+	# 「30+」冇上限,即係「第 40 關先出」都算達標,而嗰個等於話呢個系統喺
+	# 四十關嘅遊戲入面得一關用得着。
+	print("SIM 主力塔 tier 2 喺第 %s 關出現(目標 20-26)"
 		% ("冇出現過" if tier2_at == 0 else str(tier2_at)))
-	print("SIM 主力塔 tier 3 喺第 %s 關出現(目標 30+)"
+	print("SIM 主力塔 tier 3 喺第 %s 關出現(目標 34-40)"
 		% ("冇出現過" if tier3_at == 0 else str(tier3_at)))
 	print("SIM 第 %d 關完:魔晶累積收入 %d,期末餘額 %d" % [EVOLVE_LEVELS, t_in, Meta.crystals])
 	# 「唔准一 tier 通殺」= 進化之後嘅關卡唔可以變成散步。用**贏嘅幅度**判,

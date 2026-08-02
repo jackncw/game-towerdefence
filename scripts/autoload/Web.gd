@@ -111,3 +111,48 @@ func resume() -> void:
 
 func is_suspended() -> bool:
 	return _suspended
+
+# ---------------------------------------------------------------------------
+# Heap
+# ---------------------------------------------------------------------------
+## 呢個 tab 而家問作業系統攞咗幾多 bytes。0 = 攞唔到(唔係「用咗零」)。
+##
+## 點解要有:`Performance.MEMORY_STATIC` 喺 **release export template** 之下係
+## 硬編碼 0 —— 量過:同一份 code、同一部機,debug 報 78.8MB 而且跟得住一舊
+## +4MB 嘅分配,release 報 0 而且分配咗 12MB 都唔郁。即係話出街版嘅閃退報告
+## 一直冇一個真嘅記憶體數字,而 iOS 殺 tab 睇嘅就正正係呢個數。
+##
+## 攞邊個數:emscripten 嘅 linear memory(`HEAP8.length`)。wasm 嘅 memory
+## **只增不減**,所以佢就係「呢個 process 喺系統手上面佔住幾多」,亦即係
+## iOS 個 tab 上限度緊嗰樣嘢。
+##
+## 點解唔用第二啲:
+##   * `performance.memory` —— Chromium 專有,Safari 冇。iPhone 上面等於冇。
+##   * `performance.measureUserAgentSpecificMemory()` —— 要 crossOriginIsolated,
+##     而 GitHub Pages 冇 COOP/COEP header(呢個專案行單線程正正就係因為咁)。
+##     喺真瀏覽器度量過:`crossOriginIsolated === false`。
+##
+## `engine` 係 Godot 自己嘅 `index.html` 喺頂層 `const` 出嚟嘅,所以 eval 見到佢。
+## 佢一日改名,呢度就返 0,而 0 會喺報告上面印做 `n/a` —— 睇得見嘅失敗,
+## 唔係一個扮數據嘅零。
+const _HEAP_JS := """(function () {
+  try {
+    if (typeof engine !== 'undefined' && engine && engine.rtenv
+        && engine.rtenv.HEAP8) { return engine.rtenv.HEAP8.length; }
+  } catch (e) { /* fall through */ }
+  try {
+    if (window.performance && performance.memory
+        && performance.memory.usedJSHeapSize) {
+      return performance.memory.usedJSHeapSize;
+    }
+  } catch (e) { /* fall through */ }
+  return 0;
+})()"""
+
+func heap_bytes() -> int:
+	if not is_web():
+		return 0
+	var v = JavaScriptBridge.eval(_HEAP_JS, true)
+	if v == null:
+		return 0
+	return int(float(v))

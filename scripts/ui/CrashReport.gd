@@ -15,7 +15,8 @@ class_name CrashReport
 
 ## 由呼叫者填。空 = 冇嘢報告(呢個節點會自己收皮)。
 var report: String = ""
-var trend: Array = []
+## `Crash.last_crash_memory_trend()` 嘅原樣:{"key": …, "values": […]}。
+var trend: Dictionary = {}
 
 var _copied: bool = false
 var _copy_label: Label
@@ -100,23 +101,30 @@ func _memory_strip() -> Control:
 	head.position = Vector2(0, 0)
 	head.size = Vector2(600, 36)
 	wrap.add_child(head)
-	if trend.size() < 2:
+	var values: Array = trend.get("values", [])
+	if values.size() < 2:
 		var none := UI.label(tr("CRASH_MEMORY_NONE"), 22, UI.TEXT_DIM)
 		none.position = Vector2(0, 42)
 		none.size = Vector2(900, 40)
+		none.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		wrap.add_child(none)
 		return wrap
 	var peak: float = 0.0
-	for v in trend:
+	for v in values:
 		peak = maxf(peak, float(v))
-	var span := UI.label(tr("CRASH_MEMORY_RANGE").format(
-		{"first": "%.1f" % float(trend[0]), "last": "%.1f" % float(trend[-1]),
-		 "peak": "%.1f" % peak}), 22, UI.TEXT)
+	# 條線畫緊邊個數要寫喺個範圍旁邊。heap 升同 video 升係兩件事,而讀報告
+	# 嗰個人淨係見到一條無名嘅斜線係判斷唔到嘅。
+	var span := UI.label("%s — %s" % [
+		tr("CRASH_MEMORY_" + str(trend.get("key", "")).to_upper()),
+		tr("CRASH_MEMORY_RANGE").format(
+			{"first": "%.1f" % float(values[0]), "last": "%.1f" % float(values[-1]),
+			 "peak": "%.1f" % peak}),
+	], 22, UI.TEXT)
 	span.position = Vector2(0, 40)
 	span.size = Vector2(900, 34)
 	wrap.add_child(span)
 	var plot := _Sparkline.new()
-	plot.values = trend
+	plot.values = values
 	plot.position = Vector2(0, 82)
 	plot.size = Vector2(908, 90)
 	wrap.add_child(plot)

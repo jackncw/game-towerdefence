@@ -117,13 +117,31 @@ func _process(delta: float) -> void:
 		crumb("mem", mem_line())
 	_maybe_flush()
 
+## 呢個 process 而家佔住幾多 bytes。0 = **量唔到**,唔係「用咗零」。
+##
+## 網頁版行 wasm linear memory(見 `Web.heap_bytes()`)。其餘平台行
+## `MEMORY_STATIC` —— 但要知佢喺 release template 之下係硬編碼 0,所以桌面
+## 出街版一樣會係 0,一樣會印做 `n/a`。呢個係引擎嘅界限,唔係一個可以喺呢度
+## 補返嘅數;報告要做嘅係**唔好扮**自己知。
+func heap_bytes() -> int:
+	var web_heap := Web.heap_bytes()
+	if web_heap > 0:
+		return web_heap
+	return int(Performance.get_monitor(Performance.MEMORY_STATIC))
+
 ## 一行記憶體快照。分開一個 function 因為閃退報告畫面都要用同一個格式 ——
 ## 玩家貼上嚟嗰段同我哋喺 log 入面睇嗰段係同一樣嘢。
+##
+## `heap=` 攞唔到嗰陣寫 `n/a` 而唔係 `0.0MB`。呢個分別唔係修辭:第一份同
+## 第二份真閃退報告都印住 `static=0.0MB`,而嗰個數喺畫面上面同「記憶體好平穩」
+## 完全分唔開,所以兩份報告都被讀成「唔似 OOM」。一個永遠讀零嘅溫度計要睇得出
+## 佢係壞咗。
 func mem_line() -> String:
-	var static_mb := float(Performance.get_monitor(Performance.MEMORY_STATIC)) / 1048576.0
+	var heap := heap_bytes()
+	var heap_s := "n/a" if heap <= 0 else "%.1fMB" % (float(heap) / 1048576.0)
 	var video_mb := float(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)) / 1048576.0
-	return "static=%.1fMB video=%.1fMB obj=%d node=%d fps=%d" % [
-		static_mb, video_mb,
+	return "heap=%s video=%.1fMB obj=%d node=%d fps=%d" % [
+		heap_s, video_mb,
 		int(Performance.get_monitor(Performance.OBJECT_COUNT)),
 		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		int(Performance.get_monitor(Performance.TIME_FPS)),
@@ -145,18 +163,41 @@ func last_crash_report() -> String:
 		lines.append(str(c))
 	return "\n".join(lines)
 
+## 畫趨勢嗰陣可以揀嘅數,由最有用去到最冇用。
+##
+## **`static` 唔喺入面,而且唔可以加返。** 佢喺每一個 release export template
+## 之下都係硬編碼 0(量過:debug 78.8MB / release 0,同一份 code 同一部機),
+## 所以佢畫出嚟嘅永遠係一條貼住零嘅平線 —— 而嗰條平線讀落去係「記憶體好穩定」。
+## 頭兩份真閃退報告就係咁樣被讀錯嘅。
+const TREND_KEYS := ["heap", "video"]
+
 ## 麵包屑入面嘅記憶體採樣,由舊到新。閃退報告用佢畫一條「死之前升緊定平緊」
 ## 嘅趨勢 —— 一個孤零零嘅數字答唔到「係咪 OOM」呢條問題,一條線就答得到。
-func last_crash_memory_trend() -> Array:
-	var out: Array = []
-	for c in last_crash.get("crumbs", []):
-		var s := str(c)
-		var i := s.find("static=")
-		if i < 0:
-			continue
-		var mb := s.substr(i + 7).split("MB")[0]
-		out.append(float(mb))
-	return out
+##
+## 返 `{"key": "heap"/"video"/"", "values": [...]}`。要有個 `key` 係因為一條
+## **冇名**嘅曲線冇得判斷信唔信得過:heap 升緊同 video 升緊係兩件唔同嘅事,
+## 而讀報告嗰個人要知佢睇緊邊一樣。`key == ""` = 呢份報告冇任何記憶體證據,
+## 而咁講好過畫一條假線。
+func last_crash_memory_trend() -> Dictionary:
+	for key in TREND_KEYS:
+		var out: Array = []
+		var needle: String = str(key) + "="
+		for c in last_crash.get("crumbs", []):
+			var s := str(c)
+			var i := s.find(needle)
+			if i < 0:
+				continue
+			var tail := s.substr(i + needle.length())
+			# `n/a` = 嗰個 build 攞唔到呢個數。跳過,唔可以當佢係 0。
+			if tail.begins_with("n/a"):
+				continue
+			var mb := tail.split("MB")[0]
+			if not mb.is_valid_float():
+				continue
+			out.append(float(mb))
+		if out.size() >= 2:
+			return {"key": key, "values": out}
+	return {"key": "", "values": []}
 
 # ---------------------------------------------------------------------------
 # 開場偵測 / 收場

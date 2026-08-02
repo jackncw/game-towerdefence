@@ -32,11 +32,23 @@ const CRUMB_MAX := 64
 ## 而每個都 flush 一次就係喺遊戲主循環度做十幾次同步寫檔。
 const FLUSH_MIN_MS := 250
 
+## 記憶體採樣週期(真實秒)。
+##
+## 點解要有:一單 iOS Safari 嘅「閃退之後自動重開」係作業系統因為記憶體超限
+## 殺咗個 tab,而嗰個死法**唔會**留低任何 stack trace —— 引擎冇死,個 process
+## 係俾人由外面熄咗。所以唯一嘅證物就係死之前嗰條記憶體曲線。
+##
+## 30 秒唔係求其揀:一場戰鬥大約 90-150 秒,即係一場留低 3-5 點,而環形
+## buffer 64 條裝得落成場戰鬥嘅里程碑加呢啲採樣。再密就會將真正嘅事件
+## (放塔 / 施法 / 場景切換)擠出個 ring 之外,而嗰啲先係「佢做緊乜」。
+const MEM_SAMPLE_SECONDS := 30.0
+
 var _crumbs: Array = []
 var _dirty: bool = false
 var _last_flush_ms: int = 0
 var _session_id: String = ""
 var _closed: bool = false
+var _mem_t: float = 0.0
 
 ## 上一次啟動如果係閃退,呢度會有嗰次嘅完整記錄(開場之後即刻可以讀)。
 ## 空 Dictionary = 上次正常退出。測試同 UI 都靠呢個,唔使自己去 parse 個檔。
@@ -93,8 +105,58 @@ func _maybe_flush(force := false) -> void:
 	}, "\t"))
 	f.close()
 
-func _process(_delta: float) -> void:
+## 「而家寫落去」。切走 / 收場呢類「跟住可能就冇下一幀」嘅時刻用。
+func flush_now() -> void:
+	_maybe_flush(true)
+
+func _process(delta: float) -> void:
+	# 真實秒:一場 3x 嘅戰鬥唔應該三倍速咁採樣。
+	_mem_t -= delta / maxf(0.01, Engine.time_scale)
+	if _mem_t <= 0.0:
+		_mem_t = MEM_SAMPLE_SECONDS
+		crumb("mem", mem_line())
 	_maybe_flush()
+
+## 一行記憶體快照。分開一個 function 因為閃退報告畫面都要用同一個格式 ——
+## 玩家貼上嚟嗰段同我哋喺 log 入面睇嗰段係同一樣嘢。
+func mem_line() -> String:
+	var static_mb := float(Performance.get_monitor(Performance.MEMORY_STATIC)) / 1048576.0
+	var video_mb := float(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)) / 1048576.0
+	return "static=%.1fMB video=%.1fMB obj=%d node=%d fps=%d" % [
+		static_mb, video_mb,
+		int(Performance.get_monitor(Performance.OBJECT_COUNT)),
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		int(Performance.get_monitor(Performance.TIME_FPS)),
+	]
+
+## 閃退報告畫面要嘅嘢,一次過。空 Dictionary = 上次正常收場。
+func last_crash_report() -> String:
+	if last_crash.is_empty():
+		return ""
+	var lines: Array = []
+	lines.append("塔防要塞 / Tower Fortress — crash report")
+	lines.append("session: %s" % last_crash.get("session", "?"))
+	lines.append("started: %s" % last_crash.get("started", "?"))
+	lines.append("detected: %s" % Time.get_datetime_string_from_system())
+	lines.append("device: %s %s" % [OS.get_name(), OS.get_model_name()])
+	lines.append("engine: %s" % Engine.get_version_info().get("string", "?"))
+	lines.append("--- breadcrumbs (oldest first) ---")
+	for c in last_crash.get("crumbs", []):
+		lines.append(str(c))
+	return "\n".join(lines)
+
+## 麵包屑入面嘅記憶體採樣,由舊到新。閃退報告用佢畫一條「死之前升緊定平緊」
+## 嘅趨勢 —— 一個孤零零嘅數字答唔到「係咪 OOM」呢條問題,一條線就答得到。
+func last_crash_memory_trend() -> Array:
+	var out: Array = []
+	for c in last_crash.get("crumbs", []):
+		var s := str(c)
+		var i := s.find("static=")
+		if i < 0:
+			continue
+		var mb := s.substr(i + 7).split("MB")[0]
+		out.append(float(mb))
+	return out
 
 # ---------------------------------------------------------------------------
 # 開場偵測 / 收場

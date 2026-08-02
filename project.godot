@@ -23,6 +23,7 @@ Assets="*res://scripts/autoload/Assets.gd"
 Meta="*res://scripts/autoload/Meta.gd"
 Flow="*res://scripts/autoload/Flow.gd"
 Audio="*res://scripts/autoload/Audio.gd"
+Web="*res://scripts/autoload/Web.gd"
 
 [debug]
 

@@ -118,3 +118,18 @@ func _case_shell() -> void:
 	_check(head.contains("width:100%") and head.contains("height:100%"),
 		"canvas 填滿視窗,所以繪圖 buffer 同顯示框永遠一致")
 	_check(policy == 2, "canvas_resize_policy = 2 (Adaptive,buffer 跟視窗) (實際 %d)" % policy)
+	# --- 第十一輪 A:iOS Safari 記憶體防線 -----------------------------------
+	# canvas_resize_policy=2 嘅代價就係 backing store = CSS 尺寸 x devicePixelRatio,
+	# 而 iPhone 嘅 DPR 係 3 —— 一塊 3.0M pixel 嘅畫布,色彩加深度就係 24MB。
+	# 封頂喺 2 之下同一部機係 1.34M pixel。呢件事一定要喺 index.js 行之前做,
+	# 所以佢住喺 head_include 而唔係 GDScript,而呢度就係佢唯一守得住嘅地方。
+	_check(head.contains("devicePixelRatio"),
+		"head_include 有封 devicePixelRatio 上限(iOS 記憶體)")
+	_check(head.contains("webglcontextlost"),
+		"head_include 接住 WebGL context lost,唔會淨低一塊死畫面")
+	_check(head.contains("visibilitychange") and head.contains("pagehide"),
+		"head_include 切走 / 收起頁面嗰陣通知得到遊戲暫停")
+	# 產物同原始碼要對得返。web/head_include.js 先係人改嗰份,而 .cfg 嗰行係
+	# tools/apply_head_include.py 出嘅 —— 兩者一唔同就代表有人改咗一邊。
+	_check(head.length() > 1200, "head_include 唔係得返一段 CSS(長度 %d)" % head.length())
+	_check(not head.contains("\""), "head_include 冇雙引號(.cfg 一行字串入唔到)")

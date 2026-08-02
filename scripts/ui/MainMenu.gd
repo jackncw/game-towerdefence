@@ -72,6 +72,11 @@ func _ready() -> void:
 	gallery.pressed.connect(func(): Flow.goto(Flow.GALLERY))
 	vb.add_child(gallery)
 
+	# 上次啟動係閃退嘅話,喺呢度彈報告。主選單係開機必經嘅第一個畫面,而
+	# 一份寫咗但冇人讀得到嘅閃退記錄(iOS 網頁版嘅 user:// 收喺 IndexedDB)
+	# 同冇寫係一樣嘅 —— 見 CrashReport.gd。
+	CrashReport.present(self)
+
 	# one-time notice after a save migration (詛咒塔 rework refund). Shown here
 	# because the main menu is the first screen an existing save ever reaches.
 	if Meta.rework_refund > 0:

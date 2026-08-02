@@ -61,8 +61,16 @@ var barrier_regen: int = 0
 ## Cycle order for the speed button. 0.5x is a genuine slow-motion tier for the
 ## dense late levels, so this is a float list — game_speed used to be an int and
 ## every consumer that formatted it with "%d" silently printed x0 at half speed.
+##
+## 第十一輪拎走 5x。三個理由,冇一個係「太快唔好玩」:
+##   * 5x 之下一幀就係 83ms 嘅遊戲時間,而一支箭飛過成個射程都唔使 83ms ——
+##     即係話輸出唔再係「打中」而係「每幀結算一次」,而嗰個唔係同一個遊戲。
+##   * 全部效能預算(池上限、音效併發窗、soak 場景)都係為咗撐住 5x 而訂,
+##     而佢哋喺 3x 之下有大量鬆動 —— 呢個鬆動直接變成網頁版嘅記憶體餘裕。
+##   * 一個要撳三下先返到 1x 嘅循環,同一個撳兩下嘅循環,喺一部電話上面
+##     係兩種手感。
 var game_speed: float = 1.0
-const SPEEDS := [0.5, 1.0, 3.0, 5.0]
+const SPEEDS := [0.5, 1.0, 3.0]
 
 ## Button caption for a speed. "%g" would render 1.0 as "1" and 0.5 as "0.5",
 ## but it also renders 3.0 as "3" only by luck of the locale, so spell it out.
@@ -97,7 +105,7 @@ var damage_dealt: float = 0.0
 # player can diagnose why an attempt was lost — nothing in the game reads them and
 # no gameplay branches on them. They are deliberately plain integer / float
 # accumulators updated at points the code already walks (a monster's own _process,
-# take_hit, on_reach_base), because they run inside the hot loop at 5x speed: one
+# take_hit, on_reach_base), because they run inside the hot loop at 3x speed: one
 # add per event is affordable, a per-frame scan of `monsters` would not be.
 #
 # Each one is meant to correspond to something a HUMAN would notice from playing
@@ -314,12 +322,29 @@ func _build_pools() -> void:
 	soldier_pool = Pool.new(func(): return Soldier.new(), monsters_root)
 	hazard_pool = Pool.new(func(): return Hazard.new(), fx_root)
 	# Pay for the crowd at scene load instead of mid-wave. Sized from a saturated
-	# 5x boss fight (~150 monsters, heavy fx / damage-number churn).
-	monster_pool.prewarm(80)
-	proj_pool.prewarm(64)
-	fx_pool.prewarm(160)
-	dmg_pool.prewarm(80)
-	soldier_pool.prewarm(12)
+	# 3x boss fight (~150 monsters, heavy fx / damage-number churn).
+	#
+	# 網頁版收窄:預熱嘅 node 由開場一刻起就一直佔住記憶體,而 iOS Safari 嘅
+	# tab 上限係一個**硬**上限 —— 唔係「慢啲」係「殺咗個 tab」。收窄幅度同
+	# 下面嘅 fx / damage cap 係同一個比例(見 web_scale()),所以「網頁版預算」
+	# 係一個數,唔係散落幾處嘅魔術數字。
+	monster_pool.prewarm(web_scale(80))
+	proj_pool.prewarm(web_scale(64))
+	fx_pool.prewarm(web_scale(160))
+	dmg_pool.prewarm(web_scale(80))
+	soldier_pool.prewarm(web_scale(12))
+
+## 網頁版嘅池預算折讓。桌面 / Android 原封不動(x1)。
+##
+## 0.55 唔係求其揀:量到嘅係 fx 池滿載 400 個 node 嘅時候 static memory 大約
+## 多 18MB,而 iOS Safari 一個 tab 嘅實際天花板喺 iPhone 上面大約 300MB 上下 ——
+## 光係 canvas(封 DPR 之後)同 wasm heap 已經食咗大半。收到 0.55 之後最壞情況
+## 嘅池佔用返到 10MB 以下,而 220 個同時存在嘅 fx 喺一個 9:16 手機畫面上面
+## 本身已經睇唔清 —— 即係話呢個折讓割走嘅係一啲玩家分唔到嘅嘢。
+const WEB_BUDGET := 0.55
+
+func web_scale(n: int) -> int:
+	return maxi(1, int(round(n * WEB_BUDGET))) if Web.is_web() else n
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
@@ -408,7 +433,7 @@ func _spawn_logic(delta: float) -> void:
 	# The timer is re-armed with `+= interval`, not `= interval`. Assigning threw
 	# away the overshoot, so the true spawn period was always rounded UP to the
 	# next frame boundary — harmless at 60fps, but the frame delta is 10x larger
-	# at 5x than at 0.5x, so the same level spawned measurably fewer monsters the
+	# at 3x than at 0.5x, so the same level spawned measurably fewer monsters the
 	# faster you ran it. Draining the remainder makes the long-run rate identical
 	# at every speed tier (test/SpeedScaleTest case B).
 	spawn_timer -= delta
@@ -648,7 +673,7 @@ func target_closest_to_base(pos: Vector2, rng: float):
 ## 令佢哋全部都殺唔死嘅治療者。
 ##
 ## 呢個唔係一個新嘅選項介面,係一條硬規則:射程入面有支援型單位就打佢,
-## 冇先跌返落原本嘅規則。理由係「有得揀」呢件事本身就係問題 —— 玩家喺 5x
+## 冇先跌返落原本嘅規則。理由係「有得揀」呢件事本身就係問題 —— 玩家喺 3x
 ## 之下唔會逐座塔開目標選單,而「後排治療者最重要」係一個永遠成立嘅答案,
 ## 唔係一個情境判斷。
 func target_support_first(pos: Vector2, rng: float, fallback: Callable):
@@ -1015,7 +1040,7 @@ func spawn_hazard(pos: Vector2, radius: float, dps: float, dur: float, kind: int
 	h.setup(self, pos, radius, dps, dur, kind, col, ground_only, hazard_pool, extra)
 
 # Damage numbers are Labels — the most expensive node in the battle, because
-# every setup() re-shapes text. Unbounded, a saturated 5x fight pushed the pool
+# every setup() re-shapes text. Unbounded, a saturated fight pushed the pool
 # past 400 live labels, which is both the biggest frame-time spike AND completely
 # unreadable on screen. Big hits (crits / boss damage) always get through;
 # ordinary chip damage thins out once the screen is already full.
@@ -1026,15 +1051,15 @@ const DMG_HARD_CAP := 150
 ## the 視覺誠實 half of the boss-heal rework.
 func spawn_damage(pos: Vector2, amount: int, col: Color, big := false, prefix := "") -> void:
 	var live: int = dmg_pool.live_count()
-	if live >= DMG_HARD_CAP:
+	if live >= web_scale(DMG_HARD_CAP):
 		return
-	if not big and live >= DMG_SOFT_CAP and (live % 3) != 0:
+	if not big and live >= web_scale(DMG_SOFT_CAP) and (live % 3) != 0:
 		return
 	var d: DamageNumber = dmg_pool.acquire()
 	d.setup(pos, prefix + str(amount), col, dmg_pool, big)
 
 # --- cosmetic FX budget -----------------------------------------------------
-# Under a saturated 5x fight the fx pool used to grow past NINE HUNDRED live
+# Under a saturated fight the fx pool used to grow past NINE HUNDRED live
 # nodes — 43 towers each throw 2 muzzle sparks per shot, every kill adds a burst
 # + 5 dust sparks + coins — and every one of those redraws itself every frame.
 # Pool growth plus that draw load was a major source of 90-150ms frame spikes.
@@ -1044,16 +1069,17 @@ const FX_SOFT_CAP := 220     # start halving garnish
 const FX_HARD_CAP := 400     # absolute ceiling on live fx nodes
 
 func _fx_room() -> int:
-	return FX_HARD_CAP - fx_pool.live_count()
+	return web_scale(FX_HARD_CAP) - fx_pool.live_count()
 
 ## How many garnish particles we are willing to spend right now.
 func _spark_allowance(n: int) -> int:
 	var live: int = fx_pool.live_count()
-	if live >= FX_HARD_CAP:
+	var hard: int = web_scale(FX_HARD_CAP)
+	if live >= hard:
 		return 0
-	if live >= FX_SOFT_CAP:
+	if live >= web_scale(FX_SOFT_CAP):
 		n = n / 2
-	return mini(n, FX_HARD_CAP - live)
+	return mini(n, hard - live)
 
 func spawn_line(pts: PackedVector2Array, col: Color, w: float, dur: float) -> void:
 	if _fx_room() <= 0:

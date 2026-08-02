@@ -17,11 +17,21 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Crash="*res://scripts/autoload/Crash.gd"
 GameData="*res://scripts/autoload/GameData.gd"
 Assets="*res://scripts/autoload/Assets.gd"
 Meta="*res://scripts/autoload/Meta.gd"
 Flow="*res://scripts/autoload/Flow.gd"
 Audio="*res://scripts/autoload/Audio.gd"
+
+[debug]
+
+; 常設閃退記錄。呢個唔係 debug build 專用 —— 一單喺玩家機上面嘅閃退,如果冇
+; 檔案 log 就只剩返一句「佢閃退咗」。log_path 同 Crash.gd 嘅 user://logs/ 同一
+; 個資料夾,所以一單閃退嘅兩份證物(引擎 stack trace + 遊戲麵包屑)擺埋一齊。
+file_logging/enable_file_logging=true
+file_logging/log_path="user://logs/godot.log"
+file_logging/max_log_files=10
 
 [display]
 

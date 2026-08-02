@@ -180,8 +180,10 @@ func _ready() -> void:
 	Audio.play_bgm("bgm_battle")
 	Engine.time_scale = 1.0
 	set_process_unhandled_input(true)
+	Crash.crumb("battle", "開場 lv=%d 路線=%d 家族=%s" % [level, cfg.path_idx, str(cfg.families)])
 
 func _exit_tree() -> void:
+	Crash.crumb("battle", "離場 lv=%d 塔=%d 怪=%d 殺=%d" % [level, towers.size(), monsters.size(), kills])
 	Audio.stop_bgm()
 	Engine.time_scale = 1.0
 	get_tree().paused = false
@@ -720,9 +722,33 @@ func _tick_curse_auras() -> void:
 			m.apply_slow(slow, maxf(0.3, linger))
 	# 光環聲接喺「真係有怪俾佢上到咒」嗰個位,唔係接喺 Tower._proc_curse_aura
 	# (嗰度淨係郁緊個圈嘅動畫,逐幀行,同場上有冇嘢完全無關)。派一次,唔係
-	# 逐隻怪派 —— 一個光環刷新係一件事,唔係二十件。限流見 Tower.play_event_sound。
+	# 逐隻怪派 —— 一個光環刷新係一件事,唔係二十件。限流見 play_event_sound。
 	if refreshed:
-		Tower.play_event_sound("curse")
+		play_event_sound("curse")
+
+## 派一個「持續事件」聲(出兵 / 詛咒光環 / 緩速力場),窗口未夠就靜靜咁丟。
+##
+## 呢個唔係 _process 度盲叫嘅 —— 每個呼叫點都係一件真係發生咗嘅事(出到兵 /
+## 光環真係上到身 / 力場真係緩到嘢)。窗口 keyed by **音名**而唔係 by 塔,
+## 跨塔共用:五座力場塔同時脈衝要係一個聲,唔係五個。窗長見
+## Audio.EVENT_SND_GAP_MS。
+##
+## 個字典住喺呢度(一場戰鬥一份)而唔係 Tower 嘅 static var:static 嘅話
+## 時間戳跟住腳本活,離開再入返同一關,新一場開頭嗰下號角會被上一場最後嗰下
+## 靜靜咁丟;測試之間亦都會漏過去。
+var _event_snd_at: Dictionary = {}
+
+func play_event_sound(mech_name: String) -> void:
+	var e: Array = Audio.TOWER_SOUND.get(mech_name, [])
+	if e.is_empty():
+		return
+	var n := String(e[0])
+	var gap: int = int(Audio.EVENT_SND_GAP_MS.get(n, Audio.EVENT_SND_GAP_DEFAULT))
+	var now := Time.get_ticks_msec()
+	if now - int(_event_snd_at.get(n, -gap * 2)) < gap:
+		return
+	_event_snd_at[n] = now
+	Audio.play_tower(mech_name)
 
 ## `except` is the caster: a boss heals ITSELF out of its capped heal budget
 ## (Monster.request_heal, metered by the ceiling), not out of the full group
@@ -1280,6 +1306,7 @@ func _start_cd(id: int) -> void:
 func set_speed_index(i: int) -> void:
 	game_speed = float(SPEEDS[i % SPEEDS.size()])
 	Engine.time_scale = game_speed
+	Crash.crumb("speed", "%s 怪=%d 塔=%d" % [speed_label(game_speed), monsters.size(), towers.size()])
 
 func cancel_modes() -> void:
 	build_id = 0

@@ -67,6 +67,7 @@ var nav_enabled: bool = true
 func goto(path: String) -> void:
 	if not nav_enabled:
 		return
+	Crash.crumb("scene", path.get_file())
 	get_tree().change_scene_to_file(path)
 
 func play_level(n: int) -> void:
@@ -82,6 +83,7 @@ func play_level(n: int) -> void:
 func set_locale(code: String) -> void:
 	if code == Meta.current_locale():
 		return
+	Crash.crumb("locale", code)
 	Meta.set_locale(code)
 	if nav_enabled:
 		get_tree().reload_current_scene()

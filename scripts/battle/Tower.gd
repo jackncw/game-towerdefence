@@ -421,38 +421,17 @@ func _proc_beam(delta: float) -> void:
 		var o = battle.nearest_other(global_position, range_val, [tgt])
 		if o: o.take_hit(dps * delta, "magic")
 
-## 出兵 / 詛咒光環 / 緩速力場 呢三個聲同攻擊聲唔同:佢哋唔係「一發」,而係一個
-## 持續狀態嘅節拍,所以要自己限流。
+## 出兵 / 詛咒光環 / 緩速力場 呢三個「持續事件」聲嘅限流住咗喺 Battle
+## (battle.play_event_sound)。呢度剩返一個轉接,方便塔自己叫。
 ##
-## Audio.play() 嗰個 60ms 去重窗係為咗擋「同一幀二十座箭塔一齊射」,唔係為咗擋
-## 一個每隔零點幾秒就再嚟一次嘅事件 —— 而且 5x 之下遊戲時間壓縮咗五倍:兵營嘅
-## 最短補兵間隔 0.5 秒遊戲時間喺真實時間只係 0.1 秒,60ms 窗完全放得過,結果就
-## 係一秒十次號角。
-##
-## 所以呢三個喺呼叫端再限一次流,而且用真實時間(Time.get_ticks_msec)唔用
-## delta:玩家聽到嘅密度係按真實時間計嘅,跟住 Engine.time_scale 縮放就等於冇限。
-## 窗口 keyed by 音名而唔係 by 塔,跨塔共用 —— 五座力場塔同時脈衝要係一個聲,
-## 唔係五個。每個窗取返自己音檔長度嘅一倍幾,兩次之間就唔會疊聲。
-const EVENT_SND_GAP_MS := {
-	"sfx_tower_barracks": 450,   # 音長 0.30s
-	"sfx_aura_curse": 800,       # 音長 0.50s —— 環境聲,派得最疏
-	"sfx_field_slow": 650,       # 音長 0.44s
-}
-static var _event_snd_at: Dictionary = {}
-
-## 派一個「持續事件」聲,窗口未夠就靜靜咁丟。呢個唔係 _process 度叫嘅 ——
-## 每個呼叫點都係一件真係發生咗嘅事(出到兵 / 光環真係上到身 / 力場真係緩到嘢)。
-static func play_event_sound(mech: String) -> void:
-	var e: Array = Audio.TOWER_SOUND.get(mech, [])
-	if e.is_empty():
-		return
-	var n := String(e[0])
-	var gap: int = int(EVENT_SND_GAP_MS.get(n, 400))
-	var now := Time.get_ticks_msec()
-	if now - int(_event_snd_at.get(n, -gap * 2)) < gap:
-		return
-	_event_snd_at[n] = now
-	Audio.play_tower(mech)
+## 點解唔留喺呢度做 static:窗口本來係 `static var _event_snd_at`,即係跟住
+## **腳本**而唔係跟住一場戰鬥活。離開再入返同一關,上一場最後嗰下號角嘅時間戳
+## 仲喺度,所以新一場開頭嗰下會被靜靜咁丟 —— 一個由上一場決定嘅結果。
+## 而且 static 令佢喺測試之間漏過去:兩個測試場景先後跑,第二個嘅斷言取決於
+## 第一個播過乜。窗口屬於一場戰鬥,所以佢而家住喺 Battle 度。
+func play_event_sound(mech_name: String) -> void:
+	if battle != null:
+		battle.play_event_sound(mech_name)
 
 func _proc_barracks(delta: float) -> void:
 	# prune dead

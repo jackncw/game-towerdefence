@@ -69,6 +69,24 @@ const TOWER_SOUND := {
 	"slowfield": ["sfx_field_slow", 1.00],
 }
 
+## 「持續事件」聲兩次之間最少隔幾多**真實**毫秒。
+##
+## Audio.play() 嗰個 60ms 去重窗係為咗擋「同一幀二十座箭塔一齊射」,唔係為咗擋
+## 一個每隔零點幾秒就再嚟一次嘅事件 —— 而且 5x 之下遊戲時間壓縮咗五倍:兵營嘅
+## 最短補兵間隔 0.5 秒遊戲時間喺真實時間只係 0.1 秒,60ms 窗完全放得過,結果就
+## 係一秒十次號角。
+##
+## 用真實時間(Time.get_ticks_msec)唔用 delta:玩家聽到嘅密度係按真實時間計,
+## 跟住 Engine.time_scale 縮放就等於冇限過。每個窗取返自己音檔長度嘅一倍幾,
+## 兩次之間就唔會疊聲。數住呢個窗嘅字典喺 Battle 度(一場一份),見
+## Battle.play_event_sound()。
+const EVENT_SND_GAP_MS := {
+	"sfx_tower_barracks": 450,   # 音長 0.30s
+	"sfx_aura_curse": 800,       # 音長 0.50s —— 環境聲,派得最疏
+	"sfx_field_slow": 650,       # 音長 0.44s
+}
+const EVENT_SND_GAP_DEFAULT := 400
+
 ## 每族一個死亡聲。共用一個「死亡」聲會令十族聽落一樣 —— 而玩家分辨怪物族群
 ## 嘅速度,喺 5x 之下係靠聽多過靠睇。
 const DEATH_SOUND := {

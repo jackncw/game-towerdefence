@@ -27,6 +27,7 @@ func _ready() -> void:
 	_test_every_key_translates(keys)
 	_test_gamedata_keys(keys)
 	_test_no_leftover_cjk_in_english(keys)
+	_test_placeholders_match(keys)
 	_test_default_locale()
 	_test_persistence()
 
@@ -130,6 +131,47 @@ func _test_no_leftover_cjk_in_english(keys: Array) -> void:
 				bad.append(k)
 				break
 	_check(bad.is_empty(), "no CJK left in the English column (%s)" % [bad])
+
+## 佔位符對齊。呢個係第九輪報告記低嘅遺留項目:嗰陣 688 個檢查證明咗每條 key
+## 喺兩種語言都解得到、字型畫得出,但**冇任何嘢**睇住 `{n}` / `{pct}` 呢類
+## 佔位符 —— 而佔位符錯咗係一種特別惡毒嘅 bug:
+##
+##   * 譯文少咗一個 `{n}`  -> String.format() 靜靜咁唔換,玩家見到「還差 魔晶」
+##     ,一句文法完整但冇數字嘅廢話。冇 error、冇 warning、測試全綠。
+##   * 譯文多咗一個名  -> 嗰個名永遠換唔到,畫面上直接見到 `{count}` 四個字。
+##   * 兩邊名唔同(`{n}` vs `{num}`)-> 一種語言啱一種語言爛,而 QA 通常淨係
+##     行一種語言。
+##
+## 所以呢度比較嘅係**集合**,唔係次數:同一個佔位符喺一句度用兩次係合法嘅
+## (中英文語序唔同,重複一個數字係譯者嘅正當選擇),但「一邊有、另一邊冇」
+## 就一定係漏。
+const _PLACEHOLDER_RE := "\\{([A-Za-z_][A-Za-z0-9_]*)\\}"
+
+func _placeholders(s: String) -> Array:
+	var re := RegEx.new()
+	re.compile(_PLACEHOLDER_RE)
+	var out := []
+	for m in re.search_all(s):
+		var name := m.get_string(1)
+		if not out.has(name):
+			out.append(name)
+	out.sort()
+	return out
+
+func _test_placeholders_match(keys: Array) -> void:
+	var bad := []
+	for k in keys:
+		var per_locale := {}
+		for l in LOCALES:
+			TranslationServer.set_locale(l)
+			per_locale[l] = _placeholders(tr(k))
+		var ref: Array = per_locale[LOCALES[0]]
+		for l in LOCALES:
+			if str(per_locale[l]) != str(ref):
+				bad.append("%s: %s=%s %s=%s" % [k, LOCALES[0], ref, l, per_locale[l]])
+				break
+	_check(bad.is_empty(), "every key uses the same placeholders in both locales (%s)"
+		% [bad.slice(0, 8)])
 
 func _test_default_locale() -> void:
 	# empty setting = never chosen -> follow OS. Both branches are asserted

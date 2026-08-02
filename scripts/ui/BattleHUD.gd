@@ -721,9 +721,17 @@ func _open_bestiary_overlay() -> void:
 	bs.overlay = true
 	bs.process_mode = Node.PROCESS_MODE_ALWAYS
 	pause_menu.visible = false
-	# when the bestiary closes, return to the (still-paused) pause menu
+	# when the bestiary closes, return to the (still-paused) pause menu.
+	#
+	# `is_instance_valid(self)` is NOT enough. Leaving the battle tears the whole
+	# scene down, which fires tree_exited on the overlay while this HUD is still a
+	# LIVE object that is already OUT of the tree — and get_tree() on a node with no
+	# tree returns null, so the next line indexed `paused` on null. Every exit from a
+	# battle that had the 圖鑑 overlay open logged two engine errors for it.
+	# is_inside_tree() is the question actually being asked: "am I still a HUD that
+	# has a pause menu to show".
 	bs.tree_exited.connect(func():
-		if is_instance_valid(self) and get_tree().paused:
+		if is_instance_valid(self) and is_inside_tree() and get_tree().paused:
 			pause_menu.visible = true)
 	add_child(bs)
 

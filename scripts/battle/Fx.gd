@@ -81,7 +81,7 @@ func line(world_pts: PackedVector2Array, c: Color, w: float, dur: float, p: Pool
 ## whole point of the deterministic _j() jitter — it must not boil). It used to
 ## be rebuilt inside _draw: a fresh PackedVector2Array plus a full subdivision
 ## pass per bolt PER FRAME, and with every gatling/beam/sniper/lightning tower
-## drawing a bolt at 5x that was the busiest allocator in the battle.
+## drawing a bolt at 3x that was the busiest allocator in the battle.
 func _build_jag() -> void:
 	_jag = PackedVector2Array()
 	if pts.size() < 2:

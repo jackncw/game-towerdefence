@@ -39,7 +39,7 @@ func setup(pos: Vector2, txt: String, col: Color, pool: Pool, big := false) -> v
 	modulate.a = 1.0
 	rotation = 0.0
 	# pop-in: big crits punch bigger and settle. Driven by _life below rather than
-	# a per-number Tween — an AoE volley at 5x spawns these by the hundred and the
+	# a per-number Tween — an AoE volley at 3x spawns these by the hundred and the
 	# Tween allocation cost dwarfed the label itself.
 	_pop0 = 1.6 if big else 1.15
 	scale = Vector2(_pop0, _pop0)

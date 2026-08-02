@@ -8,7 +8,7 @@ extends Node
 ## Two things this has to survive that a naive "instantiate a player and
 ## queue_free it" version does not:
 ##
-##   * 5x speed. A busy field fires dozens of shots per frame. Players are
+##   * 3x speed. A busy field fires dozens of shots per frame. Players are
 ##     POOLED (no allocation per shot) and identical sounds are DE-DUPLICATED
 ##     inside DEDUP_MS, so twenty arrow towers firing on the same frame produce
 ##     one arrow sound at full volume instead of twenty stacked copies that
@@ -72,9 +72,9 @@ const TOWER_SOUND := {
 ## 「持續事件」聲兩次之間最少隔幾多**真實**毫秒。
 ##
 ## Audio.play() 嗰個 60ms 去重窗係為咗擋「同一幀二十座箭塔一齊射」,唔係為咗擋
-## 一個每隔零點幾秒就再嚟一次嘅事件 —— 而且 5x 之下遊戲時間壓縮咗五倍:兵營嘅
-## 最短補兵間隔 0.5 秒遊戲時間喺真實時間只係 0.1 秒,60ms 窗完全放得過,結果就
-## 係一秒十次號角。
+## 一個每隔零點幾秒就再嚟一次嘅事件 —— 而且 3x 之下遊戲時間壓縮咗三倍:兵營嘅
+## 最短補兵間隔 0.5 秒遊戲時間喺真實時間只係 0.17 秒,60ms 窗完全放得過,結果就
+## 係一秒六次號角。
 ##
 ## 用真實時間(Time.get_ticks_msec)唔用 delta:玩家聽到嘅密度係按真實時間計,
 ## 跟住 Engine.time_scale 縮放就等於冇限過。每個窗取返自己音檔長度嘅一倍幾,
@@ -88,7 +88,7 @@ const EVENT_SND_GAP_MS := {
 const EVENT_SND_GAP_DEFAULT := 400
 
 ## 每族一個死亡聲。共用一個「死亡」聲會令十族聽落一樣 —— 而玩家分辨怪物族群
-## 嘅速度,喺 5x 之下係靠聽多過靠睇。
+## 嘅速度,喺 3x 之下係靠聽多過靠睇。
 const DEATH_SOUND := {
 	"goblin": "sfx_die_goblin", "wolf": "sfx_die_wolf",
 	"skeleton": "sfx_die_skeleton", "golem": "sfx_die_golem",
@@ -251,7 +251,7 @@ func play(sound: String, pitch := 1.0) -> void:
 	var arr: Array = _pool.get(bus, _pool.get("SFX", []))
 	if arr.is_empty():
 		return
-	# Round-robin rather than "find a free one": at 5x every player is busy most
+	# Round-robin rather than "find a free one": at 3x every player is busy most
 	# of the time, and stealing the oldest is better than dropping the sound.
 	var i: int = int(_next[bus if _pool.has(bus) else "SFX"])
 	var p: AudioStreamPlayer = arr[i % arr.size()]

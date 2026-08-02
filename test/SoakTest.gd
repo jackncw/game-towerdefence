@@ -9,7 +9,7 @@ extends Node
 ## 兩個階段,缺一不可:
 ##
 ##   A. **孤立戰鬥**(add_child / queue_free)—— 壓力行先。一場鋪 40 座塔、
-##      5x、魔法連放、中途賣塔轉速加塔,打到 boss 死或者夠鐘。快,所以做得多。
+##      3x、魔法連放、中途賣塔轉速加塔,打到 boss 死或者夠鐘。快,所以做得多。
 ##   B. **真流程**(Flow.goto -> change_scene_to_file)—— 主選單 → 選關 →
 ##      戰鬥 → 結算 → 返主選單 → 商店 / 升級 / 快捷列 / 圖鑑 …
 ##      呢個階段唔可以由 A 代替:change_scene_to_file 係**延遲**釋放成個現行
@@ -107,7 +107,7 @@ class _Driver extends Node:
 		await get_tree().process_frame
 		b.gold = 9999999
 		_place_towers(b)
-		b.set_speed_index(Battle.SPEEDS.find(5.0))
+		b.set_speed_index(Battle.SPEEDS.find(3.0))
 		var t := 0.0
 		var spell_t := 0.0
 		var next_spell := 1
@@ -116,7 +116,7 @@ class _Driver extends Node:
 			guard += 1
 			await get_tree().process_frame
 			# get_process_delta_time() 已經計埋 Engine.time_scale —— 再乘一次
-			# 就係五倍快咁食完個預算,結果每場淨係跑到 20 秒遊戲時間,連 boss
+			# 就係按倍速食完個預算,結果每場淨係跑到二十幾秒遊戲時間,連 boss
 			# (第 60 秒)都未出過。呢個 soak 嘅重點正正就係 boss 場。
 			t += get_process_delta_time()
 			spell_t -= get_process_delta_time()
@@ -210,7 +210,7 @@ class _Driver extends Node:
 			if b is Battle:
 				b.gold = 9999999
 				_place_towers(b, 24)
-				b.set_speed_index(Battle.SPEEDS.find(5.0))
+				b.set_speed_index(Battle.SPEEDS.find(3.0))
 				# 打到收場為止,或者夠鐘就自己撳「返主選單」——兩條路都要行得通
 				while is_instance_valid(b) and get_tree().current_scene == b \
 						and t < BATTLE_MAX_GAME_S:

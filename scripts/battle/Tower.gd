@@ -116,7 +116,7 @@ func _process(delta: float) -> void:
 
 # generic: needs a target
 # MAX_SHOTS_PER_FRAME lets a very fast tower catch up when one frame covers
-# several of its intervals. At 5x speed a frame is ~83ms of game time while a
+# several of its intervals. At 3x speed a frame is ~50ms of game time while a
 # fully heated 機槍塔 fires every ~28ms, so "fire once, reset the timer to a full
 # interval" silently capped it at a third of its advertised 攻速. Accumulating
 # the leftover and draining it in a bounded loop delivers the real rate without
@@ -190,7 +190,7 @@ const MUZZLE_COL := {
 }
 
 # Recoil kick + muzzle flash toward the target — gives every shot a punch.
-# The recoil used to be a Tween allocated per shot; 43 towers firing at 5x speed
+# The recoil used to be a Tween allocated per shot; 43 towers firing at 3x speed
 # meant hundreds of Tween objects a second for a 0.11s ease. It is a plain
 # exponential decay on _recoil now, ticked in _process.
 var _recoil: Vector2 = Vector2.ZERO
@@ -674,7 +674,7 @@ func _proc_slowfield(delta: float) -> void:
 
 ## The beam is continuous, so it cannot key its sound off a shot. It re-triggers
 ## on its own timer while it has a target — tied to the clip length, not to the
-## frame rate, or 5x would fire it 60 times a second into the dedup filter.
+## frame rate, or 3x would fire it 60 times a second into the dedup filter.
 var _beam_snd_t: float = 0.0
 const BEAM_SND_PERIOD := 0.30
 

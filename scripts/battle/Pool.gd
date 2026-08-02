@@ -8,7 +8,7 @@ var _factory: Callable
 var _parent: Node
 # Instance ids currently sitting in _free. The double-release guard used to be
 # `_free.has(n)` — a linear scan run on EVERY release, which with hundreds of
-# pooled fx/damage numbers churning at 5x speed was O(n^2) per frame.
+# pooled fx/damage numbers churning at 3x speed was O(n^2) per frame.
 var _idle: Dictionary = {}
 var _made: int = 0
 

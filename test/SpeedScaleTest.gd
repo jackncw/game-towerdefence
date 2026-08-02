@@ -1,8 +1,8 @@
 extends Node
-## Regression test for the speed button, added when 0.5x joined [1,3,5].
+## Regression test for the speed button, added when 0.5x joined [1,3].
 ##
 ## `Engine.time_scale` does exactly one thing: it multiplies the `delta` handed to
-## `_process`. So "0.5x / 3x / 5x scale every time system correctly" is precisely
+## `_process`. So "0.5x / 1x / 3x scale every time system correctly" is precisely
 ## the claim "the same amount of GAME time produces the same result no matter how
 ## big each frame's delta is". Anything that counts frames instead of seconds, or
 ## that quantises an accumulator to the frame size, breaks that equality — and
@@ -10,7 +10,7 @@ extends Node
 ##
 ## So every case runs the SAME scenario three times over the SAME total game
 ## time, stepping at the per-frame delta each speed tier actually produces at
-## 60fps (0.5x -> 0.0083s, 1x -> 0.0167s, 5x -> 0.0833s), and compares:
+## 60fps (0.5x -> 0.0083s, 1x -> 0.0167s, 3x -> 0.0500s), and compares:
 ##
 ##   A boss 倒數    — elapsed at the moment the boss spawns
 ##   B 刷怪間隔      — how many monsters spawned in a fixed window
@@ -24,7 +24,7 @@ extends Node
 const TIERS := [
 	{"name": "0.5x", "dt": (1.0 / 60.0) * 0.5},
 	{"name": "1x", "dt": (1.0 / 60.0) * 1.0},
-	{"name": "5x", "dt": (1.0 / 60.0) * 5.0},
+	{"name": "3x", "dt": (1.0 / 60.0) * 3.0},
 ]
 const LEVEL := 3
 
@@ -40,6 +40,7 @@ func _ready() -> void:
 	Flow.nav_enabled = false
 	_tree.paused = true
 	await _case_speed_table()
+	_case_no_5x_in_code()
 	await _case_boss_countdown()
 	await _case_spawn_interval()
 	await _case_spell_cd()
@@ -55,8 +56,11 @@ func _ready() -> void:
 # A0 — the tier list and its captions
 # ---------------------------------------------------------------------------
 func _case_speed_table() -> void:
-	_eq_arr("A0 速度循環", Battle.SPEEDS, [0.5, 1.0, 3.0, 5.0])
-	for pair in [[0.5, "x0.5"], [1.0, "x1"], [3.0, "x3"], [5.0, "x5"]]:
+	# 第十一輪拎走 5x —— 呢條 assertion 就係「拎走咗」嘅唯一證據,
+	# 見 Battle.SPEEDS 上面嗰段。
+	_eq_arr("A0 速度循環", Battle.SPEEDS, [0.5, 1.0, 3.0])
+	_ok("A0 冇 5x", not Battle.SPEEDS.has(5.0), "SPEEDS=%s" % [Battle.SPEEDS])
+	for pair in [[0.5, "x0.5"], [1.0, "x1"], [3.0, "x3"]]:
 		var got: String = Battle.speed_label(float(pair[0]))
 		_ok("A0 掣面 %s" % pair[1], got == pair[1], "%s != %s" % [got, pair[1]])
 	# cycling from 1x must reach every tier and come back
@@ -72,9 +76,82 @@ func _case_speed_table() -> void:
 			is_equal_approx(Engine.time_scale, b.game_speed),
 			"time_scale=%f game_speed=%f" % [Engine.time_scale, b.game_speed])
 	seen.sort()
-	_eq_arr("A0 循環行勻四檔", seen, [0.5, 1.0, 3.0, 5.0])
+	_eq_arr("A0 循環行勻三檔", seen, [0.5, 1.0, 3.0])
 	Engine.time_scale = 1.0
 	await _end(b)
+
+# ---------------------------------------------------------------------------
+# A1 — 冇任何一句**程式碼**仲提住 5x
+#
+# Battle.SPEEDS 冇咗 5.0 唔代表 5x 走清:一個 `Engine.time_scale = 5.0` 嘅
+# 效能工具、一個 `SPEEDS.find(5.0)`(而家返 -1,即係靜靜咁變成 index -1)、
+# 一個測試入面嘅 `[0.5, 1.0, 5.0]` —— 三樣都唔會 crash,淨係會靜靜咁量錯嘢。
+#
+# 掃嘅只係**程式碼**,唔係註解。註解要講得返「點解冇咗 5x」,而嗰啲句子
+# 一定會提到 5x —— 一條連解釋都禁埋嘅規則會逼人刪走理由,而理由先係
+# 呢個 codebase 最值錢嘅嘢。
+# ---------------------------------------------------------------------------
+const CODE_DIRS := ["res://scripts", "res://test", "res://tests", "res://tools"]
+
+func _case_no_5x_in_code() -> void:
+	var re := RegEx.new()
+	# 0.5x / 1.5x / 3x5 / 0x5EED 全部唔算 —— 前面係數字或者字母就唔係「五倍速」。
+	re.compile("(?<![0-9A-Za-z_.])5(\\.0)?\\s*[xX](?![0-9])|(?<![0-9A-Za-z_.])[xX]\\s*5(?![0-9])|time_scale\\s*=\\s*5|SPEEDS\\s*\\.\\s*find\\s*\\(\\s*5")
+	var hits: Array = []
+	for d in CODE_DIRS:
+		_scan_dir(d, re, hits)
+	_ok("A1 程式碼冇 5x 殘留", hits.is_empty(), "%s" % [hits.slice(0, 8)])
+	_ok("A1 真係掃過嘢", _scanned_files > 40, "只掃到 %d 個檔" % _scanned_files)
+
+var _scanned_files := 0
+
+func _scan_dir(path: String, re: RegEx, hits: Array) -> void:
+	var d := DirAccess.open(path)
+	if d == null:
+		return
+	d.list_dir_begin()
+	var name := d.get_next()
+	while name != "":
+		var full := path + "/" + name
+		if d.current_is_dir():
+			if not name.begins_with("."):
+				_scan_dir(full, re, hits)
+		elif name.ends_with(".gd") and name != "SpeedScaleTest.gd":
+			# 呢個檔本身就係規則嘅定義,佢一定要講得出 "5x" 三個字。
+			_scan_file(full, re, hits)
+		name = d.get_next()
+	d.list_dir_end()
+
+func _scan_file(path: String, re: RegEx, hits: Array) -> void:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return
+	_scanned_files += 1
+	var n := 0
+	while not f.eof_reached():
+		n += 1
+		var code := _strip_comment(f.get_line())
+		if code.strip_edges() == "":
+			continue
+		if re.search(code) != null:
+			hits.append("%s:%d %s" % [path.get_file(), n, code.strip_edges()])
+	f.close()
+
+## 剝走 `#` 註解,但唔可以斬斷字串入面嘅 `#`(顏色碼 "#1c1611" 就係一個)。
+func _strip_comment(line: String) -> String:
+	var quote := ""
+	for i in line.length():
+		var c := line[i]
+		if quote != "":
+			if c == "\\":
+				continue
+			if c == quote:
+				quote = ""
+		elif c == "\"" or c == "'":
+			quote = c
+		elif c == "#":
+			return line.substr(0, i)
+	return line
 
 # ---------------------------------------------------------------------------
 # A — boss countdown reaches zero after the same amount of game time
@@ -225,7 +302,7 @@ func _step(b, dt: float) -> void:
 ## short frame for the remainder. Overshooting by up to a frame instead makes the
 ## fast tier run further than the slow one, which shows up as a spread the game
 ## did not cause — the first version of this harness did that and "failed" the
-## cooldown case by precisely one 5x frame.
+## cooldown case by precisely one 3x frame.
 func _run_for(b, dt: float, seconds: float) -> void:
 	var t := 0.0
 	while t + dt <= seconds:

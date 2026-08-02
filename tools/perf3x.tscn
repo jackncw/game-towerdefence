@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://cperf5xstress0"]
+[gd_scene load_steps=2 format=3 uid="uid://cperf3xstress0"]
 
-[ext_resource type="Script" path="res://tools/perf5x.gd" id="1_perf"]
+[ext_resource type="Script" path="res://tools/perf3x.gd" id="1_perf"]
 
-[node name="Perf5x" type="Node"]
+[node name="Perf3x" type="Node"]
 script = ExtResource("1_perf")

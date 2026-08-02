@@ -1,8 +1,12 @@
 extends Node
-## 5x-speed stress test: full tower field + continuous spawns + boss, running at
-## Engine.time_scale=5 with vsync/fps-cap OFF so the sampled FPS reflects true
-## render+sim headroom (round-3 art must stay >=55fps under load).
-##   Godot --path . tools/perf5x.tscn
+## 3x-speed stress test: full tower field + continuous spawns + boss, running at
+## Engine.time_scale=3 with vsync/fps-cap OFF so the sampled FPS reflects true
+## render+sim headroom.
+##
+## 效能目標:**3x boss 戰 >= 55fps**。第十一輪之前呢個目標係喺 5x 度定嘅,而
+## 5x 已經冇咗(見 Battle.SPEEDS)—— 一個量度一個唔再存在嘅場景嘅門檻,量到
+## 幾多都唔關出街嗰個遊戲事。
+##   Godot --path . tools/perf3x.tscn
 
 ## Two modes (pick with a command-line flag after `--`):
 ##   (default)   uncapped — measures raw headroom.
@@ -29,8 +33,8 @@ func _ready() -> void:
 	Meta.unlocked_spells = range(1, 16)
 	Flow.selected_level = 5
 	# hard safety: never hang past ~20s real time
-	# ignore_time_scale=true: at time_scale=5 a plain SceneTreeTimer fires 5x early,
-	# which silently cut every measurement window to ~1.5 real seconds.
+	# ignore_time_scale=true: under a raised time_scale a plain SceneTreeTimer fires
+	# proportionally early, which silently cut every measurement window short.
 	get_tree().create_timer(40.0, true, false, true).timeout.connect(_report)
 	battle = load("res://scenes/Battle.tscn").instantiate()
 	add_child(battle)
@@ -51,7 +55,7 @@ func _ready() -> void:
 	# a heavy standing crowd + a boss
 	for i in 46:
 		battle._spawn_monster(GameData.FAMILY_ORDER[i % GameData.FAMILY_ORDER.size()], 1 + i % 5, false, 200.0 + i * 22.0)
-	Engine.time_scale = 5.0
+	Engine.time_scale = 3.0
 	print("PERF: towers=", battle.towers.size(), " starting monsters=", battle.monsters.size())
 
 func _process(delta: float) -> void:
@@ -99,7 +103,7 @@ func _report() -> void:
 	var p1: float = _samples[int(n * 0.01)]
 	var p5: float = _samples[int(n * 0.05)]
 	var med: float = _samples[int(n * 0.5)]
-	print("PERF RESULT @5x%s  avg_fps=%.1f  med=%.1f  p5=%.1f  p1=%.1f  min=%.1f  worst_frame=%.1fms  peak_monsters=%d  towers=%d  samples=%d" %
+	print("PERF RESULT @3x%s  avg_fps=%.1f  med=%.1f  p5=%.1f  p1=%.1f  min=%.1f  worst_frame=%.1fms  peak_monsters=%d  towers=%d  samples=%d" %
 		["(30fps budget)" if _budget_mode else "", avg, med, p5, p1, mn,
 		_worst_ms, _peak_monsters, battle.towers.size(), n])
 	if _budget_mode:

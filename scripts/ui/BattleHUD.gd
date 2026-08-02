@@ -433,8 +433,8 @@ func _set_drawer(open: bool) -> void:
 	if _drawer_tw != null and _drawer_tw.is_valid():
 		_drawer_tw.kill()
 	_drawer_tw = create_tween()
-	# The drawer is chrome, not gameplay: at 5x an Engine.time_scale-driven tween
-	# would snap open in 30ms and at 0.5x it would crawl.
+	# The drawer is chrome, not gameplay: at 3x an Engine.time_scale-driven tween
+	# would snap open in a third of the time and at 0.5x it would crawl.
 	_drawer_tw.set_ignore_time_scale(true)
 	_drawer_tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_drawer_tw.tween_property(drawer, "position:y",
@@ -570,7 +570,7 @@ var _last_gold := -1
 var _last_crys := -1
 
 # Currency pop. Gold changes on EVERY kill, so a Tween per change was hundreds
-# of allocations a second at 5x. Two floats ticked in refresh() instead.
+# of allocations a second at 3x. Two floats ticked in refresh() instead.
 var _pop_t := {}
 
 func _pop(l: Label) -> void:

@@ -276,9 +276,9 @@ func _tick_status(delta: float) -> void:
 		haste_time -= delta
 		if haste_time <= 0.0: haste_amp = 0.0
 	# DoT accumulators DRAIN by one period per tick instead of resetting to 0.
-	# Resetting made the tick rate frame-dependent: at 5x a frame delta of 0.167s
-	# overshoots the 0.25s burn period, and zeroing the remainder stretched the
-	# real period to 0.333s — a silent 25% DoT loss at high speed, and the mirror
+	# Resetting made the tick rate frame-dependent: at 3x a frame delta of 0.05s
+	# leaves a remainder against the 0.25s burn period, and zeroing it stretched the
+	# real period out — a silent DoT loss at high speed, and the mirror
 	# problem (no loss) at 0.5x, so the same burn did different total damage
 	# depending on the speed button. The while-loop also pays out every period
 	# that fits in one frame, so a huge delta cannot skip ticks either.
@@ -739,7 +739,7 @@ func displace(amount: float, snd := true) -> void:
 		Audio.play("sfx_knockback")
 
 ## Hit flash. This used to allocate a Tween per hit — with ~130 monsters being
-## shot by 43 towers at 5x that is thousands of Tween objects a second, which is
+## shot by 43 towers at 3x that is thousands of Tween objects a second, which is
 ## where a large slice of the frame-time spikes came from. One float ticked in
 ## _tick_status now: no allocation, and re-hitting simply re-arms it.
 const FLASH_DUR := 0.12

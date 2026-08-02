@@ -8,7 +8,7 @@ extends Node
 ##      written before round 8 (no volume_bgm / volume_sfx) still loads
 ##   D  dedup — twenty towers firing on one frame produce ONE sound, not twenty
 ##      stacked copies
-##   T  time scale — THE question this file exists to answer: 0.5x and 5x must
+##   T  time scale — THE question this file exists to answer: 0.5x and 3x must
 ##      not slow down, speed up or detune the audio
 ##
 ## T needs a real audio driver to observe playback advancing. Under --headless
@@ -229,7 +229,7 @@ func _case_time_scale() -> void:
 		Engine.time_scale = 1.0
 		return
 
-	for scale in [0.5, 1.0, 5.0]:
+	for scale in [0.5, 1.0, 3.0]:
 		Engine.time_scale = scale
 		probe.play()
 		await _wait_real(0.40)

@@ -428,7 +428,7 @@ func flush_pending_save() -> void:
 func _process(delta: float) -> void:
 	if not _seen_dirty:
 		return
-	# real seconds: this must not run 5x faster just because the battle is on 5x
+	# real seconds: this must not run faster just because the battle is on 3x
 	_seen_flush_t -= delta / maxf(0.01, Engine.time_scale)
 	if _seen_flush_t <= 0.0:
 		flush_pending_save()

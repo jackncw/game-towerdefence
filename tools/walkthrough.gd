@@ -60,7 +60,7 @@ func _run() -> void:
 	Flow.selected_level = 1
 	var b: Node = load("res://scenes/Battle.tscn").instantiate()
 	await _mount(b)
-	b.set_speed_index(2)          # x5, so a full level fits the harness budget
+	b.set_speed_index(2)          # x3 (the fastest tier), so a full level fits the budget
 	await _grab("battle_start")
 
 	# buy towers the way a player would: whenever gold allows, drop the next

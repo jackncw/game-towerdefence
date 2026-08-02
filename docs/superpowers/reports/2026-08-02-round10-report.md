@@ -305,7 +305,7 @@ emit `pressed`、再問返 Meta。前面五個 case 全部直接叫 API —— �
 | A | `5f6467f` | Make a crash leave evidence, and give it 30 battles to happen in |
 | B + C | `575fc76` | Answer the cultists by cutting healing, not by adding damage; make the Radiance aura cover the board |
 | D | `676beec` | Give every tower and spell two more lives, and let the measurement pick the numbers |
-| E | (見下) | 收尾:視覺自審修正、web 重建、報告 |
+| E | `be801c5` | Look at the evolution screen in both languages, and say plainly that the crash was not reproduced |
 
 還原點:`pre-round10`(`6ceaf81`)。
 

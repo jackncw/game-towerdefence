@@ -341,6 +341,28 @@ static func slider(width := 560.0) -> HSlider:
 	sl.add_theme_constant_override("center_grabber", 1)
 	return sl
 
+## 階級星星。一粒 = tier 1(唔畫)、兩粒 = tier 2、三粒 = tier 3,貼喺卡嘅
+## 右上角。
+##
+## 用星星唔用數字:呢個角落喺快捷槽度得 141px 闊,而一個「T2」要一個夠大先
+## 讀得到嘅字級,搶咗塔 icon 嘅位。星星數得出,而且喺 5x 之下用餘光都分得到。
+## tier 1 特登唔畫任何嘢 —— 三十五件嘢入面絕大部分成世都係 tier 1,而喺每一
+## 張卡上面畫一粒「你冇進化過」嘅星等於將雜訊變成常態。
+static func tier_pips(tier: int, size := 14.0) -> Control:
+	var wrap := Control.new()
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if tier <= 1:
+		wrap.visible = false
+		return wrap
+	wrap.custom_minimum_size = Vector2(size * tier + 4.0 * (tier - 1), size)
+	wrap.size = wrap.custom_minimum_size
+	for i in tier:
+		var p := tex_rect(Assets.ui("ic_star"), Vector2(size, size))
+		p.position = Vector2(i * (size + 4.0), 0)
+		p.modulate = Color(1.0, 0.88, 0.35) if tier >= 3 else Color(0.85, 0.92, 1.0)
+		wrap.add_child(p)
+	return wrap
+
 ## Brief horizontal shake (denied action feedback).
 static func shake(node: Control) -> void:
 	var x0: float = node.position.x

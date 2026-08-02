@@ -221,6 +221,19 @@ func _case_meta_hooks() -> void:
 	_ok("H6 升級魔法成功", Meta.buy_spell_upgrade(1, 0), "buy_spell_upgrade returned false")
 	_heard("H6 升級魔法", "sfx_upgrade")
 
+	# 進化。條件係六軸全滿,所以呢度要先夾硬課滿 —— 而嗰個正正就係
+	# 「進化聲會唔會有人派」呢條問題嘅答案:佢淨係喺一條好深嘅路盡頭先響,
+	# 所以佢係最容易靜靜雞爛咗都冇人知嗰一個。
+	_mark()
+	var maxed: Array = []
+	for i in GameData.tower_by_id(1).ups.size():
+		maxed.append(GameData.MAX_UP_LV)
+	Meta.tower_up["1"] = maxed
+	Meta.crystals = GameData.evolve_cost(true, 2) + 10
+	_ok("H6 進化成功", Meta.evolve(1, true), "evolve returned false")
+	_heard("H6 進化", "sfx_evolve")
+	Meta.crystals = 99999
+
 	_mark()
 	var menu: Node = load("res://scenes/MainMenu.tscn").instantiate()
 	add_child(menu)
@@ -317,7 +330,9 @@ func _case_every_sound_dispatched() -> void:
 
 	# --- 對數
 	var names: Array = Audio.registered_sounds()
-	_ok("C 註冊表覆蓋成套音(64 個)", names.size() == 64,
+	# 65 = round 9 嗰 64 個 + round 10 嘅 sfx_evolve。呢個數特登寫死:
+	# 加一個音而唔接駁佢,同刪走一個音,兩件事都應該令呢一行紅。
+	_ok("C 註冊表覆蓋成套音(65 個)", names.size() == 65,
 		"registered_sounds() 返咗 %d 個" % names.size())
 	var never: Array = []
 	for n in names:

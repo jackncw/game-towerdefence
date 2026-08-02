@@ -224,7 +224,8 @@ func _rebuild() -> void:
 	tab_spell.modulate = Color.WHITE if sel_type == "spell" else Color(0.7, 0.7, 0.7)
 	var def := _def()
 	_refresh_kind_map(def)
-	nav_name.text = tr(def.name)
+	nav_name.text = tr(GameData.tier_name(def, sel_type == "tower",
+		Meta.item_tier(sel_id, sel_type == "tower")))
 	var keep_scroll: int = scroll.scroll_vertical
 	for c in content.get_children():
 		c.queue_free()
@@ -232,6 +233,7 @@ func _rebuild() -> void:
 	content.add_child(_zone_stats(def))
 	content.add_child(_zone_mech(def))
 	content.add_child(_zone_upgrades(def))
+	content.add_child(_zone_evolve(def))
 	# restore scroll position after layout settles
 	await get_tree().process_frame
 	scroll.scroll_vertical = keep_scroll
@@ -256,6 +258,7 @@ func _zone_showcase(def: Dictionary) -> Control:
 	clip.add_child(plat)
 	var tex: Texture2D = Assets.tower(sel_id) if sel_type == "tower" else Assets.spell(sel_id)
 	var render := UI.tex_rect(tex, Vector2(264, 264))   # 44px source at exactly 6x
+	# 名要跟階 —— 一座已經進化咗嘅塔喺展示區叫返個舊名,係一個直接嘅講大話。
 	render.position = Vector2(342, 118)   # sit the pad ON the stone platform
 	clip.add_child(render)
 	# name + one-line description on a dark strip
@@ -264,7 +267,8 @@ func _zone_showcase(def: Dictionary) -> Control:
 	strip.position = Vector2(0, 430)
 	strip.size = Vector2(948, 86)
 	clip.add_child(strip)
-	var nm := UI.title(tr(def.name), 46)
+	var nm := UI.title(tr(GameData.tier_name(def, sel_type == "tower",
+		Meta.item_tier(sel_id, sel_type == "tower"))), 46)
 	nm.position = Vector2(24, 428)
 	nm.size = Vector2(900, 52)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -457,6 +461,146 @@ func _up_row(def: Dictionary, dir: int, levels: Array) -> Control:
 		btn.pressed.connect(func(): _try_buy(dir, cost, row))
 		row.add_child(btn)
 	return row
+
+# --- ZONE 5: 進化 -----------------------------------------------------------
+# 呢一區永遠喺度,唔係「條件夠先出現」。
+#
+# 一個只有夠條件先見到嘅區塊等於一個秘密:玩家六條軸課到第十級都唔知道有
+# 進化呢回事,亦都唔知道自己課緊嘅嘢通往邊。所以未夠條件嗰陣佢照樣畫一個
+# 剪影 + 進度(3/6 條軸滿),夠條件先亮起 —— 「你差幾多」本身就係內容。
+const EVO_SILHOUETTE := Color(0.06, 0.05, 0.07, 1.0)
+
+func _is_tower() -> bool:
+	return sel_type == "tower"
+
+func _zone_evolve(def: Dictionary) -> Control:
+	var is_tower := _is_tower()
+	var tier: int = Meta.item_tier(sel_id, is_tower)
+	var z := UI.panel_rect()
+	z.custom_minimum_size = Vector2(1000, 470)
+	var head := _section_head(tr("EVO_SECTION"), "ic_star")
+	head.position = Vector2(30, 20)
+	z.add_child(head)
+	# 現階徽章
+	var cur := UI.label(tr("EVO_TIER_LABEL").format({"n": tier}), 30, UI.PARCH)
+	cur.position = Vector2(700, 24); cur.size = Vector2(260, 44)
+	cur.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	z.add_child(cur)
+
+	if tier >= GameData.MAX_TIER:
+		var maxed := UI.label(tr("EVO_MAXED"), 34, UI.GOLD)
+		maxed.position = Vector2(60, 180); maxed.size = Vector2(880, 60)
+		maxed.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		z.add_child(maxed)
+		var seal := UI.badge_max(Vector2(120, 120))
+		seal.position = Vector2(480, 250)
+		z.add_child(seal)
+		return z
+
+	var next_tier: int = tier + 1
+	var ready: bool = Meta.all_axes_maxed(sel_id, is_tower)
+	# 下一階預覽:未夠條件就係剪影 —— 見得到形狀,見唔到細節。
+	var tex: Texture2D = (Assets.tower(sel_id, next_tier) if is_tower
+		else Assets.spell(sel_id, next_tier))
+	var pv := UI.tex_rect(tex, Vector2(176, 176))
+	pv.position = Vector2(56, 96)
+	if not ready:
+		pv.modulate = EVO_SILHOUETTE
+	z.add_child(pv)
+
+	var nm := UI.label(tr(GameData.tier_name(def, is_tower, next_tier)) if ready
+		else tr("BESTIARY_UNKNOWN"), 38, UI.GOLD if ready else Color(0.55, 0.52, 0.5))
+	nm.position = Vector2(256, 100); nm.size = Vector2(700, 50)
+	z.add_child(nm)
+
+	var mk: String = GameData.tier_mech_key(def, is_tower, next_tier)
+	var mbox := Control.new()
+	mbox.position = Vector2(256, 152); mbox.size = Vector2(690, 110)
+	mbox.clip_contents = true
+	z.add_child(mbox)
+	var mech := UI.label("%s:%s" % [tr("EVO_NEW_MECH"), tr(mk)] if ready else "???",
+		24, UI.TEXT if ready else Color(0.55, 0.52, 0.5))
+	mech.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mech.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mech.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	mbox.add_child(mech)
+
+	# 條件 / 提示
+	var done_total: Array = Meta.axes_maxed_count(sel_id, is_tower)
+	var hintbox := Control.new()
+	hintbox.position = Vector2(56, 288); hintbox.size = Vector2(890, 80)
+	hintbox.clip_contents = true
+	z.add_child(hintbox)
+	var hint := UI.label(tr("EVO_READY_HINT") if ready
+		else tr("EVO_REQ_HINT_SPELL" if not is_tower else "EVO_REQ_HINT").format(
+			{"max": GameData.MAX_UP_LV, "done": done_total[0], "total": done_total[1]}),
+		24, UI.ACCENT.lightened(0.2) if ready else UI.TEXT_DIM)
+	hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	hintbox.add_child(hint)
+
+	# 進化掣 + 費用
+	var cost: int = GameData.evolve_cost(is_tower, next_tier)
+	var btn := UI.button("", Vector2(300, 116), UI.GOLD if ready else UI.PANEL, 30)
+	btn.position = Vector2(620, 372 - 40)
+	var lbl := UI.label(tr("EVO_BUTTON"), 30, Color(0.28, 0.18, 0.05) if ready else UI.TEXT_DIM)
+	lbl.position = Vector2(0, 16); lbl.size = Vector2(300, 38)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(lbl)
+	var crow := HBoxContainer.new()
+	crow.position = Vector2(88, 60)
+	crow.add_theme_constant_override("separation", 6)
+	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	crow.add_child(UI.tex_rect(Assets.crystal(), Vector2(38, 38)))
+	crow.add_child(UI.label(str(cost), 30, Color(0.2, 0.12, 0.35) if ready else UI.TEXT_DIM))
+	btn.add_child(crow)
+	if not (ready and Meta.can_afford(cost)):
+		btn.modulate = Color(0.55, 0.5, 0.5)
+	btn.pressed.connect(func(): _try_evolve(cost, z))
+	z.add_child(btn)
+	var costlbl := UI.label(tr("EVO_COST"), 26, UI.TEXT_DIM)
+	costlbl.position = Vector2(56, 372); costlbl.size = Vector2(400, 40)
+	z.add_child(costlbl)
+	return z
+
+## 進化。三種失敗各有各嘅講法 —— 「未夠級」同「唔夠魔晶」係兩件唔同嘅事,
+## 而一個統一嘅「唔得」會令玩家去補錯嘅嘢。
+func _try_evolve(cost: int, row: Control) -> void:
+	var is_tower := _is_tower()
+	if not Meta.all_axes_maxed(sel_id, is_tower):
+		UI.toast(self, tr("TOAST_EVO_LOCKED"))
+		UI.shake(row)
+		return
+	if not Meta.can_afford(cost):
+		UI.toast(self, tr("TOAST_EVO_NEED").format({"n": cost - Meta.crystals}))
+		UI.shake(row)
+		return
+	if not Meta.evolve(sel_id, is_tower):
+		return
+	crystal_label.text = str(Meta.crystals)
+	var new_name: String = tr(GameData.tier_name(_def(), is_tower,
+		Meta.item_tier(sel_id, is_tower)))
+	_evolve_ceremony()
+	UI.toast(self, tr("TOAST_EVO_DONE").format({"name": new_name}), UI.GOLD)
+	_rebuild()
+
+## 儀式感演出:一道由下而上嘅光柱掃過成個畫面 + 一圈爆閃。
+## 冇呢個嘅話一次進化同買一級升級喺畫面上係一模一樣嘅 —— 而佢哋喺價錢上
+## 差成百倍。演出唔係裝飾,佢係「呢件事有幾大」嘅唯一表達。
+func _evolve_ceremony() -> void:
+	var beam := ColorRect.new()
+	beam.color = Color(1.0, 0.92, 0.62, 0.0)
+	beam.position = Vector2(0, 0)
+	beam.size = Vector2(1080, 1920)
+	beam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	beam.z_index = 250
+	add_child(beam)
+	var tw := create_tween()
+	tw.tween_property(beam, "color:a", 0.55, 0.12)
+	tw.tween_property(beam, "color:a", 0.0, 0.45)
+	tw.tween_callback(beam.queue_free)
 
 func _try_buy(dir: int, cost: int, row: Control) -> void:
 	if not Meta.can_afford(cost):

@@ -33,15 +33,29 @@ var save_version: int = SAVE_VERSION   # migrations already applied to this save
 ##   1 — 詛咒塔 rework: the tower changed from a per-target attack to a standing
 ##       aura and four of its six upgrade directions no longer exist. Anything
 ##       already spent on it is refunded in full and the new axes start at 0.
-const SAVE_VERSION := 1
+##   2 — 聖光塔 rework: the aura became field-wide, so the 「光環範圍」 direction
+##       no longer exists. Everything spent on that ONE axis is refunded and the
+##       replacement (「聖光強度」) starts at 0. The other five axes are untouched
+##       — unlike the 詛咒塔 rework, this tower kept its identity.
+const SAVE_VERSION := 2
 ## The 詛咒塔's PRE-rework upgrade base costs, in the pre-rework axis order
 ## (詛咒幅度 / 施咒頻率 / 射程 / 詛咒持續 / 附帶減速 / 死亡詛咒擴散). Frozen here on
 ## purpose — GameData now holds the NEW costs, so the refund has to be computed
 ## from a copy of the old table.
 const CURSE_OLD_BASE_COSTS := [60, 55, 45, 55, 60, 65]
 const CURSE_TOWER_ID := 17
+## 聖光塔 rework (v2). Only ONE axis died — index 4, the old 「光環範圍」 at base
+## cost 55. Frozen here for the same reason as the 詛咒塔 table above: GameData
+## now holds the REPLACEMENT axis's cost, so the refund has to be computed from a
+## copy of the old number, not from live data.
+const HOLY_TOWER_ID := 18
+const HOLY_OLD_AURARANGE_DIR := 4
+const HOLY_OLD_AURARANGE_BASE_COST := 55
 ## Set by the migration for the UI to show once, then cleared by whoever shows it.
 var rework_refund: int = 0
+## Which rework the pending refund came from, so the screen can name it.
+## "" = nothing pending, "curse" = v1, "holy" = v2.
+var rework_kind: String = ""
 
 func _ready() -> void:
 	load_game()
@@ -55,8 +69,37 @@ func _migrate() -> void:
 		return
 	if save_version < 1:
 		rework_refund += _refund_curse_tower()
+		rework_kind = "curse"
+	if save_version < 2:
+		var holy := _refund_holy_aurarange()
+		if holy > 0:
+			rework_refund += holy
+			rework_kind = "holy"
 	save_version = SAVE_VERSION
 	save_game()
+
+## 聖光塔 rework (v2): refund the single dead axis and reset it to 0, leaving the
+## other five levels exactly where the player left them.
+##
+## Reads the RAW stored array rather than tower_levels(): tower_levels() pads and
+## trims against the NEW axis list, and while the count happens to be unchanged
+## here (still six), relying on that would make this migration silently wrong the
+## day the tower gains or loses a direction.
+func _refund_holy_aurarange() -> int:
+	var key := str(HOLY_TOWER_ID)
+	var old = tower_up.get(key, null)
+	if not (old is Array) or (old as Array).size() <= HOLY_OLD_AURARANGE_DIR:
+		return 0
+	var lv: int = maxi(0, int(old[HOLY_OLD_AURARANGE_DIR]))
+	if lv <= 0:
+		return 0
+	var refund := 0
+	for k in lv:
+		refund += GameData.upgrade_cost(HOLY_OLD_AURARANGE_BASE_COST, k)
+	old[HOLY_OLD_AURARANGE_DIR] = 0        # 新軸由 0 起
+	tower_up[key] = old
+	crystals += refund
+	return refund
 
 ## 詛咒塔 rework (v1): give back every 魔晶 sunk into the old upgrade axes and
 ## reset the tower to level 0 on the new ones. Reads the RAW stored array rather
@@ -104,10 +147,76 @@ func spell_levels(id: int) -> Array:
 	return _levels_for(spell_up, str(id), GameData.spell_by_id(id).ups.size())
 
 func tower_stats(id: int) -> Dictionary:
-	return GameData.effective_stats(GameData.tower_by_id(id), tower_levels(id))
+	return GameData.effective_stats(GameData.tower_by_id(id), tower_levels(id), tower_tier(id))
 
 func spell_stats(id: int) -> Dictionary:
-	return GameData.effective_stats(GameData.spell_by_id(id), spell_levels(id))
+	return GameData.effective_stats(GameData.spell_by_id(id), spell_levels(id), spell_tier(id))
+
+# --- 進化階級 (tier) --------------------------------------------------------
+## 一件嘢而家喺第幾階。冇記錄 = 第一階,所以每一份舊存檔都係「全部 tier 1」,
+## 唔使遷移,亦都冇「舊檔冇呢個欄位就爆」呢個問題。
+var tower_tiers: Dictionary = {}   # "id" -> int
+var spell_tiers: Dictionary = {}
+
+func tower_tier(id: int) -> int:
+	return clampi(int(tower_tiers.get(str(id), 1)), 1, GameData.MAX_TIER)
+
+func spell_tier(id: int) -> int:
+	return clampi(int(spell_tiers.get(str(id), 1)), 1, GameData.MAX_TIER)
+
+func item_tier(id: int, is_tower: bool) -> int:
+	return tower_tier(id) if is_tower else spell_tier(id)
+
+## 全部升級軸都課滿咗未 —— 進化嘅門檻。
+func all_axes_maxed(id: int, is_tower: bool) -> bool:
+	var levels: Array = tower_levels(id) if is_tower else spell_levels(id)
+	if levels.is_empty():
+		return false
+	for lv in levels:
+		if int(lv) < GameData.MAX_UP_LV:
+			return false
+	return true
+
+func axes_maxed_count(id: int, is_tower: bool) -> Array:
+	var levels: Array = tower_levels(id) if is_tower else spell_levels(id)
+	var done := 0
+	for lv in levels:
+		if int(lv) >= GameData.MAX_UP_LV:
+			done += 1
+	return [done, levels.size()]
+
+func can_evolve(id: int, is_tower: bool) -> bool:
+	return item_tier(id, is_tower) < GameData.MAX_TIER and all_axes_maxed(id, is_tower)
+
+func evolve_cost(id: int, is_tower: bool) -> int:
+	return GameData.evolve_cost(is_tower, item_tier(id, is_tower) + 1)
+
+## 進化。單一寫入,同其餘每一筆購買一樣 —— 扣錢、升階、歸零升級軸,
+## 三樣一齊落地或者一樣都唔落地。
+##
+## 升級軸歸零但**唔退錢**:已經課落去嘅嘢化成 tier 躍升本身。退錢會令進化
+## 變成一個免費 respec,而嗰個係一個完全唔同嘅功能。
+func evolve(id: int, is_tower: bool) -> bool:
+	if not can_evolve(id, is_tower):
+		return false
+	if not _take_crystals(evolve_cost(id, is_tower)):
+		return false
+	var key := str(id)
+	if is_tower:
+		tower_tiers[key] = tower_tier(id) + 1
+		tower_up[key] = _zeroed(GameData.tower_by_id(id).ups.size())
+	else:
+		spell_tiers[key] = spell_tier(id) + 1
+		spell_up[key] = _zeroed(GameData.spell_by_id(id).ups.size())
+	save_game()
+	Audio.play("sfx_evolve")
+	return true
+
+func _zeroed(n: int) -> Array:
+	var a: Array = []
+	for i in n:
+		a.append(0)
+	return a
 
 # --- transactions -----------------------------------------------------------
 func can_afford(cost: int) -> bool:
@@ -219,9 +328,7 @@ func buy_tower_upgrade(id: int, dir: int) -> bool:
 		return false
 	if levels[dir] >= GameData.MAX_UP_LV:
 		return false
-	var base: int = GameData.tower_by_id(id).ups[dir].base_cost
-	var cost := GameData.upgrade_cost(base, levels[dir])
-	if not _take_crystals(cost):
+	if not _take_crystals(tower_up_cost(id, dir)):
 		return false
 	levels[dir] += 1
 	save_game()
@@ -234,24 +341,23 @@ func buy_spell_upgrade(id: int, dir: int) -> bool:
 		return false
 	if levels[dir] >= GameData.MAX_UP_LV:
 		return false
-	var base: int = GameData.spell_by_id(id).ups[dir].base_cost
-	var cost := GameData.upgrade_cost(base, levels[dir])
-	if not _take_crystals(cost):
+	if not _take_crystals(spell_up_cost(id, dir)):
 		return false
 	levels[dir] += 1
 	save_game()
 	Audio.play("sfx_upgrade")
 	return true
 
+## 價錢用**全域**級數:tier 2 嘅第 0 級接住 tier 1 嘅第 15 級,唔係由頭計。
 func tower_up_cost(id: int, dir: int) -> int:
 	var levels := tower_levels(id)
 	var base: int = GameData.tower_by_id(id).ups[dir].base_cost
-	return GameData.upgrade_cost(base, levels[dir])
+	return GameData.upgrade_cost_at(base, levels[dir], tower_tier(id))
 
 func spell_up_cost(id: int, dir: int) -> int:
 	var levels := spell_levels(id)
 	var base: int = GameData.spell_by_id(id).ups[dir].base_cost
-	return GameData.upgrade_cost(base, levels[dir])
+	return GameData.upgrade_cost_at(base, levels[dir], spell_tier(id))
 
 # --- level completion -------------------------------------------------------
 func is_cleared(n: int) -> bool:
@@ -351,6 +457,8 @@ func to_dict() -> Dictionary:
 		"seen": seen,
 		"version": save_version,
 		"quick_slots": quick_slots,
+		"tower_tiers": tower_tiers,
+		"spell_tiers": spell_tiers,
 	}
 
 func save_game() -> void:
@@ -385,6 +493,10 @@ func load_game() -> void:
 	unlocked_spells = _to_int_array(data.get("unlocked_spells", []), [1])
 	tower_up = _to_lv_dict(data.get("tower_up", {}))
 	spell_up = _to_lv_dict(data.get("spell_up", {}))
+	# 冇呢兩個欄位嘅存檔(round 10 之前)一律當全部 tier 1 —— 冇遷移步驟,
+	# 因為「冇記錄 = 第一階」本身就係 tower_tier() 嘅預設。
+	tower_tiers = _to_tier_dict(data.get("tower_tiers", {}))
+	spell_tiers = _to_tier_dict(data.get("spell_tiers", {}))
 	highest_level = maxi(0, _to_int(data.get("highest_level", 0)))
 	cleared = _to_dict(data.get("cleared", {}))
 	settings = _to_dict(data.get("settings", {}))
@@ -432,6 +544,15 @@ func _to_slot_array(a) -> Array:
 	var out: Array = []
 	for v in a:
 		out.append(maxi(0, _to_int(v)))
+	return out
+
+## tier 專用。夾硬 clamp 落 1..MAX_TIER:一份手改過嘅存檔寫住 tier 9 唔應該
+## 令一座塔攞到一個根本冇畫過嘅 sprite 同一個冇定義過嘅倍率。
+func _to_tier_dict(d) -> Dictionary:
+	var out := {}
+	if d is Dictionary:
+		for k in d.keys():
+			out[str(k)] = clampi(_to_int(d[k]), 1, GameData.MAX_TIER)
 	return out
 
 func _to_lv_dict(d) -> Dictionary:
@@ -512,6 +633,8 @@ func reset_save() -> void:
 	unlocked_spells = [1]
 	tower_up = {}
 	spell_up = {}
+	tower_tiers = {}
+	spell_tiers = {}
 	highest_level = 0
 	cleared = {}
 	# language is a device preference, not progress — a save wipe must not throw
@@ -522,5 +645,6 @@ func reset_save() -> void:
 	seen = {}
 	save_version = SAVE_VERSION   # a fresh save needs no migration
 	rework_refund = 0
+	rework_kind = ""
 	save_game()
 	apply_audio_settings()

@@ -296,10 +296,17 @@ func _build_towers() -> void:
 		[U("UP_CURSE","curse",0.025,70,"add"),U("UP_AURARANGE","range",14.0,50,"add"),
 		 U("UP_GOLDBONUS","goldbonus",0.025,60,"add"),U("UP_LINGER","linger",0.25,50,"add"),
 		 U("UP_CURSESLOW","slow",0.02,60,"add"),U("UP_BOSSEFF","bosseff",0.025,65,"add")])
+	# ==== 第十輪:聖光塔由「局部攻速光環」改造成「全圖光環」====
+	# 舊「光環範圍」軸係一條純粹買覆蓋率嘅軸 —— 入面冇任何決策,只有
+	# 「買多啲一定好啲」。改成全圖之後,決策由「買唔買半徑」變成「擺唔擺
+	# 第二座」,而後者先係一個真取捨(遞減疊加,見 HOLY_AURA_STACK)。
+	# 空出嚟嗰條軸換成「聖光強度」:光環同時派攻擊力加成,所以聖光塔由
+	# 「攻速機」變成「全隊放大器」—— 一個塔位換全場,而佢自己輸出唔強。
+	# aurarange 呢個 stat 一併除名:全圖光環根本冇半徑呢個概念。
 	t.call(18,"TOWER_HOLY_NAME","TOWER_HOLY_DESC","holy",140,190,
-		{"dmg":14.0,"rate":1.2,"range":230.0,"aurahaste":0.1,"aurarange":150.0,"purify":0.0},
+		{"dmg":14.0,"rate":1.2,"range":230.0,"aurahaste":0.1,"aurapower":0.0,"purify":0.0},
 		[U("UP_ATK","dmg",4.0,55,"add"),U("UP_RATE","rate",0.1,55,"add"),U("UP_RANGE","range",14.0,45,"add"),
-		 U("UP_AURAHASTE","aurahaste",0.02,65,"add"),U("UP_AURARANGE","aurarange",12.0,55,"add"),U("UP_PURIFY","purify",0.05,70,"prob")])
+		 U("UP_AURAHASTE","aurahaste",0.02,65,"add"),U("UP_AURAPOWER","aurapower",0.025,60,"add"),U("UP_PURIFY","purify",0.05,70,"prob")])
 	t.call(19,"TOWER_MAGNET_NAME","TOWER_MAGNET_DESC","magnet",120,170,
 		{"dmg":6.0,"rate":0.6,"range":200.0,"knock":40.0,"pulse":6.0,"knockslow":0.0,"heavyeff":0.5},
 		[U("UP_KNOCKDIST","knock",6.0,55,"add"),U("UP_PULSERATE","rate",0.06,60,"add"),U("UP_AREA","range",14.0,45,"add"),
@@ -311,6 +318,337 @@ func _build_towers() -> void:
 
 func U(name:String, stat:String, step:float, base_cost:int, kind:String) -> Dictionary:
 	return {"name":name,"stat":stat,"step":step,"base_cost":base_cost,"kind":kind}
+
+# ---------------------------------------------------------------------------
+# 巫教族反制 (第十輪 B)
+#
+# 問題唔係「巫師血厚」,係「巫師令其他嘢唔會死」—— 治療同加速光環。對住一個
+# 回得返嘅目標加輸出係一場冇終點嘅軍備競賽,所以呢一組全部都係**削佢個回復**
+# 或者**熄佢個光環**,唔係加傷害。
+#
+# 治療減免做成 Monster 上面一個通用狀態(heal_cut),唔係逐個機制各寫一套:
+# 所有治療都經 request_heal(),所以將來加嘅任何治療來源自動受制,而唔係要人
+# 記得返去補。同 boss 回復上限一樣,一個 enforcement point。
+# ---------------------------------------------------------------------------
+## 毒液塔「重傷」:中毒目標所受治療嘅減免。基礎 50%,而且跟住「每層毒傷」
+## 一齊深化 —— 嗰條軸本來就係「毒得幾狠」,重傷幅度係同一件事嘅另一面。
+const POISON_HEALCUT_BASE := 0.50
+const POISON_HEALCUT_PER_PSTACK := 0.012
+const POISON_HEALCUT_MAX := 0.85
+## 光束塔「融甲蝕魔」:每級同時削幾多護甲同魔抗(舊版只削護甲,而且係當成
+## 易傷處理,對魔抗 25 嘅幽靈完全冇用)。
+const BEAM_SHRED_ARMOR := 0.45
+const BEAM_SHRED_MRES := 0.55
+const BEAM_SHRED_DUR := 2.5
+## 「支援型單位」= 靠光環支撐同伴嘅族群。狙擊 / 導彈嘅優先目標、天雷誅殺嘅
+## 增傷、黎明聖壇嘅增傷全部問呢一條。用 mech 而唔係 fam 名:任何將來加嘅
+## 光環族自動計入。
+const SUPPORT_MECHS := ["aura"]
+const SUPPORT_BOSS_MECHS := ["mass_heal"]
+
+func is_support_mech(mech_id: String, boss_mech_id: String) -> bool:
+	return mech_id in SUPPORT_MECHS or boss_mech_id in SUPPORT_BOSS_MECHS
+
+# ---------------------------------------------------------------------------
+# 聖光塔全圖光環 (第十輪 C)
+#
+# 冇範圍限制之後,唯一嘅決策就係「擺幾多座」,所以疊加規則就係呢座塔嘅
+# 全部平衡。遞減得夠急,第五座先唔會變成「再抄一次全場」——
+# 1.00 / 0.60 / 0.30 / 0.15 / 0.08…:兩座 = 1.6 倍,五座 = 2.13 倍,
+# 即係第二座抵、第五座唔抵,而嗰個正正就係要玩家答嘅問題。
+# ---------------------------------------------------------------------------
+const HOLY_AURA_STACK := [1.0, 0.6, 0.3, 0.15, 0.08]
+const HOLY_AURA_STACK_TAIL := 0.04
+
+func holy_stack_factor(index: int) -> float:
+	return HOLY_AURA_STACK[index] if index < HOLY_AURA_STACK.size() else HOLY_AURA_STACK_TAIL
+
+# ---------------------------------------------------------------------------
+# 進化系統 (第十輪 D)
+#
+# 三級 tier。條件係「該項全部升級軸課滿 15 級」+ 一筆大額進化魔晶。
+#
+# 三個唔顯然嘅決定:
+#
+#  1. **倍率只打落「每秒輸出」嗰類 stat。** 射程、持續時間、機率、數量全部
+#     唔乘 —— 一座 tier 3 塔唔應該有 256 倍射程,而一個 0.05 嘅機率乘 256
+#     根本冇意義(封頂 1.0)。
+#  2. **升級步長跟住同一個倍率放大。** 唔係嘅話 tier 3 一座塔嘅「+3 攻擊/級」
+#     相對佢自己嘅基礎值細到冇意義,六條軸就變成裝飾。
+#  3. **費用曲線接續,唔係重頭計。** upgrade_cost 收一個**全域**級數
+#     lv + MAX_UP_LV*(tier-1),所以 tier 2 嘅第一級已經貴過 tier 1 嘅第十五級。
+#     「進化唔係重來,係繼續」呢句嘢喺數字上面就係咁講。
+#
+# TIER_POWER 點揀:一座六軸滿課嘅 tier 1 塔大約係佢自己基礎值嘅 12 倍輸出
+# (箭塔 5.5 倍傷害 x 2.23 倍攻速)。16 倍即係「tier N 嘅基礎值 ≈ tier N-1
+# 滿課再強三成」——「明顯強過 tier 1 滿課」呢個要求就係咁滿足。同時 16 倍
+# 對得住 WAVE_GROWTH^20 = 11.5 倍,所以「大約每二十關升一個 tier」會令玩家
+# 力量同關卡難度沿住同一條斜線行,唔會一 tier 通殺。
+const MAX_TIER := 3
+const TIER_POWER := [0.0, 1.0, 16.0, 256.0]
+## 跟住 tier 放大嘅 stat。全部都係「每秒幾多輸出 / 幾多金 / 幾多血」嗰類。
+const TIER_SCALED_STATS := ["dmg", "dps", "pulse", "bleed", "pstack", "burn",
+	"gold", "startgold", "soldierhp", "bossdmg", "hp", "reflect", "block"]
+
+func tier_power(tier: int) -> float:
+	return TIER_POWER[clampi(tier, 1, MAX_TIER)]
+
+## 進化費。塔貴過魔法(六軸 vs 三軸,而且塔係場上嘅實體),第三階貴過第二階
+## 四倍 —— 進化本身要係一個「儲一排」嘅決定,唔係順手撳嘅。
+const EVOLVE_COST_TOWER := [0, 0, 6000, 24000]
+const EVOLVE_COST_SPELL := [0, 0, 3600, 14400]
+
+func evolve_cost(is_tower: bool, to_tier: int) -> int:
+	var tbl: Array = EVOLVE_COST_TOWER if is_tower else EVOLVE_COST_SPELL
+	return int(tbl[clampi(to_tier, 0, MAX_TIER)])
+
+## 名 + 新機制一句。105 項嘅完整表 = 呢兩個字典 + tier 1 嘅原名,
+## tools/dump_tiers.gd 直接由呢度 dump 出報告,所以報告同實際行為講唔埋
+## 呢件事係冇可能發生。
+var TOWER_TIERS := {}
+var SPELL_TIERS := {}
+
+func _tier(store: Dictionary, id: int, tier: int, name: String, mech: String) -> void:
+	if not store.has(id):
+		store[id] = {}
+	store[id][tier] = {"name": name, "mech": mech}
+
+func _build_tiers() -> void:
+	var TT := func(id, t, n, m): _tier(TOWER_TIERS, id, t, n, m)
+	TT.call(1, 2, "TOWER_ARROW_T2_NAME", "TOWER_ARROW_T2_MECH")
+	TT.call(1, 3, "TOWER_ARROW_T3_NAME", "TOWER_ARROW_T3_MECH")
+	TT.call(2, 2, "TOWER_CANNON_T2_NAME", "TOWER_CANNON_T2_MECH")
+	TT.call(2, 3, "TOWER_CANNON_T3_NAME", "TOWER_CANNON_T3_MECH")
+	TT.call(3, 2, "TOWER_LIGHTNING_T2_NAME", "TOWER_LIGHTNING_T2_MECH")
+	TT.call(3, 3, "TOWER_LIGHTNING_T3_NAME", "TOWER_LIGHTNING_T3_MECH")
+	TT.call(4, 2, "TOWER_FIREBALL_T2_NAME", "TOWER_FIREBALL_T2_MECH")
+	TT.call(4, 3, "TOWER_FIREBALL_T3_NAME", "TOWER_FIREBALL_T3_MECH")
+	TT.call(5, 2, "TOWER_FROST_T2_NAME", "TOWER_FROST_T2_MECH")
+	TT.call(5, 3, "TOWER_FROST_T3_NAME", "TOWER_FROST_T3_MECH")
+	TT.call(6, 2, "TOWER_POISON_T2_NAME", "TOWER_POISON_T2_MECH")
+	TT.call(6, 3, "TOWER_POISON_T3_NAME", "TOWER_POISON_T3_MECH")
+	TT.call(7, 2, "TOWER_SNIPER_T2_NAME", "TOWER_SNIPER_T2_MECH")
+	TT.call(7, 3, "TOWER_SNIPER_T3_NAME", "TOWER_SNIPER_T3_MECH")
+	TT.call(8, 2, "TOWER_GATLING_T2_NAME", "TOWER_GATLING_T2_MECH")
+	TT.call(8, 3, "TOWER_GATLING_T3_NAME", "TOWER_GATLING_T3_MECH")
+	TT.call(9, 2, "TOWER_MORTAR_T2_NAME", "TOWER_MORTAR_T2_MECH")
+	TT.call(9, 3, "TOWER_MORTAR_T3_NAME", "TOWER_MORTAR_T3_MECH")
+	TT.call(10, 2, "TOWER_BEAM_T2_NAME", "TOWER_BEAM_T2_MECH")
+	TT.call(10, 3, "TOWER_BEAM_T3_NAME", "TOWER_BEAM_T3_MECH")
+	TT.call(11, 2, "TOWER_SLOWFIELD_T2_NAME", "TOWER_SLOWFIELD_T2_MECH")
+	TT.call(11, 3, "TOWER_SLOWFIELD_T3_NAME", "TOWER_SLOWFIELD_T3_MECH")
+	TT.call(12, 2, "TOWER_ALCHEMY_T2_NAME", "TOWER_ALCHEMY_T2_MECH")
+	TT.call(12, 3, "TOWER_ALCHEMY_T3_NAME", "TOWER_ALCHEMY_T3_MECH")
+	TT.call(13, 2, "TOWER_BARRACKS_T2_NAME", "TOWER_BARRACKS_T2_MECH")
+	TT.call(13, 3, "TOWER_BARRACKS_T3_NAME", "TOWER_BARRACKS_T3_MECH")
+	TT.call(14, 2, "TOWER_BOOMERANG_T2_NAME", "TOWER_BOOMERANG_T2_MECH")
+	TT.call(14, 3, "TOWER_BOOMERANG_T3_NAME", "TOWER_BOOMERANG_T3_MECH")
+	TT.call(15, 2, "TOWER_THORN_T2_NAME", "TOWER_THORN_T2_MECH")
+	TT.call(15, 3, "TOWER_THORN_T3_NAME", "TOWER_THORN_T3_MECH")
+	TT.call(16, 2, "TOWER_MISSILE_T2_NAME", "TOWER_MISSILE_T2_MECH")
+	TT.call(16, 3, "TOWER_MISSILE_T3_NAME", "TOWER_MISSILE_T3_MECH")
+	TT.call(17, 2, "TOWER_CURSE_T2_NAME", "TOWER_CURSE_T2_MECH")
+	TT.call(17, 3, "TOWER_CURSE_T3_NAME", "TOWER_CURSE_T3_MECH")
+	TT.call(18, 2, "TOWER_HOLY_T2_NAME", "TOWER_HOLY_T2_MECH")
+	TT.call(18, 3, "TOWER_HOLY_T3_NAME", "TOWER_HOLY_T3_MECH")
+	TT.call(19, 2, "TOWER_MAGNET_T2_NAME", "TOWER_MAGNET_T2_MECH")
+	TT.call(19, 3, "TOWER_MAGNET_T3_NAME", "TOWER_MAGNET_T3_MECH")
+	TT.call(20, 2, "TOWER_TELEPORT_T2_NAME", "TOWER_TELEPORT_T2_MECH")
+	TT.call(20, 3, "TOWER_TELEPORT_T3_NAME", "TOWER_TELEPORT_T3_MECH")
+	var ST := func(id, t, n, m): _tier(SPELL_TIERS, id, t, n, m)
+	ST.call(1, 2, "SPELL_METEOR_T2_NAME", "SPELL_METEOR_T2_MECH")
+	ST.call(1, 3, "SPELL_METEOR_T3_NAME", "SPELL_METEOR_T3_MECH")
+	ST.call(2, 2, "SPELL_STORMBOLT_T2_NAME", "SPELL_STORMBOLT_T2_MECH")
+	ST.call(2, 3, "SPELL_STORMBOLT_T3_NAME", "SPELL_STORMBOLT_T3_MECH")
+	ST.call(3, 2, "SPELL_FREEZENOVA_T2_NAME", "SPELL_FREEZENOVA_T2_MECH")
+	ST.call(3, 3, "SPELL_FREEZENOVA_T3_NAME", "SPELL_FREEZENOVA_T3_MECH")
+	ST.call(4, 2, "SPELL_MIASMA_T2_NAME", "SPELL_MIASMA_T2_MECH")
+	ST.call(4, 3, "SPELL_MIASMA_T3_NAME", "SPELL_MIASMA_T3_MECH")
+	ST.call(5, 2, "SPELL_SUMMON_T2_NAME", "SPELL_SUMMON_T2_MECH")
+	ST.call(5, 3, "SPELL_SUMMON_T3_NAME", "SPELL_SUMMON_T3_MECH")
+	ST.call(6, 2, "SPELL_MIDAS_T2_NAME", "SPELL_MIDAS_T2_MECH")
+	ST.call(6, 3, "SPELL_MIDAS_T3_NAME", "SPELL_MIDAS_T3_MECH")
+	ST.call(7, 2, "SPELL_TIMEWARP_T2_NAME", "SPELL_TIMEWARP_T2_MECH")
+	ST.call(7, 3, "SPELL_TIMEWARP_T3_NAME", "SPELL_TIMEWARP_T3_MECH")
+	ST.call(8, 2, "SPELL_WARCRY_T2_NAME", "SPELL_WARCRY_T2_MECH")
+	ST.call(8, 3, "SPELL_WARCRY_T3_NAME", "SPELL_WARCRY_T3_MECH")
+	ST.call(9, 2, "SPELL_BARRIER_T2_NAME", "SPELL_BARRIER_T2_MECH")
+	ST.call(9, 3, "SPELL_BARRIER_T3_NAME", "SPELL_BARRIER_T3_MECH")
+	ST.call(10, 2, "SPELL_TORNADO_T2_NAME", "SPELL_TORNADO_T2_MECH")
+	ST.call(10, 3, "SPELL_TORNADO_T3_NAME", "SPELL_TORNADO_T3_MECH")
+	ST.call(11, 2, "SPELL_QUAKE_T2_NAME", "SPELL_QUAKE_T2_MECH")
+	ST.call(11, 3, "SPELL_QUAKE_T3_NAME", "SPELL_QUAKE_T3_MECH")
+	ST.call(12, 2, "SPELL_FIREWALL_T2_NAME", "SPELL_FIREWALL_T2_MECH")
+	ST.call(12, 3, "SPELL_FIREWALL_T3_NAME", "SPELL_FIREWALL_T3_MECH")
+	ST.call(13, 2, "SPELL_SMITE_T2_NAME", "SPELL_SMITE_T2_MECH")
+	ST.call(13, 3, "SPELL_SMITE_T3_NAME", "SPELL_SMITE_T3_MECH")
+	ST.call(14, 2, "SPELL_EMP_T2_NAME", "SPELL_EMP_T2_MECH")
+	ST.call(14, 3, "SPELL_EMP_T3_NAME", "SPELL_EMP_T3_MECH")
+	ST.call(15, 2, "SPELL_BLACKHOLE_T2_NAME", "SPELL_BLACKHOLE_T2_MECH")
+	ST.call(15, 3, "SPELL_BLACKHOLE_T3_NAME", "SPELL_BLACKHOLE_T3_MECH")
+
+# ---------------------------------------------------------------------------
+# 進化機制嘅數值。
+#
+# 全部擺埋一齊而唔係散落喺 Tower.gd / Spells.gd 入面,同 WAVE_GROWTH 同一個
+# 理由:呢啲係**平衡數字**,而平衡數字要喺一個地方睇得晒先調得郁。
+# 每一個都寫住佢係邊個 tier 嘅邊個機制,唔使揭返去對。
+# ---------------------------------------------------------------------------
+## 連續命中同一目標(箭 T2 鷹眼 / 狙 T2 標記 / 導彈 T2 鎖定)
+const STREAK_MAX := 6
+const STREAK_STEP := 0.08          # 箭塔每層 +8%
+const MARK_STEP := 0.04            # 狙擊塔每層 +4%
+const LOCKON_STEP := 0.06          # 導彈塔每層 +6%
+## 箭 T3 神射殿:每 N 箭必爆兼貫穿
+const SAGITTARIAN_EVERY := 5
+const PIERCE_LINE_WIDTH := 46.0
+## 加農 T3 攻城巨砲:破城彈永久削甲,可疊
+const SIEGE_ARMOR_BREAK := 4.0
+const SIEGE_ARMOR_BREAK_MAX := 12.0
+## 雷電 T2 導電 / T3 落雷
+const CONDUCTOR_BONUS := 0.25
+const SKYFALL_RADIUS := 110.0
+const SKYFALL_FRAC := 0.6
+const SKYFALL_STUN := 0.5
+## 火球 T2 餘燼 / T3 烈焰連鎖
+const EMBER_DPS_FRAC := 0.8
+const EMBER_DUR := 3.0
+const EMBER_RADIUS := 62.0
+## 冰霜 T2 凍傷
+const FROSTBITE_FRAC := 0.35
+## 毒 —— 重傷持續時間、T2 傳染、T3 崩解
+const POISON_HEALCUT_DUR := 4.0
+const PLAGUE_TARGETS := 3
+const ROT_MAXHP_FRAC := 0.05
+const ROT_MAX_TOTAL := 0.40
+## 狙擊 T3 天罰:處決線倍率
+const JUDGEMENT_EXEC_MULT := 2.2
+## 機槍 T2 過熱噴發 / T3 彈鏈共鳴
+const CYCLONE_BURST_FRAC := 1.6
+const RESONANCE_SPREAD := 0.10
+## 迫擊 T2 齊射 / T3 校射
+const HEAVY_BATTERY_OFFSET := 90.0
+const RANGEFIND_RADIUS := 120.0
+const RANGEFIND_MAX := 3.0
+const RANGEFIND_DMG := 0.15
+const RANGEFIND_AREA := 0.20
+## 光束 T2 折射 / T3 聚能爆發
+const PRISM_RANGE := 180.0
+const PRISM_FRAC := 0.5
+const STELLAR_BURST_MULT := 2.5
+const STELLAR_BURST_DUR := 3.0
+## 力場 T2 牽引 / T3 時停
+const GRAVITY_PULL := 26.0         # 每秒拉返幾多路程
+const CHRONAL_PERIOD := 8.0
+const CHRONAL_FREEZE := 1.0
+## 鍊金 T2 金線
+const FOUNDRY_STEP := 0.15
+const FOUNDRY_FALLOFF := 0.7
+## 兵營 T2 陣型 / T3 不屈
+const FORMATION_RADIUS := 90.0
+const FORMATION_ARMOR := 0.25
+const FORMATION_DMG := 0.15
+const TEMPLAR_BLAST := 6.0         # 陣亡爆炸傷害 = 士兵傷害 x 呢個
+const TEMPLAR_BLAST_RADIUS := 90.0
+## 迴旋鏢 T2 交叉 / T3 無盡迴旋
+const TWINBLADE_ANGLE := 0.42      # 弧度
+const TEMPEST_RETHROW := 0.35
+## 荊棘 T2 纏繞 / T3 根系
+const ENSNARE_DUR := 0.4
+const WORLDROOT_LENGTH := 2.4
+## 導彈 T3 核心彈頭
+const DOOMSDAY_EVERY := 4
+const DOOMSDAY_DMG := 3.0
+const DOOMSDAY_AREA := 2.0
+## 詛咒 T2 恐懼 / T3 獻祭
+const DREAD_PERIOD := 2.2
+const DREAD_PUSH := 34.0
+const VOID_CHARGE_FULL := 24.0
+const VOID_BURST := 90.0
+## 聖光 T2 聖裁 / T3 復甦之光
+const DAWN_SUPPORT_MULT := 1.5
+const DAWN_AURA_CRIT := 0.10
+const ORACLE_PERIOD := 12.0
+## 磁力 T2 磁軌 / T3 極性反轉
+const RAILSLAM_STEP := 0.30
+const RAILSLAM_MAX := 4
+const POLARITY_EVERY := 3
+## 傳送 T3 放逐
+const BANISH_CHANCE := 0.30
+
+# --- 魔法進化機制 -----------------------------------------------------------
+## 隕石 T2 隕石風暴 / T3 天隕滅世
+const METEOR_SHOWER_COUNT := 3
+const METEOR_SHOWER_FRAC := 0.35
+const CATACLYSM_DPS_FRAC := 0.22
+const CATACLYSM_DUR := 5.0
+## 閃電風暴 T2 雷神之怒 / T3 萬雷天罰
+const WRATH_SPLASH := 70.0
+const WRATH_SPLASH_FRAC := 0.45
+const SKYFALL_VULN := 0.20
+const SKYFALL_VULN_DUR := 4.0
+## 冰凍新星 T2 絕對零度 / T3 永凍紀元
+const ABSZERO_VULN := 0.30
+const ICEAGE_RADIUS := 520.0
+const ICEAGE_EXTRA := 6.0
+## 劇毒瘴氣 T2 腐蝕之霧
+const CORROSIVE_ARMOR := 6.0
+## 召喚 T3 英靈殿軍
+const EINHERJAR_BLAST := 4.0
+## 點金 T2 黃金洪流 / T3 邁達斯權柄
+const GOLDEN_TIDE_BONUS := 0.50
+const GOLDEN_TIDE_DUR := 10.0
+const MIDAS_HIT_GOLD := 1
+## 時間扭曲 T2 時之枷鎖 / T3 時光倒流
+const CHRONO_ABILITY_SLOW := 0.50
+const REWIND_SECONDS := 2.0
+## 戰吼 T2 軍團號令 / T3 戰神降臨
+const LEGION_POWER := 0.15
+const AVATAR_SPLASH := 0.10
+## 守護結界 T2 聖域屏障 / T3 不滅堡壘
+const SANCTUARY_RADIUS := 230.0
+const SANCTUARY_DPS_FRAC := 0.6
+const SANCTUARY_DPS_MIN := 18.0
+const SANCTUARY_DUR := 12.0
+const BULWARK_REGEN_CAP := 4
+## 龍捲風 T2 颶風之眼 / T3 天災風暴
+const EYE_RADIUS := 150.0
+const EYE_DUR := 3.0
+const EYE_SLOW := 0.55
+const GALE_TRUE_FRAC := 0.20
+## 地震 T2 大地撕裂 / T3 世界崩塌
+const RIFT_SLOW := 0.40
+const RIFT_DUR := 3.0
+const SHATTER_STUN := 1.2
+const SHATTER_GROUND_DUR := 4.0
+## 烈焰之牆 T2 煉獄之牆 / T3 不熄業火
+const INFERNAL_ADVANCE := 55.0     # 每秒沿路推幾多路程
+const PYRE_FEED := 0.6             # 每個死喺入面嘅敵人延長幾多秒
+## 天雷誅殺 T2 神罰之矛
+const SPEAR_SUPPORT_MULT := 1.2
+## 磁暴脈衝 T2 癱瘓脈衝 / T3 系統崩潰
+const PARALYSIS_AREA := 1.5
+const PARALYSIS_DUR := 1.6
+const BLACKOUT_LOCK := 5.0
+## 黑洞 T2 奇點 / T3 事件視界
+const SINGULARITY_RAMP := 0.35     # 每秒遞增幾多倍
+const HORIZON_IMPLODE := 0.50      # 收場還返累積傷害嘅幾多
+
+## 一件嘢喺某一階嘅顯示名。tier 1 就係佢原本個名。
+func tier_name(def: Dictionary, is_tower: bool, tier: int) -> String:
+	if tier <= 1:
+		return String(def.get("name", ""))
+	var store: Dictionary = TOWER_TIERS if is_tower else SPELL_TIERS
+	var e: Dictionary = store.get(int(def.get("id", 0)), {})
+	return String((e.get(tier, {}) as Dictionary).get("name", def.get("name", "")))
+
+## 該階新增機制嘅一句描述。tier 1 冇「新機制」,返空字串。
+func tier_mech_key(def: Dictionary, is_tower: bool, tier: int) -> String:
+	if tier <= 1:
+		return ""
+	var store: Dictionary = TOWER_TIERS if is_tower else SPELL_TIERS
+	var e: Dictionary = store.get(int(def.get("id", 0)), {})
+	return String((e.get(tier, {}) as Dictionary).get("mech", ""))
 
 # ---------------------------------------------------------------------------
 # SPELLS (15). Each: id,name,desc,mech,cd(sec),needs_target(bool),
@@ -334,8 +672,11 @@ func _build_spells() -> void:
 	s.call(3,"SPELL_FREEZENOVA_NAME","SPELL_FREEZENOVA_DESC","freezenova",16.0,false,
 		{"dur":2.5,"slowafter":0.4,"cd":16.0},
 		[U("UP_DURATION","dur",0.3,55,"add"),U("UP_SLOWAFTER","slowafter",0.04,55,"add"),U("UP_CD","cd",-0.8,60,"add")])
+	# healcut = 範圍內敵人所受治療嘅減免。呢個係巫教族反制嘅魔法半邊:
+	# 巫師靠光環治療續命,而「打多啲」對一個回得返嘅目標係冇上限嘅軍備競賽,
+	# 「回少啲」先係一個有終點嘅答案。
 	s.call(4,"SPELL_MIASMA_NAME","SPELL_MIASMA_DESC","miasma",10.0,true,
-		{"dps":25.0,"dur":6.0,"radius":110.0},
+		{"dps":25.0,"dur":6.0,"radius":110.0,"healcut":0.70},
 		[U("UP_POISONDPS","dps",7.0,55,"add"),U("UP_DURATION","dur",0.6,50,"add"),U("UP_AREA","radius",10.0,55,"add")])
 	s.call(5,"SPELL_SUMMON_NAME","SPELL_SUMMON_DESC","summon",14.0,true,
 		{"hp":80.0,"dmg":10.0,"count":3.0},
@@ -361,8 +702,11 @@ func _build_spells() -> void:
 	s.call(12,"SPELL_FIREWALL_NAME","SPELL_FIREWALL_DESC","firewall",12.0,true,
 		{"dps":40.0,"dur":5.0,"length":120.0},
 		[U("UP_DPS","dps",10.0,55,"add"),U("UP_DURATION","dur",0.5,50,"add"),U("UP_LENGTH","length",12.0,55,"add")])
+	# supportmult = 對「支援型單位」嘅增傷。巫師 / 大祭司係後排關鍵目標,
+	# 而一個單體點名法術本來就係為咗「揀邊個死」而存在 —— 呢個加成只係
+	# 令佢真係做得到嗰件事。
 	s.call(13,"SPELL_SMITE_NAME","SPELL_SMITE_DESC","smite",10.0,true,
-		{"dmg":350.0,"bossmult":0.4,"cd":10.0},
+		{"dmg":350.0,"bossmult":0.4,"cd":10.0,"supportmult":1.2},
 		[U("UP_DAMAGE","dmg",80.0,55,"add"),U("UP_BOSSMULT","bossmult",0.06,60,"add"),U("UP_CD","cd",-0.5,60,"add")])
 	s.call(14,"SPELL_EMP_NAME","SPELL_EMP_DESC","emp",16.0,true,
 		{"radius":130.0,"dur":2.5,"cd":16.0},
@@ -375,8 +719,18 @@ func _build_spells() -> void:
 # effective stats given upgrade levels dict {stat_or_dir_index: lv}
 # up_levels is an Array[int] length = ups.size(), one level per direction.
 # ---------------------------------------------------------------------------
-func effective_stats(def: Dictionary, up_levels: Array) -> Dictionary:
+## `tier` 放大「每秒輸出」嗰類 stat **同埋佢哋自己嗰條軸嘅步長**。
+##
+## 步長一定要一齊放大:唔係嘅話 tier 3 箭塔嘅基礎傷害係 2560,而「攻擊力」
+## 軸每級仲係 +3 —— 十五級加埋 45,對住 2560 等於零。六條軸就會由「進化之後
+## 重新開放嘅選擇」變成裝飾品,而條 brief 講明係「重開 15 級繼續課」。
+func effective_stats(def: Dictionary, up_levels: Array, tier := 1) -> Dictionary:
 	var s := (def.stats as Dictionary).duplicate(true)
+	var mult: float = tier_power(tier)
+	if mult != 1.0:
+		for stat in TIER_SCALED_STATS:
+			if s.has(stat):
+				s[stat] = float(s[stat]) * mult
 	var ups: Array = def.ups
 	for i in ups.size():
 		var lv: int = up_levels[i] if i < up_levels.size() else 0
@@ -384,19 +738,30 @@ func effective_stats(def: Dictionary, up_levels: Array) -> Dictionary:
 			continue
 		var d: Dictionary = ups[i]
 		var stat: String = d.stat
-		var base: float = def.stats.get(stat, 0.0)
+		var step: float = d.step
+		if mult != 1.0 and stat in TIER_SCALED_STATS:
+			step *= mult
+		var base: float = float(s.get(stat, 0.0))   # 已經計咗 tier 倍率
 		match d.kind:
 			"add":
-				s[stat] = s.get(stat, 0.0) + d.step * lv
+				s[stat] = s.get(stat, 0.0) + step * lv
 			"pct":
 				s[stat] = base * (1.0 + d.step * lv)
 			"prob":
+				# 機率唔跟 tier 放大 —— 一個 0.05 嘅機率乘 256 冇意義(封頂 1.0)
 				s[stat] = clampf(s.get(stat, 0.0) + d.step * lv, 0.0, 1.0)
 	return s
 
 func upgrade_cost(base_cost: int, current_lv: int) -> int:
 	# cost of buying the (current_lv+1)-th level
 	return int(round(base_cost * pow(UP_COST_MULT, current_lv)))
+
+## 同一條曲線,但級數係**全域**嘅:tier 2 嘅第 0 級接住 tier 1 嘅第 15 級。
+## 所以進化之後嗰六條軸唔係「平返晒重新嚟過」,而係繼續向上 —— 呢個係
+## 「進化唔係重來」呢句設計話喺價錢上面嘅講法,亦都係防止玩家靠進化
+## 洗白一個貴嘅升級軸。
+func upgrade_cost_at(base_cost: int, current_lv: int, tier: int) -> int:
+	return upgrade_cost(base_cost, current_lv + MAX_UP_LV * (clampi(tier, 1, MAX_TIER) - 1))
 
 func tower_by_id(id: int) -> Dictionary:
 	for t in TOWERS:
@@ -676,3 +1041,4 @@ func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float,
 func _ready() -> void:
 	_build_towers()
 	_build_spells()
+	_build_tiers()

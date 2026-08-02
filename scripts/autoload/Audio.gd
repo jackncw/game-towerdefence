@@ -125,6 +125,9 @@ const SYSTEM_SOUNDS := [
 	"jingle_win", "jingle_lose", "jingle_first_clear",
 	"sfx_teleport_hit", "sfx_knockback", "sfx_summon_circle",
 	"sfx_place_tower", "sfx_sell_tower",
+	# 進化係成個 meta 進程入面最大嗰下,所以佢唔可以借 sfx_upgrade —— 一個
+	# 買咗一級同一次進化聽落一樣,等於話兩件事一樣重要。
+	"sfx_evolve",
 ]
 
 ## UI 音。呢四個唔經任何一張「事件 → 音名」表 —— UI.gd 直接叫名。列喺度嘅

@@ -44,11 +44,23 @@ func monster(fam: String, lvl: int) -> Texture2D:
 func monster_boss(fam: String) -> Texture2D:
 	return _load(GEN + "monsters/%s_boss.png" % fam, 96, _fam_col(fam))
 
-func tower(id: int) -> Texture2D:
-	return _load(GEN + "towers/tower_%d.png" % id, 64, Color(0.5, 0.5, 0.6))
+## `tier` 預設 0 = 「用玩家而家嗰階」。呼叫端絕大部分想要嘅就係咁,而
+## 明確傳一個 tier 係俾升級介面嘅預覽同圖鑑用 —— 嗰兩處要畫一個玩家
+## **仲未擁有**嘅階級。
+func tower(id: int, tier := 0) -> Texture2D:
+	var t: int = Meta.tower_tier(id) if tier <= 0 else tier
+	return _load(GEN + "towers/tower_%d%s.png" % [id, _tier_suffix(t)],
+		64, Color(0.5, 0.5, 0.6))
 
-func spell(id: int) -> Texture2D:
-	return _load(GEN + "spells/spell_%d.png" % id, 64, Color(0.4, 0.5, 0.8))
+func spell(id: int, tier := 0) -> Texture2D:
+	var t: int = Meta.spell_tier(id) if tier <= 0 else tier
+	return _load(GEN + "spells/spell_%d%s.png" % [id, _tier_suffix(t)],
+		64, Color(0.4, 0.5, 0.8))
+
+## tier 1 冇後綴 —— 三十五個原檔名一個都唔改,所以任何一個仲未識 tier 嘅
+## 呼叫端(工具、舊測試)照樣攞返原本嗰張圖。
+func _tier_suffix(tier: int) -> String:
+	return "" if tier <= 1 else "_t%d" % tier
 
 func coin() -> Texture2D:
 	return _load(GEN + "ui/coin.png", 40, Color(1.0, 0.82, 0.1))
@@ -91,6 +103,9 @@ func prewarm_battle(families: Array, boss_family: String) -> void:
 		tower(id)
 	for id in Meta.unlocked_spells:
 		spell(id)
+	# 圖鑑 / 升級介面預覽會即刻要下一階嗰張,而佢哋唔喺戰鬥入面 —— 所以
+	# 呢度只暖玩家**而家**用緊嗰階,唔連埋預覽一齊拉,免得每一場戰鬥開場
+	# 都白白 load 咗七十張永遠唔會出現喺場上嘅圖。
 	coin(); crystal(); base_tex(); soldier(); militia()
 
 func _fam_col(fam: String) -> Color:

@@ -13,6 +13,23 @@ var sprite: Sprite2D
 var range_val: float
 var _cd: float = 0.0
 var selected: bool = false
+## 進化階級 1..3。喺 setup() 由 Meta 讀一次 —— 一場戰鬥入面唔會變,所以
+## 逐幀問 Meta 係白做。塔卡、快捷槽同場上呢座塔一定係同一階。
+var tier: int = 1
+
+func t2() -> bool:
+	return tier >= 2
+
+func t3() -> bool:
+	return tier >= 3
+
+## 全部塔嘅輸出都經呢度。
+##
+## 聖光光環嘅「攻擊力加成」係全場性嘅,所以佢一定要喺**一個**地方乘,唔係
+## 喺二十個 _fire_* 各自記得乘一次 —— 後者嘅失敗模式係「有三座塔冇食到光環
+## 加成」,而嗰件事喺畫面上完全睇唔出,只會令玩家覺得嗰三座塔數值講大話。
+func atk(v: float) -> float:
+	return v * (1.0 + battle.holy_power_total + battle.warcry_power)
 
 # gatling / beam ramp
 var last_target = null
@@ -41,13 +58,24 @@ func setup(b, tower_id: int, world_pos: Vector2) -> void:
 	def = GameData.tower_by_id(id)
 	mech = def.mech
 	place_cost = def.place_cost
+	tier = Meta.tower_tier(id)
 	s = Meta.tower_stats(id)
+	_read_axis_levels()
 	range_val = s.range
 	position = world_pos
-	sprite.texture = Assets.tower(id)
+	sprite.texture = Assets.tower(id, tier)
 	_cd = 0.0
 	heat = 0.0
 	beam_ramp = 0.0
+	_streak_target = null
+	_streak = 0
+	_shot_count = 0
+	_void_charge = 0.0
+	_rangefind = 0.0
+	_rangefind_at = Vector2.ZERO
+	_salvo_count = 0
+	_pulse_count = 0
+	_holy_timer = 0.0
 	if mech == "barracks":
 		rally_dist = battle.route.nearest_dist_param(world_pos)
 	if mech == "alchemy" and s.get("startgold", 0.0) > 0.0:
@@ -70,6 +98,8 @@ func get_rate() -> float:
 
 func _process(delta: float) -> void:
 	_tick_recoil(delta)
+	if mech == "holy" and t3():
+		_proc_oracle(delta)
 	match mech:
 		"slowfield": _proc_slowfield(delta)
 		"beam": _proc_beam_audio(delta)
@@ -121,9 +151,32 @@ func _proc_interval(delta: float, cb: Callable, _need: bool) -> void:
 	cb.call()
 	_cd = 1.0 / maxf(0.05, s.rate)
 
+# --- 進化機制用嘅逐塔狀態 ----------------------------------------------------
+## 連續命中同一目標嘅次數(鷹眼塔 / 多管火箭 / 鷹巢哨站)。
+var _streak_target = null
+var _streak: int = 0
+## 開過幾多發(神射殿嘅「每第五箭」、末日發射井嘅「每第四次齊射」)。
+var _shot_count: int = 0
+var _salvo_count: int = 0
+var _pulse_count: int = 0
+## 虛空祭壇累積嘅獻祭能量。
+var _void_charge: float = 0.0
+## 軌道砲台嘅校射:同一片區域轟得越耐越準。
+var _rangefind: float = 0.0
+var _rangefind_at: Vector2 = Vector2.ZERO
+## 神諭光柱嘅復甦計時。
+var _holy_timer: float = 0.0
+
+## 狙擊塔同導彈塔:射程內有支援型單位(巫師 / 大祭司)就先打佢。
+## 呢兩座係全場淨係得佢哋夠遠打得到後排嘅武器,而後排治療者正正就係
+## 令其他嘢殺唔死嘅原因 —— 見 Battle.target_support_first()。
 func _acquire_target():
 	if mech == "sniper":
-		return battle.target_highest_hp(global_position, range_val)
+		return battle.target_support_first(global_position, range_val,
+			Callable(battle, "target_highest_hp"))
+	if mech == "missile":
+		return battle.target_support_first(global_position, range_val,
+			Callable(battle, "target_closest_to_base"))
 	return battle.target_closest_to_base(global_position, range_val)
 
 const MUZZLE_COL := {
@@ -186,70 +239,181 @@ func _crit_dmg(base: float, chance: float, mult: float) -> Array:
 		return [base * mult, true]
 	return [base, false]
 
+## 連續命中同一目標嘅層數。鷹眼塔 (T2) 嘅新機制,亦都畀鷹巢哨站同多管火箭
+## 共用 —— 三座都係「盯實一個目標」呢個主題嘅深化,所以佢哋數同一條數。
+func _bump_streak(tgt) -> int:
+	if tgt != _streak_target:
+		_streak_target = tgt
+		_streak = 0
+	_streak = mini(_streak + 1, GameData.STREAK_MAX)
+	return _streak
+
 func _fire_arrow(tgt) -> void:
-	var res := _crit_dmg(s.dmg, s.crit, s.critmult)
-	var pl := {"type": "phys", "dmg": res[0], "fx": "arrow"}
-	battle.spawn_projectile(global_position, tgt, tgt.global_position, 900, true, Color(1, 1, 0.6), 5, pl, false)
-	if _roll(s.double):
-		battle.spawn_projectile(global_position, tgt, tgt.global_position, 900, true, Color(1, 1, 0.6), 5, {"type": "phys", "dmg": res[0], "fx": "arrow"}, false)
+	# T2 鷹眼塔:連續命中疊加傷害,換目標歸零 —— 原本嘅「雙重射擊」係一個
+	# 純機率,呢個係同一件事(打得密)嘅另一面,而且係玩家控制得到嗰面。
+	var mult := 1.0 + (GameData.STREAK_STEP * (_bump_streak(tgt) - 1) if t2() else 0.0)
+	var res := _crit_dmg(atk(s.dmg) * mult, s.crit, s.critmult)
+	_shot_count += 1
+	# T3 神射殿:每第五箭必定暴擊兼貫穿。
+	var judgement: bool = t3() and _shot_count % GameData.SAGITTARIAN_EVERY == 0
+	var dmg: float = res[0] * (s.critmult if judgement and not res[1] else 1.0)
+	var pl := {"type": "phys", "dmg": dmg, "fx": "arrow"}
+	if judgement:
+		pl["pierce_line"] = true
+	battle.spawn_projectile(global_position, tgt, tgt.global_position, 900, true,
+		Color(1, 1, 0.6) if not judgement else Color(1, 0.92, 0.45), 5 if not judgement else 8, pl, false)
+	# T2 起「雙重射擊」變三連:同一次觸發最多再射兩發。
+	var extra := 2 if t2() else 1
+	for i in extra:
+		if _roll(s.double):
+			battle.spawn_projectile(global_position, tgt, tgt.global_position, 900, true,
+				Color(1, 1, 0.6), 5, {"type": "phys", "dmg": dmg, "fx": "arrow"}, false)
 
 func _fire_cannon(tgt) -> void:
-	var pl := {"type": "phys", "dmg": s.dmg, "splash": s.splash, "armorpen": s.armorpen, "fx": "cannon"}
+	var pl := {"type": "phys", "dmg": atk(s.dmg), "splash": s.splash, "armorpen": s.armorpen, "fx": "cannon"}
 	if _roll(s.knock):
 		pl["knock"] = 55.0
+	# T2 雙管砲塔:同一個落點爆兩次,第二下範圍更闊傷害減半。
+	if t2():
+		pl["double_blast"] = true
+	# T3 攻城巨砲:破城彈,爆炸範圍內永久削甲(場內有效,可疊)。
+	if t3():
+		pl["armor_break"] = GameData.SIEGE_ARMOR_BREAK
 	battle.spawn_projectile(global_position, tgt, tgt.global_position, 520, false, Color(0.3, 0.3, 0.3), 9, pl, true)
 
 func _fire_lightning(tgt) -> void:
 	var chain := int(s.chain)
-	var dmg: float = s.dmg
+	var dmg: float = atk(s.dmg)
 	var hit: Array = [tgt]
 	var pts := PackedVector2Array([global_position, tgt.global_position])
 	var cur = tgt
 	for i in chain:
-		var nxt = battle.nearest_other(cur.global_position, 160.0, hit)
+		# T2 雷霆之柱「導電」:上一發標記咗嘅目標優先接返條鏈,而且額外增傷。
+		var nxt = null
+		if t2() and is_instance_valid(_conductor) and _conductor.alive \
+				and not hit.has(_conductor) \
+				and cur.global_position.distance_to(_conductor.global_position) <= 260.0:
+			nxt = _conductor
+		if nxt == null:
+			nxt = battle.nearest_other(cur.global_position, 160.0, hit)
 		if nxt == null:
 			break
 		hit.append(nxt)
 		pts.append(nxt.global_position)
 		cur = nxt
 	var d := dmg
+	var last = tgt
 	for m in hit:
 		if not m.alive:
 			continue        # an earlier link in the chain already killed it
-		m.take_hit(d, "magic")
+		var bonus: float = GameData.CONDUCTOR_BONUS if (t2() and m == _conductor) else 0.0
+		m.take_hit(d * (1.0 + bonus), "magic")
 		if m.alive and _roll(s.stun):
 			m.apply_stun(0.6)
+		if m.alive:
+			last = m
 		d *= (1.0 - s.falloff)
+	if t2():
+		_conductor = tgt
+	# T3 天罰穹頂:鏈尾再落一道雷,範圍傷害兼必定麻痺。
+	if t3() and is_instance_valid(last) and last.alive:
+		for m in battle.monsters_in_radius(last.global_position, GameData.SKYFALL_RADIUS, true):
+			m.take_hit(dmg * GameData.SKYFALL_FRAC, "magic")
+			if m.alive:
+				m.apply_stun(GameData.SKYFALL_STUN)
+		battle.spawn_line(PackedVector2Array([last.global_position + Vector2(0, -900),
+			last.global_position]), Color(0.85, 0.95, 1.0), 9, 0.2)
+		battle.spawn_fx_burst(last.global_position, GameData.SKYFALL_RADIUS, Color(0.7, 0.9, 1.0), 0.3)
 	battle.spawn_line(pts, Color(0.6, 0.85, 1.0), 4, 0.15)
+
+## T2 導電標記:上一發打中嘅目標,下一次連鎖優先經過佢。
+var _conductor = null
 
 func _fire_fireball(tgt) -> void:
 	var burning: bool = tgt.burn_time > 0.0
-	var pl := {"type": "magic", "dmg": s.dmg, "fx": "fire",
-		"effects": [{"kind": "burn", "dps": s.burn, "dur": s.burndur}]}
+	var pl := {"type": "magic", "dmg": atk(s.dmg), "fx": "fire",
+		"effects": [{"kind": "burn", "dps": atk(s.burn), "dur": s.burndur}]}
 	if burning and _roll(s.detonate):
 		pl["splash"] = 60.0
+		# T3 炎魔祭壇「烈焰連鎖」:引爆成功會將燃燒傳染畀爆炸範圍內所有敵人。
+		if t3():
+			pl["spread_burn"] = {"dps": atk(s.burn), "dur": s.burndur}
+	# T2 煉獄塔「餘燼」:燒緊嘅嘢死喺邊,邊度就留一灘火。
+	if t2():
+		pl["ember"] = {"dps": atk(s.burn) * GameData.EMBER_DPS_FRAC,
+			"dur": GameData.EMBER_DUR, "radius": GameData.EMBER_RADIUS}
 	battle.spawn_projectile(global_position, tgt, tgt.global_position, 650, true, Color(1, 0.5, 0.2), 8, pl, false)
 
 func _fire_frost(tgt) -> void:
 	var eff := [{"kind": "slow", "factor": s.slow, "dur": s.slowdur}]
+	# T2 極寒塔「凍傷」:減速期間累積凍傷層,凍結成立嗰刻一次過爆成真傷。
+	if t2():
+		eff.append({"kind": "frostbite", "amount": atk(s.dmg) * GameData.FROSTBITE_FRAC})
 	if _roll(s.freeze):
 		eff.append({"kind": "freeze", "dur": 1.0})
 	battle.spawn_projectile(global_position, tgt, tgt.global_position, 800, true, Color(0.6, 0.9, 1.0), 6,
-		{"type": "phys", "dmg": s.dmg, "effects": eff, "fx": "ice"}, false)
+		{"type": "phys", "dmg": atk(s.dmg), "effects": eff, "fx": "ice"}, false)
+
+## 「重傷」—— 中毒目標所受治療嘅減免。跟住「每層毒傷」一齊深化:嗰條軸本來
+## 就係「毒得幾狠」,而重傷幅度係同一件事嘅另一面,所以佢唔值一條新軸。
+##
+## 跟嗰條軸嘅**等級**,唔係跟 s.pstack 嘅數值。數值會跟 tier 放大十六倍,
+## 而重傷係一個百分比 —— 用數值嘅話一進化就直接撞封頂,即係進化順手偷埋
+## 一條軸嘅投資。等級先係玩家真係買落去嗰樣嘢。
+func _poison_heal_cut() -> float:
+	return minf(GameData.POISON_HEALCUT_BASE
+		+ GameData.POISON_HEALCUT_PER_PSTACK * float(axis_level("pstack")),
+		GameData.POISON_HEALCUT_MAX)
+
+## 某一條升級軸而家幾多級。喺 setup() 讀一次入 _axis_lv —— 一場戰鬥入面
+## 升級等級唔會變,而 Meta.tower_levels() 每次都會 pad / trim 一個 Array。
+var _axis_lv: Dictionary = {}
+
+func axis_level(stat_name: String) -> int:
+	return int(_axis_lv.get(stat_name, 0))
+
+func _read_axis_levels() -> void:
+	_axis_lv.clear()
+	var levels: Array = Meta.tower_levels(id)
+	for i in def.ups.size():
+		if i < levels.size():
+			_axis_lv[String(def.ups[i].stat)] = int(levels[i])
 
 func _fire_poison(tgt) -> void:
-	var eff := [{"kind": "poison", "dmg": s.pstack, "stacks": 1, "max": int(s.pmax), "dur": 4.0}]
-	var pl := {"type": "true", "dmg": s.dmg, "effects": eff, "fx": "poison"}
+	var pe := {"kind": "poison", "dmg": atk(s.pstack), "stacks": 1, "max": int(s.pmax), "dur": 4.0}
+	# T3 腐化聖殿:毒層每滿一批,目標生命上限永久跌一截。
+	if t3():
+		pe["rot"] = GameData.ROT_MAXHP_FRAC
+	var eff := [pe,
+		{"kind": "healcut", "cut": _poison_heal_cut(), "dur": GameData.POISON_HEALCUT_DUR}]
+	var pl := {"type": "true", "dmg": atk(s.dmg), "effects": eff, "fx": "poison"}
 	if s.pburst > 0.0:
 		pl["splash"] = s.pburst
+	# T2 瘟疫塔:滿層嘅屍體會將整疊毒傳畀最近三隻。
+	if t2():
+		pl["plague"] = {"max": int(s.pmax), "dmg": atk(s.pstack),
+			"targets": GameData.PLAGUE_TARGETS}
 	battle.spawn_projectile(global_position, tgt, tgt.global_position, 700, true, Color(0.5, 0.9, 0.2), 6, pl, false)
 
 func _fire_sniper(tgt) -> void:
-	var res := _crit_dmg(s.dmg, s.crit, 2.2)
-	if s.execute > 0.0 and tgt.try_execute(s.execute):
+	# T2 鷹巢哨站「致命標記」:每次命中疊一層,層數越多下一發越痛,擊殺清空。
+	var marks: int = (_bump_streak(tgt) - 1) if t2() else 0
+	var base: float = atk(s.dmg) * (1.0 + GameData.MARK_STEP * marks)
+	# T3 天罰狙擊台:處決線大幅提高,而且處決成功後下一發必定暴擊。
+	var exec_line: float = s.execute * (GameData.JUDGEMENT_EXEC_MULT if t3() else 1.0)
+	var res := _crit_dmg(base, s.crit if not _guaranteed_crit else 1.0, 2.2)
+	_guaranteed_crit = false
+	if exec_line > 0.0 and tgt.try_execute(exec_line):
+		_streak_target = null
+		_streak = 0
+		if t3():
+			_guaranteed_crit = true
 		battle.spawn_line(PackedVector2Array([global_position, tgt.global_position]), Color(1, 0.9, 0.5), 3, 0.12)
 		return
 	tgt.take_hit(res[0], "phys")
+	if not tgt.alive:
+		_streak_target = null
+		_streak = 0
 	# pierce: also hit next highest-hp targets
 	var pierce := int(s.pierce)
 	if pierce > 0:
@@ -262,16 +426,28 @@ func _fire_sniper(tgt) -> void:
 			if cnt >= pierce: break
 	battle.spawn_line(PackedVector2Array([global_position, tgt.global_position]), Color(1, 0.9, 0.5), 3, 0.12)
 
+var _guaranteed_crit: bool = false
+
 func _fire_gatling(tgt) -> void:
 	if tgt == last_target:
 		heat = minf(s.heatmax, heat + s.heatrate)
 	else:
-		heat = 0.0
+		# T3 風暴壁壘「彈鏈共鳴」:換目標唔再清零,只係跌一半 —— 一座機槍塔
+		# 最痛嘅唔係傷害係「每次目標死咗就由零開始」,呢個就係嗰個痛點。
+		heat = heat * 0.5 if t3() else 0.0
 	last_target = tgt
-	var dmg: float = s.dmg * (1.0 + heat * 0.5)
+	# T3 熱度同時推高散射機率
+	var spread_p: float = s.spread + (heat * GameData.RESONANCE_SPREAD if t3() else 0.0)
+	var dmg: float = atk(s.dmg) * (1.0 + heat * 0.5)
 	tgt.take_hit(dmg, "phys")
 	battle.spawn_line(PackedVector2Array([global_position, tgt.global_position]), Color(1, 0.95, 0.6), 2, 0.05)
-	if _roll(s.spread):
+	# T2 旋風機炮「過熱噴發」:熱度撞頂嗰一刻放一圈彈幕,然後熱度減半繼續。
+	if t2() and heat >= s.heatmax - 0.0001:
+		for o in battle.monsters_in_radius(global_position, range_val, true):
+			o.take_hit(dmg * GameData.CYCLONE_BURST_FRAC, "phys")
+		battle.spawn_fx_ring(global_position, range_val, Color(1, 0.9, 0.5))
+		heat *= 0.5
+	if _roll(spread_p):
 		# others[0] was frequently the primary target itself, so 散射 often just
 		# double-tapped the same monster instead of splashing a neighbour.
 		for o in battle.monsters_in_radius(tgt.global_position, 70.0, true):
@@ -283,17 +459,44 @@ func _fire_mortar(tgt) -> void:
 	var dd := global_position.distance_to(tgt.global_position)
 	if dd < s.minrange:
 		return
-	var pl := {"type": "phys", "dmg": s.dmg, "splash": s.splash, "fx": "cannon"}
+	# T3 軌道砲台「校射」:連續轟同一片區域層層加成,換區歸零。
+	var aim: Vector2 = tgt.global_position
+	if t3():
+		if aim.distance_to(_rangefind_at) <= GameData.RANGEFIND_RADIUS:
+			_rangefind = minf(_rangefind + 1.0, GameData.RANGEFIND_MAX)
+		else:
+			_rangefind = 0.0
+		_rangefind_at = aim
+	var rf: float = _rangefind
+	var pl := {"type": "phys", "dmg": atk(s.dmg) * (1.0 + GameData.RANGEFIND_DMG * rf),
+		"splash": s.splash * (1.0 + GameData.RANGEFIND_AREA * rf), "fx": "cannon"}
 	if s.scorch > 0.0:
-		pl["effects"] = [{"kind": "burn", "dps": s.dmg * 0.15, "dur": s.scorch}]
+		pl["effects"] = [{"kind": "burn", "dps": atk(s.dmg) * 0.15, "dur": s.scorch}]
 	if s.frag > 0.0:
 		pl["frag"] = int(s.frag)
-	battle.spawn_projectile(global_position, null, tgt.global_position, 480, false, Color(0.4, 0.45, 0.2), 10, pl, true)
+	battle.spawn_projectile(global_position, null, aim, 480, false, Color(0.4, 0.45, 0.2), 10, pl, true)
+	# T2 重砲陣地「齊射」:第二發打喺前後錯開嘅位,蓋住一條線唔係一個點。
+	if t2():
+		var along: Vector2 = (aim - global_position).normalized() * GameData.HEAVY_BATTERY_OFFSET
+		battle.spawn_projectile(global_position, null, aim + along, 480, false,
+			Color(0.4, 0.45, 0.2), 10, pl.duplicate(true), true)
 
 func _fire_missile(tgt) -> void:
 	var salvo := int(s.salvo)
+	# T2 多管火箭「追蹤鎖定」:連續命中同一目標,該目標受到嘅導彈傷害層層升。
+	var lock: float = 1.0 + (GameData.LOCKON_STEP * (_bump_streak(tgt) - 1) if t2() else 0.0)
+	# T3 末日發射井:每第四次齊射改為一枚核心彈頭。
+	_salvo_count += 1
+	var doomsday: bool = t3() and _salvo_count % GameData.DOOMSDAY_EVERY == 0
+	if doomsday:
+		battle.spawn_projectile(global_position, tgt, tgt.global_position, 900, true,
+			Color(1, 0.75, 0.35), 12,
+			{"type": "phys", "dmg": atk(s.dmg) * lock * GameData.DOOMSDAY_DMG,
+			 "splash": s.splash * GameData.DOOMSDAY_AREA, "bossmult": s.bossmult,
+			 "knock": 90.0, "fx": "rocket"}, false)
+		return
 	for i in salvo:
-		var pl := {"type": "phys", "dmg": s.dmg, "splash": s.splash, "bossmult": s.bossmult, "fx": "rocket"}
+		var pl := {"type": "phys", "dmg": atk(s.dmg) * lock, "splash": s.splash, "bossmult": s.bossmult, "fx": "rocket"}
 		# 900 (was 560): at the reworked 440 range a 560-speed missile spends 0.79s
 		# in the air and the target has walked off the impact point. Homing itself
 		# is exact — Projectile re-aims at the live target every frame, so there is
@@ -308,9 +511,37 @@ func _fire_missile(tgt) -> void:
 func _proc_curse_aura(delta: float) -> void:
 	_aura_phase += delta
 	queue_redraw()
+	# T2 夢魘之環「恐懼」:光環入面嘅嘢定期俾人嚇退一小段路。
+	if t2():
+		_dread_t -= delta
+		if _dread_t <= 0.0:
+			_dread_t = GameData.DREAD_PERIOD
+			for m in battle.monsters_in_radius(global_position, range_val, true):
+				m.displace(GameData.DREAD_PUSH * (0.4 if m.is_boss else 1.0), false)
+	# T3 虛空祭壇「獻祭」:光環入面嘅死亡累積能量,滿咗對全場引爆真傷。
+	# 充能由 Battle.on_monster_killed 經 add_void_charge() 入賬。
+	if t3() and _void_charge >= GameData.VOID_CHARGE_FULL:
+		_void_charge = 0.0
+		var burst: float = atk(s.curse) * GameData.VOID_BURST
+		for m in battle.all_monsters():
+			if m.alive:
+				m.take_hit(burst, "true")
+		battle.spawn_fx_burst(global_position, 400, Color(0.55, 0.25, 0.85), 0.6)
+		battle.shake(10.0, 0.35)
+		Audio.play("sfx_spell_blackhole")
+
+var _dread_t: float = 0.0
+
+## 虛空祭壇充能。Battle 喺一隻怪死喺光環入面嗰陣叫。
+func add_void_charge(amount: float) -> void:
+	if t3():
+		_void_charge += amount
 
 func _fire_holy(tgt) -> void:
-	tgt.take_hit(s.dmg, "magic")
+	# T2 黎明聖壇:本塔對支援型敵人(巫師 / 大祭司)造成額外傷害 —— 全場
+	# 光環嗰半係俾隊友嘅,呢半係佢自己嘅點名能力。
+	var mult := 1.0 + (GameData.DAWN_SUPPORT_MULT if t2() and tgt.is_support() else 0.0)
+	tgt.take_hit(atk(s.dmg) * mult, "magic")
 	if s.purify > 0.0 and _roll(s.purify):
 		tgt.haste_time = 0.0
 	battle.spawn_projectile(global_position, tgt, tgt.global_position, 800, true, Color(1, 0.95, 0.7), 6, {"type": "magic", "dmg": 0.0, "fx": "holy"}, false)
@@ -320,38 +551,93 @@ func _fire_teleport(tgt) -> void:
 		# 傳送真係成功嗰下先響 —— tpchance 唔中就冇嘢傳送過。displace 嗰個
 		# 推撞聲要熄咗:同一件事已經有 sfx_teleport_hit 講緊,兩個聲疊住就
 		# 變成「傳送」聽落似「傳送 + 被打」。
-		tgt.displace(s.tpdist, false)
+		# T3 時空樞紐「放逐」:有機會直接送返起點,次數由 cap 封住。
+		if t3() and not tgt.is_boss and _banished < int(s.cap) and _roll(GameData.BANISH_CHANCE):
+			_banished += 1
+			tgt.displace(tgt.dist, false)
+			battle.spawn_fx_ring(tgt.global_position, 70, Color(0.75, 0.5, 1.0))
+		else:
+			tgt.displace(s.tpdist, false)
 		Audio.play("sfx_teleport_hit")
+		# T2 空間裂隙「回溯」:傳送成功順手清走目標身上嘅增益。
+		if t2():
+			tgt.haste_time = 0.0
+			tgt.haste_amp = 0.0
+			tgt.enrage_time = 0.0
 		if s.stun > 0.0:
 			tgt.apply_stun(s.stun)
 		battle.spawn_fx_ring(tgt.global_position, 40, Color(0.6, 0.3, 0.9))
 
+var _banished: int = 0
+
 func _fire_boomerang(tgt) -> void:
 	var dir: Vector2 = (tgt.global_position - global_position).normalized()
-	battle.spawn_boomerang(global_position, dir, range_val, s.dmg, s.slow, s.returnmult)
+	battle.spawn_boomerang(global_position, dir, range_val, atk(s.dmg), s.slow, s.returnmult)
+	# T2 雙刃塔:第二把成夾角擲出,交叉點嘅敵人食兩次。
+	if t2():
+		battle.spawn_boomerang(global_position, dir.rotated(GameData.TWINBLADE_ANGLE),
+			range_val, atk(s.dmg), s.slow, s.returnmult)
+	# T3 風暴之輪「無盡迴旋」:有機會即刻再擲一次,唔消耗攻速。
+	if t3() and _roll(GameData.TEMPEST_RETHROW * s.returnmult):
+		battle.spawn_boomerang(global_position, dir.rotated(-GameData.TWINBLADE_ANGLE),
+			range_val, atk(s.dmg), s.slow, s.returnmult)
 
 # --- interval / continuous mechs -------------------------------------------
 func _fire_alchemy() -> void:
-	battle.add_gold(int(s.gold))
-	battle.spawn_damage(global_position + Vector2(0, -20), int(s.gold), Color(1, 0.85, 0.2))
+	var g: float = s.gold
+	# T2 鑄金坊「金線」:場上每多一座鍊金塔就加成,遞減疊加 —— 呢座塔本來
+	# 係「擺邊都一樣」,而金線令佢第一次有咗擺位以外嘅陣容決策。
+	if t2():
+		var others: int = maxi(0, battle.alchemy_towers.size() - 1)
+		var bonus := 0.0
+		for i in others:
+			bonus += GameData.FOUNDRY_STEP * pow(GameData.FOUNDRY_FALLOFF, i)
+		g *= (1.0 + bonus)
+	battle.add_gold(int(g))
+	battle.spawn_damage(global_position + Vector2(0, -20), int(g), Color(1, 0.85, 0.2))
 
 func _fire_thorn() -> void:
-	for m in battle.monsters_in_radius(global_position, range_val, false):
-		m.take_hit(s.dmg * (1.0 + (s.heavymult if m.heavy else 0.0)), "true")
+	# T3 世界樹根:覆蓋範圍由一個圓變成沿住路面嘅一段路。
+	var victims: Array = (battle.monsters_on_road_near(global_position,
+		range_val * GameData.WORLDROOT_LENGTH) if t3()
+		else battle.monsters_in_radius(global_position, range_val, false))
+	var front = null
+	for m in victims:
+		m.take_hit(atk(s.dmg) * (1.0 + (s.heavymult if m.heavy else 0.0)), "true")
 		if s.slow > 0.0:
 			m.apply_slow(s.slow, 1.0)
 		if s.bleed > 0.0:
-			m.apply_poison(s.bleed, 1, 5, 4.0)
+			m.apply_poison(atk(s.bleed), 1, 5, 4.0)
+		if m.alive and (front == null or m.dist > front.dist):
+			front = m
+	# T2 食人花巢「纏繞」:每次觸發把最前嗰隻短暫定身。內部冷卻由觸發率本身
+	# 決定 —— 荊棘塔嘅 rate 就係佢嘅節奏,再加一個計時器就等於兩個節奏。
+	if t2() and front != null:
+		front.rooted_time = maxf(front.rooted_time, GameData.ENSNARE_DUR)
 
 func _fire_magnet() -> void:
-	for m in battle.monsters_in_radius(global_position, range_val, true):
+	_pulse_count += 1
+	# T3 極性風暴「極性反轉」:每隔幾次脈衝改為吸引,把敵人拉成一團。
+	var attract: bool = t3() and _pulse_count % GameData.POLARITY_EVERY == 0
+	var caught: Array = battle.monsters_in_radius(global_position, range_val, true)
+	for m in caught:
 		var eff: float = 1.0 if not m.is_boss else s.heavyeff
-		m.displace(s.knock * eff)
+		if attract:
+			# 吸引 = 負推撞。displace() 只識推後,所以直接郁 dist。
+			m.dist = minf(battle.route.total - 20.0, m.dist + s.knock * eff * 0.6)
+			m.position = battle.route.pos_at(m.dist)
+		else:
+			m.displace(s.knock * eff)
 		if s.pulse > 0.0:
-			m.take_hit(s.pulse, "phys")
+			var dmg: float = atk(s.pulse)
+			# T2 斥力核心「磁軌」:被推嘅敵人互相撞,擠得越密越痛。
+			if t2():
+				dmg *= (1.0 + GameData.RAILSLAM_STEP * mini(caught.size() - 1, GameData.RAILSLAM_MAX))
+			m.take_hit(dmg, "phys")
 		if s.knockslow > 0.0:
 			m.apply_slow(s.knockslow, 1.0)
-	battle.spawn_fx_ring(global_position, range_val, Color(0.8, 0.5, 0.4))
+	battle.spawn_fx_ring(global_position, range_val,
+		Color(0.5, 0.7, 1.0) if attract else Color(0.8, 0.5, 0.4))
 
 func _proc_slowfield(delta: float) -> void:
 	var caught := false
@@ -361,6 +647,17 @@ func _proc_slowfield(delta: float) -> void:
 		m.apply_slow(f, 0.2)
 		if s.vuln > 0.0:
 			m.apply_vuln(s.vuln, 0.3)
+		# T2 重力井「牽引」:場內嘅嘢俾人慢慢拉返轉頭,飛行單位一樣中招。
+		if t2():
+			m.displace(GameData.GRAVITY_PULL * delta, false)
+	# T3 時滯領域:每隔一段時間全場定身一瞬。
+	if t3():
+		_holy_timer -= delta
+		if _holy_timer <= 0.0:
+			_holy_timer = GameData.CHRONAL_PERIOD
+			for m in battle.monsters_in_radius(global_position, range_val, true):
+				m.apply_stun(GameData.CHRONAL_FREEZE)
+			battle.spawn_fx_ring(global_position, range_val, Color(0.7, 0.85, 1.0))
 	# 力場嘅「脈衝」聲接喺場入面真係有嘢俾佢緩到嗰陣,唔係接喺 s.pulse 嗰條
 	# 傷害線度:pulse 係一個升級,基礎值 0,咁樣接嘅話絕大部分玩家嘅緩速塔
 	# 由頭到尾都係啞嘅。空場唔響 —— 一個乜都冇困住嘅力場冇嘢好報。
@@ -411,15 +708,42 @@ func _proc_beam(delta: float) -> void:
 		beam_ramp = minf(s.rampmax, beam_ramp + s.ramprate * delta)
 	else:
 		beam_ramp = 0.0
+		_overload = 0.0
 	last_target = tgt
-	var dps: float = s.dmg * (1.0 + beam_ramp)
+	var dps: float = atk(s.dmg) * (1.0 + beam_ramp)
+	# T3 恆星核心「聚能爆發」:蓄能撞頂就轉爆發模式,幾秒內傷害倍增,
+	# 然後重置蓄能重新黎過 —— 光束塔嘅主題本來就係「蓄」,呢個係佢嘅頂點。
+	if t3():
+		if _overload > 0.0:
+			_overload -= delta
+			dps *= GameData.STELLAR_BURST_MULT
+			if _overload <= 0.0:
+				beam_ramp = 0.0
+		elif beam_ramp >= s.rampmax - 0.0001:
+			_overload = GameData.STELLAR_BURST_DUR
+			battle.spawn_fx_ring(global_position, 90, Color(1, 0.95, 0.6))
 	tgt.take_hit(dps * delta, "magic")
+	# 融甲蝕魔:護甲同魔抗一齊削,唔再係轉成易傷。
+	# 舊寫法(apply_vuln)對住一隻魔抗 25 嘅幽靈完全冇講到「你嘅魔法而家打得穿
+	# 佢」呢件事 —— 佢只係將所有傷害乘大少少,而個問題係減免本身。
 	if s.meltarmor > 0.0:
-		tgt.apply_vuln(s.meltarmor * 0.05, 0.3)
-	battle.spawn_line(PackedVector2Array([global_position, tgt.global_position]), Color(1, 1, 0.7), 4 + beam_ramp * 2.0, 0.05)
+		tgt.apply_shred(s.meltarmor * GameData.BEAM_SHRED_ARMOR,
+			s.meltarmor * GameData.BEAM_SHRED_MRES, GameData.BEAM_SHRED_DUR)
+	battle.spawn_line(PackedVector2Array([global_position, tgt.global_position]),
+		Color(1, 1, 0.7) if _overload <= 0.0 else Color(1, 0.85, 0.4),
+		4 + beam_ramp * 2.0, 0.05)
+	# T2 稜鏡塔「折射」:光束撞落目標之後彈去最近另一個敵人。
+	if t2():
+		var refr = battle.nearest_other(tgt.global_position, GameData.PRISM_RANGE, [tgt])
+		if refr:
+			refr.take_hit(dps * delta * GameData.PRISM_FRAC, "magic")
+			battle.spawn_line(PackedVector2Array([tgt.global_position, refr.global_position]),
+				Color(0.9, 1, 0.9), 3, 0.05)
 	if s.dual > 0.0 and _roll(s.dual * delta):
 		var o = battle.nearest_other(global_position, range_val, [tgt])
 		if o: o.take_hit(dps * delta, "magic")
+
+var _overload: float = 0.0
 
 ## 出兵 / 詛咒光環 / 緩速力場 呢三個「持續事件」聲嘅限流住咗喺 Battle
 ## (battle.play_event_sound)。呢度剩返一個轉接,方便塔自己叫。
@@ -447,12 +771,33 @@ func _proc_barracks(delta: float) -> void:
 
 func _spawn_soldier() -> void:
 	var off := randf_range(-40, 40)
-	var sd = battle.spawn_soldier(rally_dist + off, s.soldierhp, s.dmg, s.armor, self)
+	var sd = battle.spawn_soldier(rally_dist + off, s.soldierhp, atk(s.dmg), s.armor, self)
 	if sd:
+		sd.formation = t2()      # T2 要塞營地「陣型」
+		sd.death_blast = (atk(s.dmg) * GameData.TEMPLAR_BLAST) if t3() else 0.0
 		soldiers.append(sd)
 		# 號角響喺真係出到兵嗰下,唔係響喺「想出兵」嗰下 —— spawn_soldier() 返
 		# null 就係冇兵出到,冇兵而有號角就係一個講大話嘅提示。
 		play_event_sound(mech)
+
+## T3 神諭光柱「復甦之光」。每隔一段時間為全場一座兵營補返一個士兵,並且
+## 清走全場敵人嘅加速 —— 聖光塔本來就係「幫隊友」嗰座,呢個係佢嘅頂點:
+## 佢唔再係加數字,佢係將已經輸咗嘅嘢攞返。
+func _proc_oracle(delta: float) -> void:
+	_holy_timer -= delta
+	if _holy_timer > 0.0:
+		return
+	_holy_timer = GameData.ORACLE_PERIOD
+	for m in battle.all_monsters():
+		if m.alive:
+			m.haste_time = 0.0
+			m.haste_amp = 0.0
+	for t in battle.towers:
+		if is_instance_valid(t) and t.mech == "barracks" and t.soldiers.size() < int(t.s.count):
+			t.respawn_timer = 0.0
+			t._spawn_soldier()
+			break
+	battle.spawn_fx_ring(global_position, 220, Color(1, 0.96, 0.75))
 
 func on_soldier_died(sd) -> void:
 	soldiers.erase(sd)

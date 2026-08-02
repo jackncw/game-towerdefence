@@ -1924,6 +1924,261 @@ TOWERS = [t_arrow, t_cannon, t_lightning, t_fireball, t_frost, t_poison,
           t_magnet, t_teleport]
 
 
+# ----------------------------------------------------------------------------
+# EVOLUTION TIERS (round 10)
+#
+# 40 evolved tower sprites are NOT 40 new drawings. They are the tier-1 drawing
+# plus a TREATMENT, exactly the way the monster levels work (feats_for / colour
+# ramp / cumulative kit) — because that is what makes a tier read as "the same
+# tower, grown" rather than "a different tower with a similar name". Forty
+# hand-authored evolutions would drift apart from each other and from the tier-1
+# silhouette that the player has already learned to recognise on a 44px sprite.
+#
+# Three channels, applied cumulatively:
+#   1. FOUNDATION  a taller, richer base under the tower — tier 2 gets a stone
+#      collar and buttresses, tier 3 gets a second stepped tier and corner
+#      pillars. This is the part that reads at a glance in the build bar.
+#   2. AURA + LIGHT  a halo behind the silhouette, and for tier 3 a light column
+#      through the body. Drawn BEHIND (Canvas.aura composites underneath), so it
+#      never eats the shape.
+#   3. SIGNATURE  one per-tower flourish per tier, so evolution is not a uniform
+#      badge. Kept to two or three primitives — anything bigger fights the
+#      tier-1 silhouette instead of extending it.
+#
+# Plus a global colour lift (see `_tier_lift`) so the palette climbs the way the
+# monster ladder does: deeper and more saturated, never just brighter.
+# ----------------------------------------------------------------------------
+
+TIER_ACCENT = {2: (196, 214, 240, 255), 3: (250, 214, 108, 255)}
+TIER_GLOW = {2: (120, 190, 255), 3: (255, 208, 96)}
+
+
+def _tier_lift(img, tier):
+    """Palette climb. Tier 2 cools and brightens (refined / forged); tier 3
+    warms toward gold and raises contrast (ascended). Applied to the finished
+    sprite so every tower climbs the same ladder without 20 palette tables.
+
+    Deliberately WEAK. The first attempt pushed tier 3 by +16% red / +16 flat
+    and every tower came out the same mustard colour — a palette lift that
+    erases the differences between twenty towers is not a lift, it is a tint.
+    It also only touches near-opaque pixels: run over the halo as well and the
+    glow turns into a coloured film across the whole 44px cell."""
+    if tier <= 1:
+        return img
+    px = img.load()
+    w, h = img.size
+    warm = tier >= 3
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a < 200:
+                continue
+            if warm:
+                r = clamp(r * 1.07 + 6)
+                g = clamp(g * 1.03 + 3)
+                b = clamp(b * 0.98)
+            else:
+                r = clamp(r * 1.01)
+                g = clamp(g * 1.03 + 2)
+                b = clamp(b * 1.06 + 5)
+            px[x, y] = (r, g, b, a)
+    return img
+
+
+def _behind(c, fn):
+    """Draw on a fresh layer and composite it UNDERNEATH what is already on the
+    canvas. ImageDraw REPLACES alpha instead of blending, so a translucent fill
+    drawn straight onto `c` comes out opaque — which is how the first tier-3
+    light column ended up as a solid bar through the middle of all twenty
+    towers. Canvas.aura() already solves this for halos; this is the general
+    form of the same trick."""
+    layer = Canvas(c.s)
+    fn(layer)
+    c.img = Image.alpha_composite(layer.img, c.img)
+    c.d = ImageDraw.Draw(c.img)
+
+
+def _tier_foundation(c, tier, accent):
+    """Channel 1 — the base grows. Drawn BEFORE the tower body so the tower
+    still sits on top of it."""
+    stone = (128, 124, 132, 255)
+    c.poly([(0.5, 0.575), (0.96, 0.735), (0.5, 0.90), (0.04, 0.735)],
+           shade(stone, 0.82))
+    c.poly([(0.5, 0.60), (0.90, 0.735), (0.5, 0.87), (0.10, 0.735)],
+           mix(stone, WHITE, 0.22))
+    # buttresses at the two lit corners
+    for bx in (0.135, 0.865):
+        c.rrect(bx - 0.045, 0.70, bx + 0.045, 0.80, 0.02, stone)
+        c.circle(bx, 0.695, 0.030, accent)
+    if tier >= 3:
+        # a second stepped tier plus four corner pillars
+        c.poly([(0.5, 0.66), (0.99, 0.80), (0.5, 0.955), (0.01, 0.80)],
+               shade(stone, 0.68))
+        for px_, py_ in ((0.075, 0.80), (0.925, 0.80), (0.30, 0.875), (0.70, 0.875)):
+            c.rrect(px_ - 0.032, py_ - 0.105, px_ + 0.032, py_, 0.014,
+                    mix(stone, WHITE, 0.10))
+            c.circle(px_, py_ - 0.118, 0.026, accent)
+
+
+def _tier_flourish(c, tier, accent, glow):
+    """Channel 2 — halo, orbiting motes, and (tier 3) a light column.
+
+    Everything atmospheric goes BEHIND the tower. The rule this enforces: at
+    44px the silhouette is the only thing a player can actually read in the
+    build bar, so nothing decorative is allowed in front of it."""
+    if tier >= 3:
+        def col(l):
+            for hw, al in ((0.075, 30), (0.038, 52)):
+                l.rect(0.5 - hw, 0.0, 0.5 + hw, 0.78,
+                       (glow[0], glow[1], glow[2], al))
+        _behind(c, col)
+    # orbiting motes: four for tier 2, six for tier 3, on a squashed ring so
+    # they read as circling the tower rather than stuck to it
+    n = 6 if tier >= 3 else 4
+    for k in range(n):
+        a = math.tau * k / n + (0.4 if tier >= 3 else 0.0)
+        # 0.36, not 0.42: at 0.42 the two side motes land in the empty margin of
+        # the 44px cell and read as detached specks next to the tower instead of
+        # as something orbiting it.
+        mx = 0.5 + 0.36 * math.cos(a)
+        my = 0.42 + 0.15 * math.sin(a)
+        c.circle(mx, my, 0.026 if tier >= 3 else 0.021, accent)
+        c.circle(mx - 0.007, my - 0.007, 0.010, WHITE)
+    # _tglow, not Canvas.aura(): aura's 36/60/80 alphas over r*1.25 read as an
+    # opaque disc on a 44px sprite (the same reason towers already had _tglow).
+    _tglow(c, 0.5, 0.46, 0.34 if tier >= 3 else 0.30, glow)
+
+
+def _sig_banner(c, x, ytop, col):
+    c.rect(x - 0.010, ytop, x + 0.010, ytop + 0.30, (96, 78, 58, 255))
+    c.poly([(x, ytop + 0.02), (x + 0.19, ytop + 0.07),
+            (x, ytop + 0.13)], col)
+
+
+def _sig_ring(c, cx, cy, r, col, w=0.020):
+    c.d.arc(c._b(cx, cy, r, r * 0.42), 0, 360, fill=col,
+            width=max(2, int(w * c.s)))
+
+
+# One flourish per tower per tier. Deliberately small: the job is to say WHICH
+# tower evolved, not to redraw it. `c` is the same canvas the tier-1 body was
+# drawn on, so these land on top of the existing shape.
+def _sig_towers(idx, c, tier, accent, glow):
+    A, G = accent, (glow[0], glow[1], glow[2], 255)
+    if idx == 1:      # 箭塔 -> 鷹眼 -> 神射殿: extra bow limbs, then a halo of arrows
+        for sgn in (-1, 1):
+            c.line([(0.5 + sgn * 0.10, 0.42), (0.5 + sgn * 0.40, 0.30)], A, 0.030)
+        if tier >= 3:
+            for k in range(5):
+                ax = 0.16 + k * 0.17
+                c.line([(ax, 0.18), (ax, 0.06)], G, 0.020)
+    elif idx == 2:    # 加農 -> 雙管 -> 攻城巨砲
+        _barrel(c, 0.36, 0.40, 0.80, 0.28, 0.075, IRON)
+        if tier >= 3:
+            _barrel(c, 0.36, 0.52, 0.86, 0.44, 0.090, shade(IRON, 0.8))
+    elif idx == 3:    # 雷電 -> 雷霆之柱 -> 天罰穹頂
+        _sig_ring(c, 0.5, 0.24, 0.34, G)
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.13, 0.44, A, 0.026)
+    elif idx == 4:    # 火球 -> 煉獄 -> 炎魔祭壇
+        for k, r in enumerate((0.075, 0.055)):
+            c.circle(0.30 + k * 0.40, 0.30, r, (250, 140, 48, 255))
+        if tier >= 3:
+            c.poly([(0.5, 0.02), (0.36, 0.26), (0.5, 0.18), (0.64, 0.26)],
+                   (255, 190, 70, 255))
+    elif idx == 5:    # 冰霜 -> 極寒 -> 永冬王座
+        for sgn in (-1, 1):
+            c.poly([(0.5 + sgn * 0.30, 0.16), (0.5 + sgn * 0.20, 0.44),
+                    (0.5 + sgn * 0.38, 0.40)], (200, 240, 255, 255))
+        if tier >= 3:
+            c.rrect(0.30, 0.06, 0.70, 0.20, 0.05, (176, 228, 250, 255))
+    elif idx == 6:    # 毒液 -> 瘟疫 -> 腐化聖殿
+        for k in range(3):
+            c.circle(0.28 + k * 0.22, 0.20 - (k % 2) * 0.06, 0.045,
+                     (140, 220, 90, 235))
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.30, 0.40, (150, 235, 110, 255), 0.024)
+    elif idx == 7:    # 狙擊 -> 鷹巢 -> 天罰狙擊台
+        c.line([(0.20, 0.40), (0.88, 0.22)], A, 0.036)
+        if tier >= 3:
+            _sig_ring(c, 0.80, 0.20, 0.14, G, 0.024)
+    elif idx == 8:    # 機槍 -> 旋風 -> 風暴壁壘
+        for k in range(4):
+            c.circle(0.30 + k * 0.14, 0.34, 0.030, shade(STEEL, 1.0))
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.36, 0.40, G, 0.024)
+    elif idx == 9:    # 迫擊 -> 重砲陣地 -> 軌道砲台
+        c.rrect(0.10, 0.58, 0.30, 0.70, 0.03, IRON)
+        if tier >= 3:
+            c.line([(0.5, 0.34), (0.5, 0.02)], (255, 236, 170, 200), 0.045)
+    elif idx == 10:   # 光束 -> 稜鏡 -> 恆星核心
+        c.poly([(0.5, 0.14), (0.62, 0.34), (0.38, 0.34)], (230, 246, 255, 255))
+        if tier >= 3:
+            _orb(c, 0.5, 0.26, 0.13, (255, 226, 140, 255))
+    elif idx == 11:   # 力場 -> 重力井 -> 時滯領域
+        _sig_ring(c, 0.5, 0.52, 0.44, G, 0.024)
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.40, 0.30, A, 0.020)
+    elif idx == 12:   # 鍊金 -> 鑄金坊 -> 賢者之塔
+        for k in range(3):
+            c.circle(0.24 + k * 0.10, 0.62 - k * 0.05, 0.038, (246, 206, 78, 255))
+        if tier >= 3:
+            _orb(c, 0.5, 0.20, 0.12, (255, 226, 120, 255))
+    elif idx == 13:   # 兵營 -> 要塞 -> 聖殿騎士團
+        _sig_banner(c, 0.20, 0.28, (208, 76, 68, 255))
+        if tier >= 3:
+            _sig_banner(c, 0.80, 0.24, (246, 214, 96, 255))
+    elif idx == 14:   # 迴旋鏢 -> 雙刃 -> 風暴之輪
+        _sig_ring(c, 0.5, 0.26, 0.30, A, 0.026)
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.26, 0.42, G, 0.020)
+    elif idx == 15:   # 荊棘 -> 食人花 -> 世界樹根
+        for k in range(5):
+            bx = 0.14 + k * 0.18
+            c.line([(bx, 0.62), (bx + 0.04, 0.34)], (120, 190, 90, 255), 0.024)
+        if tier >= 3:
+            c.circle(0.5, 0.26, 0.10, (168, 226, 110, 255))
+    elif idx == 16:   # 導彈 -> 多管火箭 -> 末日發射井
+        for k in range(3):
+            c.line([(0.26 + k * 0.20, 0.52), (0.30 + k * 0.20, 0.20)],
+                   (222, 92, 74, 255), 0.030)
+        if tier >= 3:
+            c.circle(0.5, 0.14, 0.075, (255, 120, 80, 255))
+    elif idx == 17:   # 詛咒 -> 夢魘之環 -> 虛空祭壇
+        _sig_ring(c, 0.5, 0.34, 0.38, (188, 120, 250, 255), 0.024)
+        if tier >= 3:
+            c.circle(0.5, 0.24, 0.12, (28, 14, 44, 255))
+            _sig_ring(c, 0.5, 0.24, 0.20, (208, 150, 255, 255), 0.020)
+    elif idx == 18:   # 聖光 -> 黎明聖壇 -> 神諭光柱
+        _sig_ring(c, 0.5, 0.30, 0.42, (255, 238, 180, 255), 0.026)
+        if tier >= 3:
+            # its own, wider light column — this tower's whole identity is the
+            # beacon, so it gets a bigger one than the generic tier-3 shaft
+            def beacon(l):
+                for hw, al in ((0.150, 34), (0.085, 60)):
+                    l.rect(0.5 - hw, 0.0, 0.5 + hw, 0.60, (255, 240, 190, al))
+            _behind(c, beacon)
+    elif idx == 19:   # 磁力 -> 斥力核心 -> 極性風暴
+        for sgn in (-1, 1):
+            c.circle(0.5 + sgn * 0.28, 0.32, 0.055,
+                     (226, 96, 88, 255) if sgn < 0 else (96, 156, 240, 255))
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.32, 0.40, G, 0.022)
+    elif idx == 20:   # 傳送 -> 空間裂隙 -> 時空樞紐
+        _sig_ring(c, 0.5, 0.34, 0.32, (186, 128, 252, 255), 0.026)
+        if tier >= 3:
+            _sig_ring(c, 0.5, 0.34, 0.44, (232, 208, 255, 255), 0.020)
+
+
+def _draw_tower_tier(c, idx, fn, tier):
+    accent = TIER_ACCENT[tier]
+    glow = TIER_GLOW[tier]
+    _tier_foundation(c, tier, accent)
+    fn(c)
+    _sig_towers(idx, c, tier, accent, glow)
+    _tier_flourish(c, tier, accent, glow)
+
+
 def gen_towers():
     n = 0
     for i, fn in enumerate(TOWERS, 1):
@@ -1931,6 +2186,11 @@ def gen_towers():
                      logical=TOWER_LOGICAL, outline=6)
         save(img, "towers", f"tower_{i}.png")
         n += 1
+        for tier in (2, 3):
+            timg = render(lambda c, i=i, fn=fn, t=tier: _draw_tower_tier(c, i, fn, t),
+                          TOWER_SIZE, logical=TOWER_LOGICAL, outline=6)
+            save(_tier_lift(timg, tier), "towers", f"tower_{i}_t{tier}.png")
+            n += 1
     return n
 
 
@@ -2126,6 +2386,46 @@ SPELLS = [sp_meteor, sp_lightning, sp_frost, sp_poison, sp_militia, sp_gold,
           sp_flamewall, sp_heavenbolt, sp_emp, sp_blackhole]
 
 
+# --- evolved spell icons ----------------------------------------------------
+# A spell icon is a FRAME plus a GLYPH, and the glyph is the spell's identity —
+# so evolution upgrades the frame and lifts the glyph, it does not redraw it.
+# The player has to tell tier apart in the quick bar at 44px while a fight is
+# running, which rules out anything subtle: the tier reads from the BORDER
+# (studded silver -> ornate gold) and from the corner pips (2 -> 3), both of
+# which survive being shrunk and both of which sit outside the glyph area.
+
+SPELL_TIER_RIM = {2: (206, 218, 236, 255), 3: (250, 208, 96, 255)}
+
+
+def _spell_tier_frame(c, tier):
+    rim = SPELL_TIER_RIM[tier]
+    # outer bevelled ring
+    c.d.rounded_rectangle([0.02 * c.s, 0.02 * c.s, 0.98 * c.s, 0.98 * c.s],
+                          radius=0.17 * c.s, outline=mix(rim, BLACK, 0.45),
+                          width=max(2, int(0.055 * c.s)))
+    c.d.rounded_rectangle([0.035 * c.s, 0.035 * c.s, 0.965 * c.s, 0.965 * c.s],
+                          radius=0.16 * c.s, outline=rim,
+                          width=max(2, int(0.030 * c.s)))
+    # corner studs: the tier count, placed where no glyph ever reaches
+    for cx_, cy_ in ((0.10, 0.10), (0.90, 0.10), (0.10, 0.90), (0.90, 0.90)):
+        c.circle(cx_, cy_, 0.052, mix(rim, BLACK, 0.35))
+        c.circle(cx_, cy_, 0.032, mix(rim, WHITE, 0.45))
+    if tier >= 3:
+        # ornate mid-edge fleurons + an inner gold hairline
+        for cx_, cy_ in ((0.5, 0.045), (0.5, 0.955), (0.045, 0.5), (0.955, 0.5)):
+            c.circle(cx_, cy_, 0.055, mix(rim, BLACK, 0.30))
+            c.circle(cx_, cy_, 0.032, WHITE)
+        c.d.rounded_rectangle([0.115 * c.s, 0.115 * c.s, 0.885 * c.s, 0.885 * c.s],
+                              radius=0.11 * c.s, outline=mix(rim, WHITE, 0.30),
+                              width=max(1, int(0.014 * c.s)))
+    # tier pips along the bottom edge — countable even at 44px
+    pips = tier
+    for k in range(pips):
+        px_ = 0.5 + (k - (pips - 1) / 2.0) * 0.13
+        c.circle(px_, 0.915, 0.040, mix(rim, BLACK, 0.55))
+        c.circle(px_, 0.910, 0.026, mix(rim, WHITE, 0.55))
+
+
 def gen_spells():
     n = 0
     for i, fn in enumerate(SPELLS, 1):
@@ -2135,6 +2435,13 @@ def gen_spells():
         img = c.img.resize((44, 44), Image.NEAREST)
         save(img, "spells", f"spell_{i}.png")
         n += 1
+        for tier in (2, 3):
+            tc = Canvas(264)
+            fn(tc)
+            _spell_tier_frame(tc, tier)
+            timg = _tier_lift(tc.img, tier).resize((44, 44), Image.NEAREST)
+            save(timg, "spells", f"spell_{i}_t{tier}.png")
+            n += 1
     return n
 
 

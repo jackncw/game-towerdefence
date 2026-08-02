@@ -847,6 +847,32 @@ def sfx_unlock():
     return bitcrush(seq(*notes), bits=6)
 
 
+def sfx_evolve():
+    """Evolution: the ceremony sound at the top of the whole meta ladder.
+
+    It has to out-rank sfx_unlock, and the only honest way to do that is to
+    build it from the SAME rising figure and then keep going — an unrelated
+    new motif would read as a different kind of event, not a bigger one. So:
+    sfx_unlock's four notes, then a fifth an octave above the last, held over
+    a swelling triangle chord and a bright noise shimmer that rises INTO the
+    final note instead of decaying out of it.
+
+    The rising shimmer is the part doing the work. Every other reward sound in
+    the game decays; this one gets louder on the way to its last note, which is
+    what makes it read as arrival rather than acknowledgement."""
+    notes = [square(note(n), 0.10, duty=0.25) * adsr(0.10, 0.005, 0.03, 0.7, 0.03)
+             for n in (72, 76, 79, 84)]
+    rise = seq(*notes)
+    d = 0.55
+    # final chord: root + fifth + octave, held
+    chord = sum(triangle(note(n), d) * adsr(d, 0.02, 0.10, 0.72, 0.20)
+                for n in (84, 91, 96)) / 3.0
+    # shimmer that swells INTO the chord (reverse percussion envelope)
+    shim = highpass(noise(d), 0.55) * perc(d, curve=3.0)[::-1] * 0.35
+    tail = mix(chord, shim)
+    return bitcrush(seq(rise, tail), bits=6)
+
+
 def sfx_boss_warning():
     """Boss klaxon: two rising alarm blasts with a gap between them, over a
     constant low drone. The drone (0.70s, longer than the two blasts plus
@@ -1148,6 +1174,7 @@ SOUNDS = {
     "sfx_crystal_gain": sfx_crystal_gain,
     "sfx_upgrade": sfx_upgrade,
     "sfx_unlock": sfx_unlock,
+    "sfx_evolve": sfx_evolve,
     "sfx_boss_warning": sfx_boss_warning,
     "sfx_base_danger": sfx_base_danger,
     "jingle_win": jingle_win,

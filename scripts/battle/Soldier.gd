@@ -21,6 +21,14 @@ var block_radius: float = 48.0
 var _cd: float = 0.0
 var alive: bool = false
 var life_time: float = -1.0   # summon soldiers can be permanent (-1) or timed
+## 要塞營地 (兵營 T2)「陣型」:兩個以上士兵企埋一齊,各自加甲加傷。
+var formation: bool = false
+## 聖殿騎士團 (兵營 T3)「不屈」:陣亡時原地爆一下,範圍傷害兼擊退。0 = 冇。
+var death_blast: float = 0.0
+## 召喚聖騎 (召喚 T2):首次致命傷免疫一次。
+var shielded: bool = false
+## 英靈殿軍 (召喚 T3):陣亡時把剩餘時間分畀其餘同袍。
+var share_life: bool = false
 
 ## Magic body: half-transparent, runes, a summoning circle, and a warning
 ## flicker before it expires.
@@ -46,8 +54,24 @@ func setup(b, r: PathRoute, dist_pos: float, hpv: float, dmgv: float, arm: float
 	alive = true
 	is_magic = magic
 	_age = 0.0
+	formation = false
+	death_blast = 0.0
+	shielded = false
+	share_life = false
 	z_index = 18
 	queue_redraw()
+
+## 陣型加成:附近有幾多個同袍。逐幀問一次 owner_tower 嘅名單而唔係全場掃 ——
+## 一個兵營最多幾個兵,而「陣型」講嘅本來就係同一個兵營嘅隊形。
+func _formation_allies() -> int:
+	if not formation or owner_tower == null or not is_instance_valid(owner_tower):
+		return 0
+	var n := 0
+	for sd in owner_tower.soldiers:
+		if sd != self and is_instance_valid(sd) and sd.alive \
+				and sd.global_position.distance_to(global_position) <= GameData.FORMATION_RADIUS:
+			n += 1
+	return n
 
 func _process(delta: float) -> void:
 	if not alive:
@@ -61,20 +85,47 @@ func _process(delta: float) -> void:
 	var m = battle.nearest_ground_monster_near(global_position, block_radius)
 	if m != null and m.is_alive():
 		m.rooted_time = maxf(m.rooted_time, 0.2)
+		var allies := _formation_allies()
+		var eff_armor: float = armor * (1.0 + GameData.FORMATION_ARMOR * allies)
+		var eff_dmg: float = dmg * (1.0 + GameData.FORMATION_DMG * allies)
 		# monster fights back
 		var mdps: float = (40.0 if m.is_boss else (5.0 + m.lvl * 3.0))
-		hp -= maxf(1.0, mdps - armor * 2.0) * delta
+		hp -= maxf(1.0, mdps - eff_armor * 2.0) * delta
 		_cd -= delta
 		if _cd <= 0.0:
 			_cd = 1.0 / rate
-			m.take_hit(dmg, "phys")
+			m.take_hit(eff_dmg, "phys")
 		if hp <= 0.0:
-			_die()
-			return
+			# 召喚聖騎 (召喚 T2):第一次致命傷擋得住,而且要睇得出佢擋咗
+			if shielded:
+				shielded = false
+				hp = max_hp * 0.35
+				battle.spawn_fx_ring(global_position, 52, Color(0.9, 0.95, 1.0))
+			else:
+				_die()
+				return
 	queue_redraw()
 
 func _die() -> void:
 	alive = false
+	# 聖殿騎士團 (兵營 T3)「不屈」:倒下嗰下唔係白死
+	if death_blast > 0.0 and battle != null:
+		for m in battle.monsters_in_radius(global_position, GameData.TEMPLAR_BLAST_RADIUS, false):
+			m.take_hit(death_blast, "phys")
+			m.displace(60.0, false)
+		battle.spawn_fx_burst(global_position, GameData.TEMPLAR_BLAST_RADIUS,
+			Color(1, 0.9, 0.6), 0.35)
+	# 英靈殿軍 (召喚 T3):剩返嘅時間分畀其他仲喺度嘅同袍。要有時間先分得 ——
+	# 一個因為打死咗而唔係到鐘先死嘅民兵,佢嗰份時間係真係剩返嘅。
+	if share_life and life_time > 0.0 and battle != null:
+		var mates: Array = []
+		for n in get_parent().get_children():
+			if n != self and n is Soldier and n.alive and n.share_life:
+				mates.append(n)
+		if not mates.is_empty():
+			var each: float = life_time / float(mates.size())
+			for n in mates:
+				n.life_time += each
 	if is_magic and battle != null:
 		# a summon leaves as it arrived, so an expiry is never a silent vanish
 		battle.spawn_fx_ring(global_position, 46, MAGIC_COL)

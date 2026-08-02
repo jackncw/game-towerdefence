@@ -42,8 +42,21 @@ var enemy_speed_mult: float = 1.0
 var _enemy_slow_time: float = 0.0
 var warcry_haste: float = 0.0
 var _warcry_time: float = 0.0
+## 戰吼 T2 攻擊力加成 / T3 真傷濺射。同 warcry_haste 一齊喺 _warcry_time 到期
+## 嗰陣清走 —— 三樣嘢係同一個 buff 嘅三隻手,分開計時就會出現「攻速冇咗但
+## 攻擊力仲喺度」呢種冇人講得出點解嘅狀態。
+var warcry_power: float = 0.0
+var warcry_splash: float = 0.0
 var midas_bonus: float = 0.0
 var midas_time: float = 0.0
+## 邁達斯權柄 (點金 T3):敵人每被打中一次掉幾多金。
+var midas_hit_gold: int = 0
+## 時之枷鎖 (時間扭曲 T2):敵人技能節拍嘅拖慢比例。Monster._tick_boss /
+## _tick_family 嘅計時器乘呢個 —— 「拖慢」對一個 boss 嚟講唔應該淨係腳步。
+var ability_slow: float = 0.0
+var ability_slow_time: float = 0.0
+## 不滅堡壘 (守護結界 T3):擋一隻回一層,直到呢個上限。
+var barrier_regen: int = 0
 
 ## Cycle order for the speed button. 0.5x is a genuine slow-motion tier for the
 ## dense late levels, so this is a float list — game_speed used to be an int and
@@ -362,14 +375,22 @@ func _process(delta: float) -> void:
 		_warcry_time -= delta
 		if _warcry_time <= 0.0:
 			warcry_haste = 0.0
+			warcry_power = 0.0
+			warcry_splash = 0.0
 	if midas_time > 0.0:
 		midas_time -= delta
 		if midas_time <= 0.0:
 			midas_bonus = 0.0
+			midas_hit_gold = 0
+	if ability_slow_time > 0.0:
+		ability_slow_time -= delta
+		if ability_slow_time <= 0.0:
+			ability_slow = 0.0
 	for k in spell_cd.keys():
 		if spell_cd[k] > 0.0:
 			spell_cd[k] = maxf(0.0, spell_cd[k] - delta)
 
+	_refresh_holy_aura()
 	_tick_curse_auras()
 	_spawn_logic(delta)
 	if boss_ref != null and is_instance_valid(boss_ref):
@@ -488,6 +509,13 @@ func on_monster_killed(m: Monster) -> void:
 	# there are already output towers killing things.
 	if m.curse_gold > 0.0:
 		g += int(round(m.gold * m.curse_gold))
+	# 虛空祭壇 (詛咒 T3):喺光環入面死亡就係一次獻祭。喺呢度入賬而唔係喺塔
+	# 嗰邊掃場:一隻怪死喺邊個光環入面,只有呢一刻知。
+	if m.curse_amp > 0.0:
+		for t in curse_towers:
+			if is_instance_valid(t) and t.has_method("add_void_charge") \
+					and m.global_position.distance_to(t.global_position) <= t.range_val:
+				t.add_void_charge(1.0)
 	if midas_bonus > 0.0:
 		g += int(m.gold * midas_bonus)
 	add_gold(g)
@@ -543,6 +571,12 @@ func on_reach_base(m: Monster) -> void:
 	sim_leak_flying = sim_leak_flying or m.flying
 	if base_shield > 0:
 		base_shield -= 1
+		# 不滅堡壘 (守護結界 T3):擋一隻回一層,直到 barrier_regen 用完。
+		# 有上限係關鍵 —— 冇上限嘅結界唔係一個法術,係一個結束咗嘅遊戲。
+		if barrier_regen > 0:
+			barrier_regen -= 1
+			base_shield += 1
+			spawn_fx_ring(base_pos, 130, Color(0.7, 0.92, 1.0))
 		spawn_fx_ring(base_pos, 90, Color(0.5, 0.8, 1.0))
 		_barrier_reflect_burst(m)
 		if not m.alive:
@@ -609,6 +643,28 @@ func target_closest_to_base(pos: Vector2, rng: float):
 			best = m
 	return best
 
+## 「優先巫師」。狙擊塔同導彈塔兩座都係遠程單體點名武器,而佢哋原本嘅選擇
+## 規則(最高血 / 最前)必然揀最肥或者最快嗰隻 —— 亦即係永遠唔會揀後排嗰個
+## 令佢哋全部都殺唔死嘅治療者。
+##
+## 呢個唔係一個新嘅選項介面,係一條硬規則:射程入面有支援型單位就打佢,
+## 冇先跌返落原本嘅規則。理由係「有得揀」呢件事本身就係問題 —— 玩家喺 5x
+## 之下唔會逐座塔開目標選單,而「後排治療者最重要」係一個永遠成立嘅答案,
+## 唔係一個情境判斷。
+func target_support_first(pos: Vector2, rng: float, fallback: Callable):
+	var best = null
+	var best_d := -1.0
+	var r2 := rng * rng
+	for m in monsters:
+		if not m.targetable() or not m.is_support():
+			continue
+		if pos.distance_squared_to(m.global_position) > r2:
+			continue
+		if m.dist > best_d:
+			best_d = m.dist
+			best = m
+	return best if best != null else fallback.call(pos, rng)
+
 func target_highest_hp(pos: Vector2, rng: float):
 	var best = null
 	var best_hp := -1.0
@@ -629,7 +685,7 @@ func monsters_in_radius(pos: Vector2, rng: float, flying_ok: bool) -> Array:
 	for m in monsters:
 		if not m.alive:
 			continue
-		if not flying_ok and m.flying:
+		if not flying_ok and m.is_airborne():
 			continue
 		if pos.distance_squared_to(m.global_position) <= r2:
 			out.append(m)
@@ -663,7 +719,7 @@ func nearest_ground_monster_near(pos: Vector2, radius: float):
 	var best = null
 	var best_d := radius * radius
 	for m in monsters:
-		if not m.alive or m.flying:
+		if not m.alive or m.is_airborne():
 			continue
 		var d := pos.distance_squared_to(m.global_position)
 		if d <= best_d:
@@ -767,14 +823,51 @@ func cultist_aura(src, radius: float, heal_amt: float, haste: float) -> void:
 		m.request_heal(heal_amt)
 		m.apply_haste(haste, 0.7)
 
-func holy_haste_at(pos: Vector2) -> float:
-	var total := 0.0
+## 聖光光環 —— **全圖**,冇半徑。
+##
+## 兩個回傳值(攻速加成、攻擊力加成)一次過計,而且逐幀只計一次(見
+## _refresh_holy_aura):舊版係每座塔每一次 get_rate() 都行一次
+## holy_towers 迴圈做距離比較,而個迴圈而家冇距離可以比,淨低嘅就係
+## 「四十三座塔每幀各自加一次同一條數」。
+##
+## 疊加遞減(GameData.HOLY_AURA_STACK)先係呢座塔嘅全部平衡:冇範圍限制之後
+## 唯一嘅決策就係「擺幾多座」,而遞減曲線就係嗰個決策嘅內容 —— 第二座抵、
+## 第五座唔抵。冇遞減嘅話正解永遠係「鋪滿聖光塔」,而一個只有一個正解嘅
+## 決策唔係決策。
+var holy_haste_total: float = 0.0
+var holy_power_total: float = 0.0
+
+func _refresh_holy_aura() -> void:
+	for i in range(holy_towers.size() - 1, -1, -1):
+		if not is_instance_valid(holy_towers[i]):
+			holy_towers.remove_at(i)
+	holy_haste_total = 0.0
+	holy_power_total = 0.0
+	if holy_towers.is_empty():
+		return
+	# 由強到弱排先,再乘遞減係數 —— 唔排嘅話「第二座」係邊座就取決於擺塔
+	# 次序,即係一座課滿嘅聖光塔可能因為擺得遲而淨係計三成。
+	var hastes: Array = []
+	var powers: Array = []
 	for h in holy_towers:
-		if not is_instance_valid(h):
-			continue
-		if pos.distance_to(h.global_position) <= h.s.aurarange:
-			total += h.s.aurahaste
-	return total
+		hastes.append(float(h.s.aurahaste))
+		powers.append(float(h.s.get("aurapower", 0.0)))
+	hastes.sort()
+	hastes.reverse()
+	powers.sort()
+	powers.reverse()
+	for i in hastes.size():
+		holy_haste_total += float(hastes[i]) * GameData.holy_stack_factor(i)
+	for i in powers.size():
+		holy_power_total += float(powers[i]) * GameData.holy_stack_factor(i)
+
+## `pos` 保留咗但唔再用 —— 全圖光環冇位置呢個概念。留住個簽名係為咗唔迫
+## 每一個呼叫端一齊改,而個參數名改成 _pos 令「呢個參數而家冇作用」讀得出。
+func holy_haste_at(_pos: Vector2) -> float:
+	return holy_haste_total
+
+func holy_power_at(_pos: Vector2) -> float:
+	return holy_power_total
 
 # ---------------------------------------------------------------------------
 # spawn helpers (pooled)
@@ -820,6 +913,60 @@ func on_projectile_hit(proj: Projectile) -> void:
 		if pl.has("effects"):
 			for e in pl.effects:
 				_apply_effect(m, e)
+	# --- 進化機制:全部接喺一次命中之後,唔係散落喺二十個 _fire_* 度 -------
+	# 每一個都需要「命中之後嗰個現場」(邊啲人中咗、邊個位),而嗰樣嘢只有
+	# 呢度知。放喺 Tower 就要將 targets 傳返出去,即係將呢個 function 抄一次。
+	if pl.has("double_blast"):
+		# 雙管砲塔 T2:同一個落點爆第二次,範圍更闊傷害減半
+		for m in monsters_in_radius(proj.position, splash * 1.4, true):
+			if m.alive:
+				m.take_hit(dmg * 0.5, dtype, armorpen)
+		spawn_fx_burst(proj.position, splash * 1.4, Color(1, 0.7, 0.3), 0.25)
+	if pl.has("armor_break"):
+		# 攻城巨砲 T3:破城彈,場內永久削甲(用 shred 但唔設限時)
+		for m in monsters_in_radius(proj.position, maxf(splash, 40.0), true):
+			if m.alive:
+				m.apply_shred(minf(m.shred_armor + float(pl.armor_break),
+					GameData.SIEGE_ARMOR_BREAK_MAX), m.shred_mres, 9999.0)
+	if pl.has("spread_burn"):
+		# 炎魔祭壇 T3:引爆把燃燒傳染出去
+		var b: Dictionary = pl.spread_burn
+		for m in monsters_in_radius(proj.position, maxf(splash, 60.0), true):
+			if m.alive:
+				m.apply_burn(float(b.dps), float(b.dur))
+	if pl.has("ember"):
+		# 煉獄塔 T2:燒緊嘅嘢死喺邊,邊度就留一灘火
+		var e: Dictionary = pl.ember
+		for m in targets:
+			if not m.alive and m.burn_time > 0.0:
+				spawn_hazard(m.global_position, float(e.radius), float(e.dps),
+					float(e.dur), Hazard.Kind.DOT, Color(1, 0.55, 0.2), true)
+				break
+	if pl.has("plague"):
+		# 瘟疫塔 T2:滿層嘅屍體把整疊毒傳畀最近幾隻
+		var pg: Dictionary = pl.plague
+		for m in targets:
+			if not m.alive and m.poison_stacks >= int(pg.max):
+				var n := 0
+				for o in monsters_in_radius(m.global_position, 140.0, true):
+					if o == m or not o.alive:
+						continue
+					o.apply_poison(float(pg.dmg), int(pg.max), int(pg.max), 4.0)
+					n += 1
+					if n >= int(pg.targets):
+						break
+				break
+	if pl.has("pierce_line"):
+		# 神射殿 T3:貫穿沿途一條線
+		var dir: Vector2 = (proj.position - proj._start).normalized()
+		for m in monsters:
+			if not m.alive or targets.has(m):
+				continue
+			var rel: Vector2 = m.global_position - proj._start
+			if rel.dot(dir) <= 0.0:
+				continue
+			if absf(rel.cross(dir)) <= GameData.PIERCE_LINE_WIDTH:
+				m.take_hit(dmg, dtype, armorpen)
 	# fragment splits
 	if pl.get("frag", 0) > 0:
 		for i in int(pl.frag):
@@ -832,9 +979,25 @@ func _apply_effect(m, e: Dictionary) -> void:
 		"slow": m.apply_slow(e.factor, e.dur)
 		"freeze": m.apply_freeze(e.dur)
 		"burn": m.apply_burn(e.dps, e.dur)
-		"poison": m.apply_poison(e.dmg, e.stacks, e.max, e.dur)
+		"poison": m.apply_poison(e.dmg, e.stacks, e.max, e.dur, e.get("rot", 0.0))
 		"stun": m.apply_stun(e.dur)
 		"vuln": m.apply_vuln(e.amp, e.dur)
+		"healcut": m.apply_heal_cut(e.cut, e.dur)
+		"frostbite": m.add_frostbite(e.amount)
+		"shred": m.apply_shred(e.get("armor", 0.0), e.get("mres", 0.0), e.dur)
+
+## 沿住路面嘅一段路,而唔係一個圓 —— 世界樹根 (荊棘 T3) 用。用路程距離
+## (Monster.dist)做比較,所以佢跟得住彎位,唔會喺 U 形路上面隔住條路
+## 打到對面嗰半。
+func monsters_on_road_near(pos: Vector2, span: float) -> Array:
+	var centre: float = route.nearest_dist_param(pos)
+	var out := []
+	for m in monsters:
+		if not m.alive or m.flying:
+			continue
+		if absf(m.dist - centre) <= span:
+			out.append(m)
+	return out
 
 ## `magic` picks the 魔法民兵 body (hooded, timed, runed) over the barracks
 ## trooper. It is explicit rather than inferred from `tower == null`, because a
@@ -845,11 +1008,11 @@ func spawn_soldier(dist_pos: float, hp: float, dmg: float, armor: float, tower =
 	sd.life_time = life
 	return sd
 
-func spawn_hazard(pos: Vector2, radius: float, dps: float, dur: float, kind: int, col: Color, ground_only: bool) -> void:
+func spawn_hazard(pos: Vector2, radius: float, dps: float, dur: float, kind: int, col: Color, ground_only: bool, extra := {}) -> void:
 	# pooled like everything else — miasma / firewall / blackhole used to
 	# instantiate and queue_free a node per cast
 	var h: Hazard = hazard_pool.acquire()
-	h.setup(self, pos, radius, dps, dur, kind, col, ground_only, hazard_pool)
+	h.setup(self, pos, radius, dps, dur, kind, col, ground_only, hazard_pool, extra)
 
 # Damage numbers are Labels — the most expensive node in the battle, because
 # every setup() re-shapes text. Unbounded, a saturated 5x fight pushed the pool

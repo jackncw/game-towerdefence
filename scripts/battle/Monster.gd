@@ -48,6 +48,20 @@ var poison_tick: float = 0.0
 var curse_amp: float = 0.0
 var curse_time: float = 0.0
 var curse_gold: float = 0.0       # 詛咒塔「掉金加成」carried by the curse (fraction)
+## 重傷 —— 所受治療嘅減免 (0..1)。巫教族反制嘅共同貨幣。
+##
+## 做成一個**通用狀態**而唔係逐個機制各寫一套,理由同 boss 回復上限一樣:
+## 全部治療都經 request_heal(),所以將來加嘅任何治療來源自動受制,唔使人記得
+## 返嚟補。毒液塔嘅「重傷」同劇毒瘴氣兩邊寫入嘅係同一個欄位,取最大值 ——
+## 兩個減療疊到 130% 就變成「打中就永遠回唔到」,而嗰個唔係一個狀態,係一個
+## 免疫。
+var heal_cut: float = 0.0
+var heal_cut_time: float = 0.0
+## 削甲蝕魔(光束塔)。護甲同魔抗各自扣,唔係轉成易傷 —— 易傷對一個
+## 魔抗 25 嘅幽靈完全冇講到「你嘅魔法而家打得穿佢」呢件事。
+var shred_armor: float = 0.0
+var shred_mres: float = 0.0
+var shred_time: float = 0.0
 # Bumped on every pool acquire. Projectiles/boomerangs capture it so a recycled
 # node can't be mistaken for the monster they were originally aimed at.
 var serial: int = 0
@@ -123,6 +137,9 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	slow_factor = 0.0; slow_time = 0.0; freeze_time = 0.0; stun_time = 0.0; rooted_time = 0.0
 	burn_dps = 0.0; burn_time = 0.0; poison_stacks = 0; poison_dmg = 0.0; poison_time = 0.0
 	curse_amp = 0.0; curse_time = 0.0; curse_gold = 0.0
+	heal_cut = 0.0; heal_cut_time = 0.0
+	shred_armor = 0.0; shred_mres = 0.0; shred_time = 0.0
+	buff_lock_time = 0.0; ground_time = 0.0; frostbite = 0.0; rot_total = 0.0
 	vuln_amp = 0.0; vuln_time = 0.0; invuln_time = 0.0
 	serial = _next_serial
 	_next_serial += 1
@@ -238,6 +255,17 @@ func _tick_status(delta: float) -> void:
 		if curse_time <= 0.0:
 			curse_amp = 0.0
 			curse_gold = 0.0
+	if heal_cut_time > 0.0:
+		heal_cut_time -= delta
+		if heal_cut_time <= 0.0:
+			heal_cut = 0.0
+	if shred_time > 0.0:
+		shred_time -= delta
+		if shred_time <= 0.0:
+			shred_armor = 0.0
+			shred_mres = 0.0
+	if buff_lock_time > 0.0:
+		buff_lock_time -= delta
 	if vuln_time > 0.0:
 		vuln_time -= delta
 		if vuln_time <= 0.0: vuln_amp = 0.0
@@ -338,6 +366,13 @@ func begin_heal_channel(frac: float, secs: float) -> void:
 func request_heal(amount: float, immediate := false) -> float:
 	if not alive or amount <= 0.0 or hp >= max_hp:
 		return 0.0
+	# 重傷喺呢度收數,唔係喺每個治療來源度 —— 一個 enforcement point,
+	# 同 boss 回復上限一樣。詠唱嗰種「玩家有窗口去否決」嘅治療同樣受制:
+	# 佢係一個可以被打斷嘅治療,唔係一條免疫規則。
+	if heal_cut_time > 0.0 and heal_cut > 0.0:
+		amount *= maxf(0.0, 1.0 - heal_cut)
+		if amount <= 0.0:
+			return 0.0
 	if is_boss and not immediate:
 		var room: float = GameData.boss_heal_cap_per_sec(max_hp) * GameData.BOSS_HEAL_QUEUE_SECONDS
 		heal_pending = minf(heal_pending + amount, room)
@@ -376,7 +411,25 @@ func _flush_heal_number(delta: float) -> void:
 	_heal_bank = 0.0
 	_heal_bank_t = 0.0
 
+## 世界崩塌 (地震術 T3) 把飛行單位震落地面一段時間。用一個計時器而唔係改
+## `flying`:`flying` 係身分(圖鑑、刷怪、族群邏輯全部讀佢),而「而家跌咗
+## 落地」係一個狀態。is_airborne() 先係戰鬥判定應該問嘅嘢。
+var ground_time: float = 0.0
+
+func is_airborne() -> bool:
+	return flying and ground_time <= 0.0
+
+## 技能節拍嘅拖慢比例(時之枷鎖)。boss_timer / phase_cd 全部經呢度,
+## 所以「拖慢」對一個 boss 嚟講唔係淨係腳步慢咗。
+func _ability_dt(delta: float) -> float:
+	if battle.ability_slow <= 0.0:
+		return delta
+	return delta * maxf(0.05, 1.0 - battle.ability_slow)
+
 func _tick_family(delta: float) -> void:
+	if ground_time > 0.0:
+		ground_time -= delta
+	delta = _ability_dt(delta)
 	match mech:
 		"phase":
 			if phase_time > 0.0:
@@ -390,12 +443,18 @@ func _tick_family(delta: float) -> void:
 					phase_cd = 5.0
 					sprite.modulate.a = 0.4
 		"aura":
+			# 暈眩期間光環失效 —— 磁暴脈衝嘅答案。一個被電暈嘅巫師唔應該
+			# 繼續一秒兩次咁幫全隊回血;而喺呢度攔截,即係「暈眩」呢個狀態
+			# 對所有將來嘅光環都自動有效,唔使逐個機制寫一次。
+			if stun_time > 0.0 or freeze_time > 0.0:
+				return
 			boss_timer -= delta
 			if boss_timer <= 0.0:
 				boss_timer = 0.6
 				battle.cultist_aura(self, 150.0, max_hp * 0.03, 0.25)
 
 func _tick_boss(delta: float) -> void:
+	delta = _ability_dt(delta)
 	match boss_mech:
 		"summon":
 			boss_timer -= delta
@@ -414,6 +473,9 @@ func _tick_boss(delta: float) -> void:
 				boss_timer = 5.0
 				dive_time = 2.0
 		"mass_heal":
+			# 同 "aura" 一樣:大祭司被電暈嗰陣,群療停。
+			if stun_time > 0.0 or freeze_time > 0.0:
+				return
 			boss_timer -= delta
 			if boss_timer <= 0.0:
 				boss_timer = 7.0
@@ -443,14 +505,14 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 		return
 	var d := dmg
 	if dtype == "phys":
-		var a: float = maxf(0.0, armor * (1.0 - armorpen))
+		var a: float = maxf(0.0, (armor - shred_armor) * (1.0 - armorpen))
 		d *= (1.0 - a / (a + 50.0))
 		# MEASUREMENT ONLY (Battle.sim_*): two float adds, so the balance harness can
 		# tell "armour is eating my shots" apart from "magic resistance is".
 		battle.sim_raw_phys += dmg
 		battle.sim_out_phys += d
 	elif dtype == "magic":
-		d *= (1.0 - mres / (mres + 60.0))
+		d *= (1.0 - maxf(0.0, mres - shred_mres) / (maxf(0.0, mres - shred_mres) + 60.0))
 		battle.sim_raw_magic += dmg
 		battle.sim_out_magic += d
 	# amplifiers
@@ -467,6 +529,15 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	_spend_channel(d)
 	hp -= d
 	battle.damage_dealt += minf(d, maxf(0.0, hp + d))
+	# 戰神降臨 (戰吼 T3):所有塔嘅攻擊附帶真傷濺射。喺呢度做而唔係喺每個
+	# _fire_* 度做 —— 「所有攻擊」呢句嘢只有傷害落地嗰一刻先真係知道。
+	if battle.warcry_splash > 0.0 and dtype != "true":
+		for o in battle.monsters_in_radius(global_position, 70.0, true):
+			if o != self and o.alive:
+				o._deal_dot(d * battle.warcry_splash, Color(1, 0.85, 0.4))
+	# 邁達斯權柄 (點金 T3):敵人每被打中一次就掉一點金
+	if battle.midas_hit_gold > 0:
+		battle.gold += battle.midas_hit_gold
 	_flash()
 	Audio.play_hit(armor, mres)
 	var big := d >= max_hp * 0.18 and d >= 40.0
@@ -555,7 +626,23 @@ func apply_slow(factor: float, dur: float) -> void:
 		slow_factor = factor
 	slow_time = maxf(slow_time, dur)
 
+## 凍傷(極寒塔 T2)。減速期間一層一層咁儲,凍結成立嗰刻一次過爆成真傷。
+## 儲喺目標身上而唔係塔身上:一隻俾三座極寒塔輪住打嘅怪應該食晒三座嘅凍傷,
+## 而唔係只計最後嗰座。
+var frostbite: float = 0.0
+
+func add_frostbite(amount: float) -> void:
+	if slow_time > 0.0 or freeze_time > 0.0:
+		frostbite += amount
+
 func apply_freeze(dur: float) -> void:
+	if frostbite > 0.0:
+		var burst: float = frostbite
+		frostbite = 0.0
+		battle.spawn_fx_burst(global_position, size * 0.9, Color(0.7, 0.95, 1.0), 0.3)
+		take_hit(burst, "true")
+		if not alive:
+			return
 	if is_boss:
 		apply_slow(0.6, dur)
 	else:
@@ -570,10 +657,25 @@ func apply_burn(dps: float, dur: float) -> void:
 	burn_dps = maxf(burn_dps, dps)
 	burn_time = maxf(burn_time, dur)
 
-func apply_poison(dmg: float, stacks_add: int, maxstacks: int, dur: float) -> void:
+## `rot` = 腐化聖殿 (毒 T3):毒層每滿一批,生命上限永久跌一截。max_hp 真係
+## 跌落去,唔係扮嘢加傷害 —— 血條要真係短咗,玩家先睇得出「呢隻嘢俾我蝕緊」。
+var rot_total: float = 0.0
+
+func apply_poison(dmg: float, stacks_add: int, maxstacks: int, dur: float, rot := 0.0) -> void:
 	poison_dmg = maxf(poison_dmg, dmg)
+	var before := poison_stacks
 	poison_stacks = mini(maxstacks, poison_stacks + stacks_add)
 	poison_time = maxf(poison_time, dur)
+	if rot > 0.0 and poison_stacks >= maxstacks and before < maxstacks \
+			and rot_total < GameData.ROT_MAX_TOTAL:
+		var step: float = minf(rot, GameData.ROT_MAX_TOTAL - rot_total)
+		rot_total += step
+		max_hp = maxf(1.0, max_hp * (1.0 - step))
+		hp = minf(hp, max_hp)
+		_drawn_frac = -1.0
+		queue_redraw()
+		if hp <= 0.0:
+			_die(false)
 
 ## Applied every frame by Battle._tick_curse_auras while this monster stands in a
 ## 詛咒塔 aura. `dur` is the linger time, so walking out of the circle keeps the
@@ -589,9 +691,37 @@ func apply_vuln(amp: float, dur: float) -> void:
 	vuln_amp = maxf(vuln_amp, amp)
 	vuln_time = maxf(vuln_time, dur)
 
+## 重傷。兩個來源(毒液塔 / 劇毒瘴氣)取**最大值**唔係相加:兩個減療疊到
+## 130% 就唔再係一個狀態,係一條「打中就永遠回唔到」嘅免疫規則,而嗰個會令
+## 巫教族由「難打」變成「冇存在意義」。
+func apply_heal_cut(cut: float, dur: float) -> void:
+	heal_cut = clampf(maxf(heal_cut, cut), 0.0, 0.95)
+	heal_cut_time = maxf(heal_cut_time, dur)
+
+func apply_shred(armor_amt: float, mres_amt: float, dur: float) -> void:
+	shred_armor = maxf(shred_armor, armor_amt)
+	shred_mres = maxf(shred_mres, mres_amt)
+	shred_time = maxf(shred_time, dur)
+
+## 增益封鎖(磁暴脈衝 tier 3)。封鎖期間 apply_haste 直接被丟掉。
+var buff_lock_time: float = 0.0
+
+func apply_buff_lock(dur: float) -> void:
+	buff_lock_time = maxf(buff_lock_time, dur)
+	haste_amp = 0.0
+	haste_time = 0.0
+	enrage_time = 0.0
+
 func apply_haste(amp: float, dur: float) -> void:
+	if buff_lock_time > 0.0:
+		return
 	haste_amp = maxf(haste_amp, amp)
 	haste_time = maxf(haste_time, dur)
+
+## 「支援型單位」——靠光環撐住同伴嗰啲。狙擊 / 導彈嘅優先目標、天雷誅殺同
+## 黎明聖壇嘅增傷全部問呢一條,所以「邊個算支援」只有一個定義。
+func is_support() -> bool:
+	return GameData.is_support_mech(mech, boss_mech)
 
 func heal(frac: float) -> void:
 	request_heal(max_hp * frac)

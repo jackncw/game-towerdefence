@@ -252,7 +252,8 @@ func _make_spell_card(id: int, cell: float) -> Control:
 	btn.add_theme_stylebox_override("normal", UI.frame_box("slot9", 14, 6, 6))
 	btn.add_theme_stylebox_override("hover", UI.frame_box("slot9", 14, 6, 6, Color(1.2, 1.2, 1.2)))
 	btn.add_theme_stylebox_override("pressed", UI.frame_box("slot9", 14, 6, 6, Color(0.8, 0.8, 0.8)))
-	btn.tooltip_text = "%s\n%s" % [tr(def.name), tr(def.desc)]
+	var tier: int = Meta.spell_tier(id)
+	btn.tooltip_text = "%s\n%s" % [tr(GameData.tier_name(def, false, tier)), tr(def.desc)]
 	# same drag-from-card path as tower cards; card_press handles instant vs
 	# targeted spells and ignores presses while on cooldown.
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, true))
@@ -265,6 +266,11 @@ func _make_spell_card(id: int, cell: float) -> Control:
 	cover.size = Vector2(cell, cell)
 	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(cover)
+	# 魔法卡冇位擺一行字,所以階級全靠 icon 本身(底色 / 邊框已經跟階演進)
+	# 加呢排星。放喺左上角:右下角係冷卻秒數嘅位。
+	var pips := UI.tier_pips(tier, 12.0)
+	pips.position = Vector2(5, 4)
+	btn.add_child(pips)
 	var cd_label := UI.label("", int(cell * 0.34), Color.WHITE)
 	cd_label.position = Vector2(0, cell * 0.3)
 	cd_label.size = Vector2(cell, cell * 0.4)
@@ -386,7 +392,8 @@ func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
 		btn.pressed.connect(func(): _set_drawer(true))
 		return btn
 	var def := GameData.tower_by_id(id)
-	btn.tooltip_text = "%s\n%s" % [tr(def.name), tr(def.desc)]
+	var tier: int = Meta.tower_tier(id)
+	btn.tooltip_text = "%s\n%s" % [tr(GameData.tier_name(def, true, tier)), tr(def.desc)]
 	# 同抽屜卡行同一條手勢鏈。快捷列唔係抽屜,所以 _over_drawer 唔會否決,
 	# _set_drawer(false) 係 no-op —— 個手勢由頭到尾就係一下。
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, false))
@@ -394,6 +401,9 @@ func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
 	icon.position = Vector2((cw - 60.0) * 0.5, 4)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(icon)
+	var pips := UI.tier_pips(tier, 13.0)
+	pips.position = Vector2(cw - pips.size.x - 5.0, 4)
+	btn.add_child(pips)
 	var coin := UI.tex_rect(Assets.coin(), Vector2(22, 22))
 	coin.position = Vector2(cw * 0.5 - 36.0, 70)
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -440,6 +450,7 @@ func _over_drawer(screen: Vector2) -> bool:
 
 func _make_build_card(id: int, card_w: float) -> Control:
 	var def := GameData.tower_by_id(id)
+	var tier: int = Meta.tower_tier(id)
 	var btn := Button.new()
 	btn.size = Vector2(card_w, DRAWER_CARD_H)
 	btn.custom_minimum_size = btn.size
@@ -471,7 +482,10 @@ func _make_build_card(id: int, card_w: float) -> Control:
 	nbox.clip_contents = true
 	nbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(nbox)
-	var nm := UI.label(tr(def.name), 24, UI.TEXT)
+	var pips := UI.tier_pips(tier, 14.0)
+	pips.position = Vector2(card_w - pips.size.x - 8.0, 6)
+	btn.add_child(pips)
+	var nm := UI.label(tr(GameData.tier_name(def, true, tier)), 24, UI.TEXT)
 	nm.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	nm.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -669,7 +683,7 @@ func show_tower_panel(t) -> void:
 	# selecting a placed tower means the player is done browsing
 	_set_drawer(false)
 	tower_panel.visible = true
-	tower_panel_name.text = tr(t.def.name)
+	tower_panel_name.text = tr(GameData.tier_name(t.def, true, t.tier))
 	sell_btn.text = tr("HUD_SELL_VALUE").format({"n": t.sell_value()})
 
 func _flash_card(btn: Button) -> void:

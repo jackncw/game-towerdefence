@@ -212,6 +212,31 @@ func _detail_panel(fam: String, slot: int) -> Control:
 	mech.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	mbox.add_child(mech)
 
+	# 剋制提示。淨係喺有寫過剋制法嘅族出現 —— 一句「用你有嘅嘢打佢」對每一族
+	# 都成立,而一條對每一族都成立嘅提示等於冇提示。
+	var counter_key := "FAM_%s_COUNTER" % fam.to_upper()
+	if tr(counter_key) != counter_key:
+		var ct := UI.label(tr("BESTIARY_COUNTER"), 32, UI.ACCENT.lightened(0.15))
+		ct.position = Vector2(66, 790 if boss else 600 + 190)
+		ct.size = Vector2(880, 44)
+		panel.add_child(ct)
+		var cbox := Control.new()
+		cbox.position = Vector2(66, (842 if boss else 600 + 242))
+		cbox.size = Vector2(872, 150)
+		cbox.clip_contents = true
+		panel.add_child(cbox)
+		var cd2 := UI.label(tr(counter_key), 26, Color(0.86, 0.96, 0.86))
+		cd2.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		cd2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		cd2.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		cbox.add_child(cd2)
+		# 加咗一段就要加返高度,唔係就會有一段字被剪走喺板外面
+		panel.size.y += 210
+		if boss:
+			# boss 頁嘅「首領技能」原本就佔住 790 起嗰段,剋制推落佢下面
+			ct.position.y = 1010
+			cbox.position.y = 1062
+
 	if boss:
 		var bt := UI.label(tr("BESTIARY_BOSS_SKILL"), 32, UI.DANGER.lightened(0.25))
 		bt.position = Vector2(66, 790); bt.size = Vector2(880, 44)

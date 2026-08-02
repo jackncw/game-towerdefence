@@ -9,7 +9,7 @@
 | 階段 | 結果 |
 |---|---|
 | A 閃退 | **冇喺任何環境重現到**。查嘅過程、排除咗嘅假設、同埋而家常設嘅取證手段全部喺 §1。順手修好一個真 bug、剷咗 `.godot` 全量 reimport 驗過 cache 冇壞、關咗兩個 round 9 遺留項目。36 場連續戰鬥 exit 0。 |
-| B 巫教反制 | 六個,塔三個魔法三個,全部係**削治療 / 熄光環**,冇一個係加傷害。24 條斷言。 |
+| B 巫教反制 | 六個,塔三個魔法三個,全部係**削治療 / 熄光環**,冇一個係加傷害。36 條斷言。 |
 | C 聖光塔 | 全圖光環 + 遞減疊加 + 新軸「聖光強度」+ 存檔 v2 全額退款 + 全場視覺表現。 |
 | D 進化系統 | 105 項 tier 表(由資料 dump),**70 個新機制全部實裝**,40 塔 sprite + 30 魔法 icon,存檔欄位,升級介面進化區,儀式演出,專屬音效。 |
 | E 收尾 | 25 個測試全綠,art_export 61 張自審,web 重建,BALANCE_CHANGELOG 續寫。 |
@@ -244,8 +244,8 @@ C(N) 之所以係凹嘅,係因為升級價曲線本身係兩段。模型跟返�
 | 測試 | 結果 |
 |---|---|
 | SoakTest(新) | `SOAK PASS rounds=30 battles=36 flow=6` |
-| CounterTest(新) | `COUNTER PASS fails=0`(24 條) |
-| EvolveTest(新) | `EVOLVE PASS fails=0`(48 條,包括介面實撳嘅完整流程) |
+| CounterTest(新) | `COUNTER PASS fails=0`(36 條) |
+| EvolveTest(新) | `EVOLVE PASS fails=0`(49 條,包括介面實撳嘅完整流程) |
 | I18nTest | `1003 passed, 0 failed`(round 9 係 688) |
 | AudioHookTest | `PASS fails=0`(65 個註冊音全部有人派) |
 | 其餘 20 個 | 全部 PASS |

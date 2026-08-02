@@ -3,6 +3,10 @@ extends Node
 
 var selected_level: int = 1
 var last_result: Dictionary = {}   # filled by Battle before entering Result/Fail
+## 圖鑑撳一張卡就跳去升級介面,而且要落喺嗰件嘢上面。
+## {"type": "tower"/"spell", "id": n};升級介面讀完即刻清走 —— 佢係一次性嘅
+## 導航意圖,唔係一個「上次揀咗邊個」嘅記憶。
+var upgrade_focus: Dictionary = {}
 
 const MAIN_MENU := "res://scenes/MainMenu.tscn"
 const LEVEL_SELECT := "res://scenes/LevelSelect.tscn"

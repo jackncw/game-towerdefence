@@ -1,4 +1,5 @@
 extends Control
+class_name Upgrade
 ## Upgrade screen (round-4 redo) — vertical five-zone layout after upgradeUI.jpg:
 ##   1 showcase (element backdrop + platform + big tower render + name/desc)
 ##   2 performance panel (icon + relative stat bars, real upgraded values)
@@ -93,7 +94,26 @@ func _ready() -> void:
 	# a corrupt/empty save must not crash the screen (load_game already falls back
 	# to the starting set, this is the last line of defence)
 	sel_id = Meta.unlocked_towers[0] if not Meta.unlocked_towers.is_empty() else 1
+	_apply_focus()
 	_rebuild()
+
+## 由圖鑑撳過嚟嘅話,落喺嗰件嘢上面。讀完清走 —— 下次由主選單入嚟就照舊
+## 由第一件開始,唔係接住上次。
+##
+## 未解鎖嘅嘢照樣唔會被揀中:圖鑑俾你望未買嘅塔,但升級介面淨係處理你有嘅嘢,
+## 而一個「揀咗一件你冇嘅嘢」嘅升級介面會喺 _levels() 度攞到一堆冇意義嘅數。
+func _apply_focus() -> void:
+	var f := Flow.upgrade_focus
+	Flow.upgrade_focus = {}
+	if f.is_empty():
+		return
+	var t := String(f.get("type", "tower"))
+	var id := int(f.get("id", 0))
+	var owned: Array = Meta.unlocked_towers if t == "tower" else Meta.unlocked_spells
+	if not owned.has(id):
+		return
+	sel_type = t
+	sel_id = id
 
 # ---------------------------------------------------------------------------
 ## 全部軸都喺某一級嘅等級向量。
@@ -372,8 +392,9 @@ func box_height(def: Dictionary) -> float:
 	var n: int = def.ups.size()
 	if sel_type == "tower":
 		n = 4 + (1 if _signature_stat(def) != "" else 0)
-	# +38: 刻度圖例嗰行
-	return 20 + 52 + n * UI.STAT_BAR_H + 56 + 38 + 30
+	# +84: 刻度圖例。英文係兩行(繁中一行),而高度要按最長嗰個語言訂 ——
+	# 按最短嗰個訂就會喺英文版度俾板底切走半行。
+	return 20 + 52 + n * UI.STAT_BAR_H + 56 + 84 + 30
 
 ## 一條跨三階刻度嘅 bar。
 ##
@@ -424,8 +445,9 @@ static func _log_frac(v: float, lo: float, hi: float) -> float:
 ## bar 底三段分區代表乜。冇呢行嘅話啲淺色格就係裝飾。
 func _scale_legend() -> Control:
 	var l := UI.label(tr("UPG_SCALE_LEGEND"), 20, UI.TEXT_DIM)
-	l.custom_minimum_size = Vector2(940, 34)
+	l.custom_minimum_size = Vector2(940, 76)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	return l
 
 func _signature_stat(def: Dictionary) -> String:

@@ -145,6 +145,7 @@ func _run() -> void:
 	Meta.seen = {}
 	await _shoot_scene("res://scenes/Bestiary.tscn", "08b_bestiary_locked")
 	Meta.seen = keep_seen
+	await _shoot_catalogue()
 	Flow.last_result = {"win": true, "level": 3, "kills": 48, "crystals": 130,
 		"base": 60, "first": 70, "replay": false}
 	await _shoot_scene("res://scenes/Result.tscn", "09_result")
@@ -225,6 +226,44 @@ func _shoot_curse_aura() -> void:
 	await _grab("02c_curse_aura")
 
 # --- upgrade screen: a few towers/spell, top + scrolled (mechanic diagrams) --
+## 圖鑑嘅塔頁 / 魔法頁 (round 11)。
+##
+## 影三個擁有狀態,因為佢哋喺卡上面係三個唔同嘅版式,而版式先係要驗嘅嘢:
+## 全解鎖(數值 + 六條軸全彩)、有進化過(演進鏈前面幾格全彩、後面剪影)、
+## 未解鎖(剪影 + 解鎖價,冇任何數值)。英文嗰版另外影一次 —— tier 名喺英文
+## 長成兩倍,而演進鏈得三格 314px 闊。
+func _shoot_catalogue() -> void:
+	var keep_t: Array = Meta.unlocked_towers.duplicate()
+	var keep_s: Array = Meta.unlocked_spells.duplicate()
+	var b: Node = load("res://scenes/Bestiary.tscn").instantiate()
+	await _mount(b)
+	b._switch_tab("tower")
+	for i in 6:
+		await get_tree().process_frame
+	await _grab("27_bestiary_towers")
+	# 一件進化過嘅嘢:演進鏈上面「行到邊」先係呢一頁最想講嘅嘢
+	Meta.tower_tiers["1"] = 2
+	Meta.tower_up["1"] = [15, 15, 9, 3, 0, 0]
+	b._rebuild()
+	for i in 6:
+		await get_tree().process_frame
+	await _grab("27b_bestiary_towers_evolved")
+	b._switch_tab("spell")
+	for i in 6:
+		await get_tree().process_frame
+	await _grab("27c_bestiary_spells")
+	# 未解鎖嘅版式:剪影 + 解鎖價,冇數值
+	Meta.unlocked_towers = [1, 2]
+	Meta.unlocked_spells = [1]
+	b._switch_tab("tower")
+	for i in 6:
+		await get_tree().process_frame
+	await _grab("27d_bestiary_towers_locked")
+	Meta.unlocked_towers = keep_t
+	Meta.unlocked_spells = keep_s
+	Meta.tower_tiers.clear()
+	Meta.tower_up.erase("1")
+
 func _shoot_upgrades() -> void:
 	var up: Node = load("res://scenes/Upgrade.tscn").instantiate()
 	await _mount(up)
@@ -289,6 +328,25 @@ func _shoot_upgrades() -> void:
 	Meta.tower_up.erase("17")
 	Meta.tower_up.erase("7")
 	Meta.spell_up.erase("13")
+
+	# --- 效能面板嘅跨三階刻度 (round 11) --------------------------------------
+	# 三張,而佢哋要影嘅唔係「數字啱唔啱」係「條 bar 講唔講到嘢」:
+	#   tier 1 初期   —— 三段分區入面第一段都未行完,後面兩段係空嘅路
+	#   tier 1 滿課   —— 頂住第一條界線,而唔係頂爆成條 bar(舊刻度嘅樣)
+	#   tier 2 中段   —— 過咗第一條界線,仲有第二第三段喺前面
+	# 第二張最重要:佢就係第十輪出事嗰張。
+	Meta.tower_tiers.clear()
+	Meta.tower_up["1"] = [0, 0, 0, 0, 0, 0]
+	await _select_upgrade(up, "tower", 1, 560)
+	await _grab("26_perf_t1_early")
+	Meta.tower_up["1"] = [15, 15, 15, 15, 15, 15]
+	await _select_upgrade(up, "tower", 1, 560)
+	await _grab("26b_perf_t1_maxed")
+	Meta.tower_tiers["1"] = 2
+	Meta.tower_up["1"] = [8, 8, 8, 8, 8, 8]
+	await _select_upgrade(up, "tower", 1, 560)
+	await _grab("26c_perf_t2_mid")
+	Meta.tower_tiers.clear()
 
 	Meta.tower_up["1"] = [15, 7, 0, 0, 0, 0]
 	await _select_upgrade(up, "tower", 1, 980)

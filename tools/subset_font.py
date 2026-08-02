@@ -7,57 +7,35 @@ far too heavy to ship, so this subsets it down to the characters the game
 actually renders.
 
 Re-run this whenever new on-screen text introduces characters that aren't in the
-subset yet -- an uncovered character renders as a tofu box (missing glyph).
+subset yet -- an uncovered character renders as a tofu box (missing glyph) on the
+web build only, because desktop still has the system font to fall back on. That
+asymmetry is what let round 11 ship 149 uncovered on-screen characters: the
+desktop screenshots were clean and the web build was full of boxes.
+
+test/I18nTest.gd now fails on an uncovered character, so this is no longer
+something anyone has to remember.
+
+The character set comes from tools/font_chars.py, shared with that test so the
+two definitions cannot drift apart.
 
 Usage:
     python tools/subset_font.py path/to/NotoSansTC[wght].ttf
 
-Upstream font (SIL OFL 1.1):
+Upstream font (SIL OFL 1.1), deliberately NOT committed (11 MB):
     https://github.com/google/fonts/tree/main/ofl/notosanstc
 """
 
-import sys
 import pathlib
+import sys
 
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 from fontTools import subset
 
-PROJECT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from font_chars import PROJECT, collect_chars  # noqa: E402
+
 OUT = PROJECT / "assets" / "fonts" / "NotoSansTC-Subset.ttf"
-
-# Files whose string literals can reach the screen. .csv matters most since the
-# i18n pass: every 繁體中文 string now lives in i18n/game.csv, not in the .gd
-# sources, so dropping it here would strip the whole CJK set out of the subset.
-SCAN_SUFFIXES = {".gd", ".tscn", ".tres", ".godot", ".cfg", ".csv"}
-SKIP_DIRS = {".godot", "docs", "build", "art_export", "art_export_round6"}
-
-# Always include these regardless of what the sources happen to use today, so
-# runtime-formatted output (numbers, percentages, separators) never tofus.
-ALWAYS = set(
-    "0123456789"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    "abcdefghijklmnopqrstuvwxyz"
-    " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-    "×÷…→←↑↓▲▼★☆"  # ×÷…→←↑↓▲▼★☆
-    "　、。（）：；，！？～"  # 、。（）：；，！？～
-)
-
-
-def collect_chars() -> set:
-    chars = set(ALWAYS)
-    for path in PROJECT.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in SCAN_SUFFIXES:
-            continue
-        if SKIP_DIRS & set(path.relative_to(PROJECT).parts):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
-        # Anything above Latin-1 is a glyph the default font can't be trusted for.
-        chars |= {c for c in text if ord(c) > 0x00A0}
-    return chars
 
 
 def main() -> int:
@@ -94,6 +72,16 @@ def main() -> int:
     font.save(OUT)
     kb = OUT.stat().st_size / 1024
     print(f"wrote {OUT.relative_to(PROJECT)} ({kb:.0f} KB, {len(font.getGlyphOrder())} glyphs)")
+
+    # 唔可以「跑完就當成功」:subsetter 對一個字型冇 glyph 嘅 codepoint 係靜靜
+    # 略過嘅,而嗰個正正就係豆腐方格嘅來源。所以出完之後即刻返轉頭對一次。
+    from font_chars import missing
+
+    miss = missing(OUT)
+    if miss:
+        print("WARNING: 上游字型都冇呢 %d 個字:%s" % (len(miss), "".join(miss)))
+        return 1
+    print("coverage: 全部 on-screen 字元都有 glyph")
     return 0
 
 

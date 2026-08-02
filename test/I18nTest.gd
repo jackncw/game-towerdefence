@@ -27,6 +27,7 @@ func _ready() -> void:
 	_test_every_key_translates(keys)
 	_test_gamedata_keys(keys)
 	_test_no_leftover_cjk_in_english(keys)
+	_test_font_covers_every_string(keys)
 	_test_placeholders_match(keys)
 	_test_default_locale()
 	_test_persistence()
@@ -131,6 +132,36 @@ func _test_no_leftover_cjk_in_english(keys: Array) -> void:
 				bad.append(k)
 				break
 	_check(bad.is_empty(), "no CJK left in the English column (%s)" % [bad])
+
+## 豆腐方格。第十一輪嘅 GitHub Pages 亂碼就係呢件事,而佢躲得過十輪測試嘅
+## 原因值得寫低:
+##
+## 桌面版行 SystemFont + allow_system_fallback,所以任何一個 bundled subset
+## 冇嘅字都由 Microsoft JhengHei 補返。網頁版**冇任何系統字型**,補唔到,直接
+## 畫豆腐。即係話:desktop 截圖永遠乾淨,而 bug 只喺出街嗰個版本入面存在。
+## 量到嗰陣係 149 個真係會上畫嘅字。
+##
+## 所以呢條檢查問嘅唔係「桌面睇落點」,係「bundled font 有冇呢個 glyph」——
+## 網頁版嘅真實條件。ASCII 唔查:Open Sans 一定有,而 subset 亦都有。
+##
+## 修法係 `python tools/subset_font.py <NotoSansTC.ttf>`,佢用同一份字元清單
+## (tools/font_chars.py)重出個 subset。
+func _test_font_covers_every_string(keys: Array) -> void:
+	var font: Font = Flow.UI_FONT
+	_check(font != null, "bundled UI font loads")
+	if font == null:
+		return
+	for l in LOCALES:
+		TranslationServer.set_locale(l)
+		var bad := {}
+		for k in keys:
+			for c in tr(k):
+				var cp: int = c.unicode_at(0)
+				if cp >= 0x80 and not font.has_char(cp):
+					bad[c] = k
+		_check(bad.is_empty(),
+			"[%s] bundled font covers every on-screen character (%d missing: %s)"
+			% [l, bad.size(), "".join(bad.keys())])
 
 ## 佔位符對齊。呢個係第九輪報告記低嘅遺留項目:嗰陣 688 個檢查證明咗每條 key
 ## 喺兩種語言都解得到、字型畫得出,但**冇任何嘢**睇住 `{n}` / `{pct}` 呢類

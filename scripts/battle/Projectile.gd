@@ -75,6 +75,14 @@ func _process(delta: float) -> void:
 	var step := speed * delta
 	_spin += delta * 14.0
 	if d <= step or d < 6.0:
+		# 落點要 snap 返落目標點先引爆。
+		#
+		# 之前係喺「差一步之內」就地引爆,而一步嘅長度係 speed*delta —— 3x 之下
+		# 一步係 1x 嘅三倍,即係炮彈平均喺離目標更遠嘅地方爆。對單體傷害冇分別,
+		# 但濺射就有:爆點郁咗幾十 px,邊個喺濺射範圍入面就唔同咗。實測加農砲台
+		# T2 喺 3x 少咗 13.5% 傷害,迫擊砲多咗 11.1%(一個少一個多,正正因為
+		# 唔係「傷害計錯」而係「爆邊度」跟住幀長浮動)。
+		position = target_pos
 		_hit()
 		return
 	position += to / d * step

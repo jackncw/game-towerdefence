@@ -145,12 +145,28 @@ func _proc_attack(delta: float) -> void:
 		_cd = 0.0
 
 # interval: fires regardless of target (alchemy/thorn/magnet)
+#
+# 上彈用 `_cd += period` 而唔係 `_cd = period`。
+#
+# `= period` 會將「今幀已經超咗幾多」直接掉咗,於是真正嘅週期永遠被向上取整
+# 到下一個幀邊界。1x 一幀 16.7ms,誤差細到冇人見到;3x 一幀 50ms,一個 80ms
+# 嘅週期就變成 100ms —— 慢咗 25%,而玩家大部分時間開緊 3x。
+#
+# 呢個專案已經修過同一個 bug 兩次(`_spawn_logic` 刷怪、`_proc_attack` 普通
+# 攻擊),呢度係第三個現場:荊棘塔喺 3x 實測少咗 11.7% 傷害,0.5x 多咗 3.7%。
+# 見 test/TimeScaleTest.gd。
 func _proc_interval(delta: float, cb: Callable, _need: bool) -> void:
 	_cd -= delta
 	if _cd > 0.0:
 		return
-	cb.call()
-	_cd = 1.0 / maxf(0.05, s.rate)
+	var period: float = 1.0 / maxf(0.05, s.rate)
+	var fired := 0
+	while _cd <= 0.0 and fired < MAX_SHOTS_PER_FRAME:
+		cb.call()
+		_cd += period
+		fired += 1
+	if _cd < 0.0:
+		_cd = 0.0
 
 # --- 進化機制用嘅逐塔狀態 ----------------------------------------------------
 ## 連續命中同一目標嘅次數(鷹眼塔 / 多管火箭 / 鷹巢哨站)。
@@ -665,12 +681,19 @@ func _proc_slowfield(delta: float) -> void:
 	if caught:
 		play_event_sound(mech)
 	if s.pulse > 0.0:
+		# 同 _proc_interval 一樣要累加,唔可以賦值 —— 見嗰度嘅註解。
+		# 實測:緩速力場塔 T3 喺 3x 少咗 11.1% 傷害,0.5x 多咗 4.4%。
 		_cd -= delta
-		if _cd <= 0.0:
-			_cd = 1.0 / maxf(0.1, s.pulserate)
+		var period: float = 1.0 / maxf(0.1, s.pulserate)
+		var pulses := 0
+		while _cd <= 0.0 and pulses < MAX_SHOTS_PER_FRAME:
+			_cd += period
+			pulses += 1
 			for m in battle.monsters_in_radius(global_position, range_val, true):
 				m.take_hit(s.pulse, "magic")
 			battle.spawn_fx_ring(global_position, range_val, Color(0.3, 0.8, 0.8))
+		if _cd < 0.0:
+			_cd = 0.0
 
 ## The beam is continuous, so it cannot key its sound off a shot. It re-triggers
 ## on its own timer while it has a target — tied to the clip length, not to the

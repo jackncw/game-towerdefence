@@ -31,26 +31,46 @@ func setup(b, from: Vector2, dir: Vector2, dist: float, dmgv: float, slowv: floa
 	z_index = 22
 	queue_redraw()
 
+## 命中判定嘅取樣半徑,同每步最長距離。
+##
+## 命中係「飛到邊,就喺嗰點度個半徑」——即係一串離散取樣,唔係掃掠碰撞。
+## 一步嘅長度係 speed*delta:1x 之下 420*0.0167 = 7px,取樣點密到冇嘢漏得到;
+## 3x 之下 420*0.05 = 21px,而一隻擦邊嘅怪(中心離飛行線 29px)喺線上只佔
+## 大約 15px 嘅窗口 —— 21px 一步就跨得過佢。實測 3x 少咗 24.9% 傷害。
+##
+## 解法係將移動切成細步,令取樣密度同幀長脫鈎。8px 係「1x 嘅 7px 一步」嘅
+## 同級數,所以 3x 之下嘅命中結果同 1x 對得返。
+const HIT_R := 30.0
+const MAX_STEP := 8.0
+
 func _process(delta: float) -> void:
 	if not alive:
 		return
 	rotation += delta * 18.0
-	var goal := far if _phase == 0 else origin
-	var to := goal - position
-	var step := speed * delta
-	if to.length() <= step:
-		if _phase == 0:
-			_phase = 1
-			_hit.clear()
+	var remaining: float = speed * delta
+	while alive and remaining > 0.0:
+		var sub: float = minf(remaining, MAX_STEP)
+		remaining -= sub
+		var goal := far if _phase == 0 else origin
+		var to := goal - position
+		if to.length() <= sub:
+			position = goal          # 折返點唔可以隨步長浮動
+			if _phase == 0:
+				_phase = 1
+				_hit.clear()
+			else:
+				alive = false
+				if pool: pool.release(self)
+				return
 		else:
-			alive = false
-			if pool: pool.release(self)
-			return
-	else:
-		position += to.normalized() * step
-	# hit monsters along the way. Keyed on the monster's pool serial, not the node
-	# — a node recycled mid-flight is a different monster and must be hittable.
-	for m in battle.monsters_in_radius(global_position, 30.0, true):
+			position += to.normalized() * sub
+		_sample_hits()
+	queue_redraw()
+
+## hit monsters along the way. Keyed on the monster's pool serial, not the node
+## — a node recycled mid-flight is a different monster and must be hittable.
+func _sample_hits() -> void:
+	for m in battle.monsters_in_radius(global_position, HIT_R, true):
 		var key: int = int(m.serial)
 		if not _hit.has(key):
 			_hit[key] = true
@@ -58,7 +78,6 @@ func _process(delta: float) -> void:
 			m.take_hit(d, "phys")
 			if m.alive and slow > 0.0:
 				m.apply_slow(slow, 1.2)
-	queue_redraw()
 
 func _draw() -> void:
 	draw_line(Vector2(-12, 0), Vector2(12, 0), col, 5, true)

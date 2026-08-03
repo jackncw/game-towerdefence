@@ -1,4 +1,4 @@
-extends Node
+﻿extends Node
 ## 常設閃退記錄 (crash logging)。唔係一次性嘅除錯工具 —— 佢係出街版嘅一部分。
 ##
 ## 點解要有:GDScript 冇任何「捉得住 crash」嘅 API。一個真正嘅 process 死亡
@@ -45,6 +45,56 @@ const MEM_SAMPLE_SECONDS := 30.0
 
 var _crumbs: Array = []
 var _dirty: bool = false
+# ---------------------------------------------------------------------------
+# Session 開關訊號(網頁版:localStorage)
+# ---------------------------------------------------------------------------
+## 點解唔可以淨係靠下面個 marker **檔案**:
+##
+## 個檔住喺 `user://`,而網頁版嘅 `user://` 係 emscripten 嘅 IDBFS —— 寫或者刪
+## 之後仲要等一次**非同步**嘅 IndexedDB 同步先真係落地。`pagehide` 嗰一刻個 tab
+## 隨時就死,同步做唔完。
+##
+## 實測(tools/web_lifecycle_probe.py,2026-08-03):淨係刪檔嘅版本,「切 tab」
+## 過關(之後仲有兩秒俾佢同步),但「熄 tab」同「返轉頭之後再熄」兩種都繼續
+## 誤報 —— 刪除根本冇落到 IndexedDB。
+##
+## `localStorage` 係**同步** API,setItem/removeItem 一返嚟就已經持久化。所以
+## 「上一次收唔收得正常」呢個一 bit 訊號放喺呢度。麵包屑照舊留喺個檔(嗰啲係
+## 打緊機嗰陣寫,有大把時間同步)。
+##
+## 點解呢三個 helper 住喺 Crash 而唔係 Web:autoload 次序係 Crash 行先、Web 最尾,
+## 而呢個訊號喺 `Crash._ready()` 就要用。喺嗰一刻 `Web` 個 singleton 仲未存在。
+const _LS_KEY := "tf_session_open"
+
+func _ls_set(session: String) -> void:
+	if not OS.has_feature("web"):
+		return
+	JavaScriptBridge.eval("try{localStorage.setItem('%s','%s');}catch(e){}"
+		% [_LS_KEY, session], true)
+
+func _ls_clear() -> void:
+	if not OS.has_feature("web"):
+		return
+	JavaScriptBridge.eval("try{localStorage.removeItem('%s');}catch(e){}" % _LS_KEY, true)
+
+func _ls_get() -> String:
+	if not OS.has_feature("web"):
+		return ""
+	var v = JavaScriptBridge.eval("(localStorage.getItem('%s')||'')" % _LS_KEY, true)
+	return "" if v == null else String(v)
+
+## Marker 而家擺唔擺喺度。false = 「由呢一刻起,死咗都唔算閃退」。
+##
+## 點解要有:marker 靠 `_close()` 刪,而 `_close()` 掛喺 WM_CLOSE_REQUEST /
+## EXIT_TREE / PREDELETE 三個通知上面。桌面熄窗口會派,但**網頁版熄 tab 一個
+## 都唔會派** —— 個 process 係俾瀏覽器直接殺,腳本冇最後一口氣。結果每一次
+## 正常熄 tab 都留低一個活 marker,下次開場就報一單根本冇發生過嘅閃退。
+## 真玩家幾乎次次中,而報告畫面一彈,佢就以為個遊戲壞咗。
+##
+## Web.gd 喺 pagehide / 切走嗰陣叫 disarm(),返轉頭(pageshow,包括 bfcache
+## 恢復)叫 rearm()。disarm 之後仍然照記麵包屑,淨係唔寫檔 —— 咁 rearm 返嚟
+## 之後條 ring 係連續嘅,唔會斷咗一橛。
+var _armed: bool = true
 var _last_flush_ms: int = 0
 var _session_id: String = ""
 var _closed: bool = false
@@ -64,6 +114,9 @@ func _ready() -> void:
 	_session_id = "%d-%d" % [Time.get_unix_time_from_system(), randi() % 100000]
 	DirAccess.make_dir_recursive_absolute(LOG_DIR)
 	_detect_previous_crash()
+	# 開場即刻落 localStorage 標記(網頁版先有效),同 marker 檔一齊構成
+	# 「呢個 session 開住」呢個狀態。
+	_ls_set(_session_id)
 	crumb("boot", "%s %s" % [OS.get_name(), Engine.get_version_info().get("string", "?")])
 
 # ---------------------------------------------------------------------------
@@ -87,7 +140,7 @@ func note(msg: String) -> void:
 	push_error("[Crash] " + msg)
 
 func _maybe_flush(force := false) -> void:
-	if not _dirty or not enabled:
+	if not _dirty or not enabled or not _armed:
 		return
 	var now := Time.get_ticks_msec()
 	if not force and now - _last_flush_ms < FLUSH_MIN_MS:
@@ -108,6 +161,35 @@ func _maybe_flush(force := false) -> void:
 ## 「而家寫落去」。切走 / 收場呢類「跟住可能就冇下一幀」嘅時刻用。
 func flush_now() -> void:
 	_maybe_flush(true)
+
+## 由呢一刻起,就算個 process 冇聲冇氣咁死咗都唔算閃退。
+##
+## 網頁版嘅 pagehide 就係「可能永遠冇下一幀」嗰一刻,而佢同時亦都係**正常
+## 離開**最常見嘅樣。兩者喺瀏覽器層面分唔開,所以呢度揀咗「唔報」:一單漏報
+## 嘅閃退,代價係少咗一份報告;一單誤報,代價係每個正常收工嘅玩家下次開場
+## 都見到一版「上一次係閃退」,而嗰個會直接摧毀呢份報告嘅可信度。
+func disarm() -> void:
+	if not _armed:
+		return
+	_armed = false
+	# localStorage 行先:佢係同步兼即時持久,而刪個檔要等 IDBFS 非同步同步,
+	# 喺 pagehide 嗰一刻多數趕唔切(見 Web.gd 嘅 _LS_KEY 註解)。
+	_ls_clear()
+	if FileAccess.file_exists(MARKER):
+		DirAccess.remove_absolute(MARKER)
+
+## 返轉頭(pageshow,包括由 bfcache 恢復)。要即刻落返 marker —— 唔落嘅話
+## 由呢一刻之後嘅真閃退就冇人記得低,而 bfcache 恢復嘅 tab 係會繼續玩落去嘅。
+func rearm() -> void:
+	if _armed:
+		return
+	_armed = true
+	_ls_set(_session_id)
+	_dirty = true
+	_maybe_flush(true)
+
+func is_armed() -> bool:
+	return _armed
 
 func _process(delta: float) -> void:
 	# 真實秒:一場 3x 嘅戰鬥唔應該三倍速咁採樣。
@@ -211,6 +293,13 @@ func last_crash_memory_trend() -> Dictionary:
 ## 乜都唔做(連刪都唔刪 —— 嗰個 marker 係人哋嘅)。
 func _detect_previous_crash() -> void:
 	if not FileAccess.file_exists(MARKER):
+		return
+	# 網頁版:個 marker 檔講唔到嘢。刪佢要等 IDBFS 非同步同步,而 pagehide
+	# 之後個 tab 即刻死,所以一個**正常**熄咗嘅 tab 都會留低個檔。真正嘅
+	# 一 bit 訊號喺 localStorage(同步、即時持久)。個檔淨係用嚟攞麵包屑。
+	if OS.has_feature("web") and _ls_get() == "":
+		print("[Crash] 上一次收得正常(localStorage),清走殘留 marker")
+		DirAccess.remove_absolute(MARKER)
 		return
 	var txt := FileAccess.get_file_as_string(MARKER)
 	var data = JSON.parse_string(txt)

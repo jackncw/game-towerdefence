@@ -96,6 +96,14 @@ func suspend() -> void:
 	Crash.crumb("web", "hidden (was_paused=%s)" % _was_paused)
 	Crash.flush_now()
 	Meta.flush_pending_save()
+	# 最後一步:除低 crash marker。
+	#
+	# head_include.js 喺 `visibilitychange`(切 tab)同 `pagehide`(熄 tab /
+	# 離開 / 入 bfcache)兩個事件都會叫落嚟,而 iOS Safari 上面 `beforeunload`
+	# 根本唔可靠 —— pagehide 先係實際會嚟嗰個。呢兩種情況都係玩家正常收工,
+	# 唔可以當閃退。順序好重要:flush 咗麵包屑先 disarm,咁最後嗰批麵包屑
+	# 仍然入得到 log,但個 marker 唔會留低。
+	Crash.disarm()
 
 func resume() -> void:
 	if not _suspended:
@@ -107,7 +115,10 @@ func resume() -> void:
 	tree.paused = _was_paused
 	# 唔係直接 set_bus_mute(0, false):玩家自己撳咗靜音嘅話,返嚟唔應該幫佢開返聲。
 	Meta.apply_audio_settings()
-	Crash.crumb("web", "visible")
+	# 落返 marker。由 bfcache 恢復返嚟嘅 tab 會繼續玩落去,所以由呢一刻起
+	# 嘅閃退要照捉 —— 唔 rearm 就等於之後成個 session 都冇咗閃退偵測。
+	Crash.rearm()
+	Crash.crumb("web", "visible (armed=%s)" % str(Crash.is_armed()))
 
 func is_suspended() -> bool:
 	return _suspended
@@ -148,6 +159,26 @@ const _HEAP_JS := """(function () {
   } catch (e) { /* fall through */ }
   return 0;
 })()"""
+
+# ---------------------------------------------------------------------------
+# Session 開關訊號(localStorage)
+# ---------------------------------------------------------------------------
+## 點解唔可以淨係靠 Crash.gd 嗰個 marker **檔案**:
+##
+## 個檔住喺 `user://`,而網頁版嘅 `user://` 係 emscripten 嘅 IDBFS —— 寫落去
+## 之後仲要等一次**非同步**嘅 IndexedDB 同步先真係落地。`pagehide` 嗰一刻
+## 個 tab 隨時就死,同步做唔完。
+##
+## 實測(tools/web_lifecycle_probe.py,2026-08-03):淨係刪檔嘅版本,
+## 「切 tab」過關(之後仲有兩秒俾佢同步),但「熄 tab」同「返轉頭之後再熄」
+## 兩種都繼續誤報 —— 刪除根本冇落到 IndexedDB。
+##
+## `localStorage` 係**同步**API,setItem/removeItem 一返嚟就已經持久化。
+## 所以「上一次收唔收得正常」呢個一 bit 訊號放喺呢度,唔放喺個檔度。
+## 麵包屑照舊留喺個檔(嗰啲係打緊機嗰陣寫,有大把時間同步)。
+## 實作住咗喺 `Crash.gd`(`_ls_set` / `_ls_clear` / `_ls_get`),唔喺呢度 ——
+## autoload 次序係 Crash 行先、Web 最尾,而個訊號喺 `Crash._ready()` 就要用,
+## 嗰一刻 `Web` 呢個 singleton 仲未存在。呢度淨係留低指路。
 
 func heap_bytes() -> int:
 	if not is_web():

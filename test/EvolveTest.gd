@@ -296,6 +296,20 @@ func _case_tier3_battle() -> void:
 		Spells.cast(b, sid, Vector2(randf_range(200, 900), randf_range(400, 1400)))
 		_step(b, 0.05)
 	for i in 240:
+		# Boss 血逐步壓返滿。
+		#
+		# 呢個 case 想要嘅係「一場好忙嘅第三階戰鬥行足四秒,乜都冇爆」,而
+		# `not b.ended` 係嗰個意思嘅代理 —— 前提係 boss 唔死(勝利只由
+		# on_boss_killed 觸發)。但單靠將 max_hp 設做 1e12 **保護唔到佢**:
+		# 場入面有幾種按「最大血比例」計嘅真傷(Spells.gd 嘅 take_true(max_hp*pct)、
+		# 疾風、以及會削 max_hp 嘅腐蝕),對住比例傷害,血調到幾大都係同樣
+		# 次數打死。即係話呢條斷言一直靠「輸出啱啱低過門檻」呢個意外成立。
+		#
+		# 2026-08-03 修好咗 `_proc_interval` 掉 overshoot 同投射物落點漂移之後,
+		# 輸出返返去規格值,門檻就過咗 —— 唔係新 bug,係呢個前提本來就冇成立過。
+		# 逐步壓滿血令前提真係成立,測試問返佢原本想問嗰條。
+		if is_instance_valid(boss) and boss.alive:
+			boss.hp = boss.max_hp
 		_step(b, 1.0 / 60.0)
 	_ok("D6 第三階打完一輪冇死", is_instance_valid(b) and not b.ended,
 		"ended=%s" % str(b.ended))

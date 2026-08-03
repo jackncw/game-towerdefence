@@ -589,6 +589,9 @@ func _tick_pops(delta: float) -> void:
 			var sc: float = lerpf(1.0, 1.35, t / 0.18)
 			l.scale = Vector2(sc, sc)
 
+## 上一次寫入 boss 倒數 label 嘅秒數。-2 = 未寫過,-1 = 已經寫咗「boss 到咗」。
+var _last_remain: int = -2
+
 func refresh(delta: float) -> void:
 	_tick_pops(delta)
 	if battle.gold != _last_gold:
@@ -599,11 +602,19 @@ func refresh(delta: float) -> void:
 		if _last_crys >= 0: _pop(crystal_label)
 		_last_crys = Meta.crystals
 		crystal_label.text = str(Meta.crystals)
-	# boss timer
+	# boss timer —— 個數一秒先變一次,所以一秒砌一次字就夠。
+	#
+	# Label.set_text 見到同一段字會自己收手,所以之前浪費咗嘅唔係重新排版,係
+	# 每一幀都行一次 tr() 查表 + 開一個 Dictionary 俾 format() + 砌一個新
+	# String。一秒六十次(120Hz 機一百二十次),而當中五十九次嘅答案同上一幀
+	# 一模一樣。`_last_remain` 記住上次個秒數,-2 = 「未寫過」,-1 = 「boss 出咗」。
 	if not battle.boss_spawned:
 		var remain: int = int(ceil(maxf(0.0, battle.boss_time - battle.elapsed)))
-		boss_timer_label.text = tr("HUD_BOSS_COUNTDOWN").format({"n": remain})
-	else:
+		if remain != _last_remain:
+			_last_remain = remain
+			boss_timer_label.text = tr("HUD_BOSS_COUNTDOWN").format({"n": remain})
+	elif _last_remain != -1:
+		_last_remain = -1
 		boss_timer_label.text = tr("HUD_BOSS_HERE")
 	# boss bar
 	if battle.boss_ref != null and is_instance_valid(battle.boss_ref) and battle.boss_ref.alive:

@@ -12,9 +12,15 @@ func _ready() -> void:
 	add_child(back)
 
 	# everything sits on one framed plate instead of floating on bare colour
+	#
+	# 個高度由 720 加到 1000。原本嗰個唔夠高:六行控制項由 y=296 排落去要到
+	# 914,而「最高通關」面板釘死喺 y=830 —— 即係話**「重置存檔」掣一直俾嗰
+	# 塊面板蓋住**,出街版只露得返一條紅色頂邊。呢個唔係今輪整壞嘅,係影相
+	# 對比嗰陣先見到(qa/screenshots/round-13-layout/settings-zh-BEFORE.png)。
+	# 今輪要喺呢一版加一粒省電掣,就冇可能唔順手擺返好個高度。
 	var plate := UI.panel_rect()
 	plate.position = Vector2(80, 240)
-	plate.size = Vector2(920, 720)
+	plate.size = Vector2(920, 1000)
 	add_child(plate)
 
 	var vb := VBoxContainer.new()
@@ -47,13 +53,35 @@ func _ready() -> void:
 			Audio.play("ui_click"))
 	vb.add_child(mute)
 
+	# 省電模式 —— 幀率上限 60 -> 30。同靜音一樣用「一粒掣兩個字串」嘅寫法。
+	var power := UI.button("", Vector2(800, 96))
+	var refresh_power := func():
+		power.text = tr("SET_POWER_ON") if Meta.settings.get("power_save", false) \
+			else tr("SET_POWER_OFF")
+	refresh_power.call()
+	power.pressed.connect(func():
+		Meta.settings["power_save"] = not Meta.settings.get("power_save", false)
+		# 即刻生效先算數:一個要重開先生效嘅慳電掣,玩家撳完見唔到分別
+		# 就只會當佢壞咗。
+		Flow.apply_frame_cap()
+		Meta.save_game()
+		refresh_power.call()
+		Audio.play("ui_click"))
+	vb.add_child(power)
+
+	var phint := UI.label(tr("SET_POWER_HINT"), 22, UI.TEXT_DIM)
+	phint.custom_minimum_size = Vector2(800, 56)
+	phint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(phint)
+
 	# reset save (double confirm)
 	reset_btn = UI.button(tr("SET_RESET"), Vector2(800, 96), UI.DANGER)
 	reset_btn.pressed.connect(_on_reset)
 	vb.add_child(reset_btn)
 
 	var stat := UI.panel_dark()
-	stat.position = Vector2(140, 830)
+	# 排喺最後一行控制項下面(見上面個 plate 嘅註解),唔再壓住佢
+	stat.position = Vector2(140, 1120)
 	stat.size = Vector2(800, 90)
 	add_child(stat)
 	var info := UI.label(tr("SET_STATS").format({

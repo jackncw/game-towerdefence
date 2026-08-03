@@ -47,8 +47,16 @@ foreach ($s in $scenes) {
 }
 
 Pop-Location
-$bad = $results | Where-Object { $_.Exit -ne 0 }
+# @() 唔可以刪。PowerShell 5.1 嘅 Where-Object 篩剩**一個**物件嗰陣返嘅唔係
+# array 而係嗰個物件本身,而一個 psobject 冇 .Count —— 即係話 `$bad.Count` 係
+# $null,`$null -gt 0` 係 $false,於是「啱啱有一個測試跪低」呢個情況會印出
+# 「TESTS: 30 run,  non-zero exit」(個數係空白)然後 **exit 0**。
+#
+# 兩個以上就啱返,所以呢個 bug 淨係喺最容易發生嗰種情況(一個 fail)出現,
+# 而佢嘅後果係成條驗證防線靜靜雞失效:2026-08-03 效能輪嗰次 I18nTest 真係
+# fail 咗,而套件報全綠。
+$bad = @($results | Where-Object { $_.Exit -ne 0 })
 Write-Host ""
-Write-Host ("TESTS: {0} run, {1} non-zero exit" -f $results.Count, $bad.Count)
+Write-Host ("TESTS: {0} run, {1} non-zero exit" -f @($results).Count, $bad.Count)
 if ($bad.Count -gt 0) { $bad | Format-Table -AutoSize | Out-String -Width 200 | Write-Host; exit 1 }
 exit 0

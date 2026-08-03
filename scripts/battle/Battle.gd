@@ -30,6 +30,9 @@ var towers: Array = []
 var alchemy_towers: Array = []
 var holy_towers: Array = []
 var curse_towers: Array = []
+## `_refresh_holy_aura()` 上次計嗰陣 holy_towers 有幾多座。-1 = 「作廢,重算」。
+## 見 _refresh_holy_aura 上面嗰段。
+var _holy_sig: int = -1
 var skeleton_boss_alive = null
 
 var gold: int = 0
@@ -365,6 +368,10 @@ func _build_debug() -> void:
 	layer.add_child(_dbg_overlay)
 
 # ---------------------------------------------------------------------------
+## 基座「有怪迫近」紅光嘅感應半徑。抽咗做常數係因為佢而家喺兩個地方出現
+## (平方比較 + 最後嗰次開方),兩邊唔可以各寫一個 320。
+const BASE_THREAT_R := 320.0
+
 func _process(delta: float) -> void:
 	if ended:
 		return
@@ -378,12 +385,21 @@ func _process(delta: float) -> void:
 	# base crystal: gentle idle glow; flashes red as enemies close on it
 	if base_spr != null:
 		_base_pulse += delta
+		# 威脅度 = 最近嗰隻怪有幾近。`1.0 - d/R` 對 d 單調遞減,所以「攞最大
+		# threat」同「搵最細距離」係同一件事 —— 即係話成個迴圈只需要比較距離,
+		# 唔使開方。原本逐隻怪行一次 distance_to(入面有 sqrt),滿場一百隻怪
+		# 就係每幀一百次開方,而結果永遠只用得返一個。而家用平方距離比較,
+		# 出咗迴圈先開一次方。
 		var threat := 0.0
+		var r2: float = BASE_THREAT_R * BASE_THREAT_R
+		var best2: float = r2
 		for m in monsters:
 			if m.alive:
-				var dd: float = m.global_position.distance_to(base_pos)
-				if dd < 320.0:
-					threat = maxf(threat, 1.0 - dd / 320.0)
+				var d2: float = m.global_position.distance_squared_to(base_pos)
+				if d2 < best2:
+					best2 = d2
+		if best2 < r2:
+			threat = 1.0 - sqrt(best2) / BASE_THREAT_R
 		if threat > 0.05:
 			var beat := 0.5 + 0.5 * sin(_base_pulse * (6.0 + threat * 6.0))
 			base_spr.modulate = Color(1, 1, 1).lerp(Color(1.6, 0.5, 0.45), threat * beat)
@@ -411,7 +427,9 @@ func _process(delta: float) -> void:
 		ability_slow_time -= delta
 		if ability_slow_time <= 0.0:
 			ability_slow = 0.0
-	for k in spell_cd.keys():
+	# 直接行個 Dictionary,唔行 .keys() —— 後者每幀複製一個新 Array 出嚟淨係
+	# 為咗行十五個 key。改值唔加減 key,所以邊行邊改係安全嘅。
+	for k in spell_cd:
 		if spell_cd[k] > 0.0:
 			spell_cd[k] = maxf(0.0, spell_cd[k] - delta)
 
@@ -766,6 +784,9 @@ func monsters_sorted_by_progress() -> Array:
 ##     make a wall of 詛咒塔 multiply the whole board's damage
 ##   * the gold bonus DOES stack, but each extra source contributes half of the
 ##     previous one, so a second tower is worth something and a sixth is not
+## 重用嘅暫存,見 _tick_curse_auras 入面嘅註解。
+var _curse_golds: Array = []
+
 func _tick_curse_auras() -> void:
 	if curse_towers.is_empty():
 		return
@@ -775,15 +796,21 @@ func _tick_curse_auras() -> void:
 	if curse_towers.is_empty():
 		return
 	var refreshed := false
+	# `_curse_golds` 係重用嘅 —— 原本每隻怪每幀開一個新 Array。滿場一百隻怪
+	# 喺 3x 之下就係每秒幾千個一次性 Array,而每個都淨係裝三幾個 float。
+	# 距離改用平方比較:`d > r` 同 `d² > r²`(兩邊非負)係同一個判斷,但慳咗
+	# 每對「塔 × 怪」一次開方。兩樣都係實現方式,派出去嘅數一個都冇變。
 	for m in monsters:
 		if not m.alive:
 			continue
 		var amp := 0.0
 		var linger := 0.0
 		var slow := 0.0
-		var golds: Array = []
+		var golds: Array = _curse_golds
+		golds.clear()
+		var mpos: Vector2 = m.global_position
 		for t in curse_towers:
-			if m.global_position.distance_to(t.global_position) > t.range_val:
+			if mpos.distance_squared_to(t.global_position) > t.range_val * t.range_val:
 				continue
 			var a: float = float(t.s.curse) * (float(t.s.bosseff) if m.is_boss else 1.0)
 			amp = maxf(amp, a)
@@ -866,6 +893,16 @@ func _refresh_holy_aura() -> void:
 	for i in range(holy_towers.size() - 1, -1, -1):
 		if not is_instance_valid(holy_towers[i]):
 			holy_towers.remove_at(i)
+			_holy_sig = -1
+	# 兩個總和只係 holy_towers 呢個集合嘅函數 —— 塔嘅 `s` 喺 setup() 之後成場
+	# 唔會再變(戰鬥入面冇升級,得賣塔),所以集合唔變,個和就一定唔變。
+	# 原本逐幀砌兩個 Array、sort、reverse,一場 43 座塔嘅仗每秒做百幾次,
+	# 而每次答案都一模一樣。呢度換成「集合變咗先重算」,輸出逐個 bit 一樣。
+	# place_tower / sell_tower 會將 _holy_sig 打成 -1;測試 harness 直接 append
+	# 嘅話 size 會同上次唔同,一樣觸發重算。
+	if holy_towers.size() == _holy_sig:
+		return
+	_holy_sig = holy_towers.size()
 	holy_haste_total = 0.0
 	holy_power_total = 0.0
 	if holy_towers.is_empty():
@@ -1194,6 +1231,7 @@ func place_tower(id: int, pos: Vector2) -> bool:
 		alchemy_towers.append(t)
 	elif t.mech == "holy":
 		holy_towers.append(t)
+		_holy_sig = -1
 	elif t.mech == "curse":
 		curse_towers.append(t)
 	Audio.play("sfx_place_tower")
@@ -1208,6 +1246,7 @@ func sell_tower(t) -> void:
 	towers.erase(t)
 	alchemy_towers.erase(t)
 	holy_towers.erase(t)
+	_holy_sig = -1
 	curse_towers.erase(t)
 	# duplicate() is required: Soldier._die() calls back into on_soldier_died(),
 	# which erases from this very array — iterating it live skipped every second

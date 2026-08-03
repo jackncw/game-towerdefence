@@ -16,8 +16,10 @@ var cleared: Dictionary = {}          # "N": true for cleared levels
 ## UI shares the SFX slider: a separate "menu clicks" slider is a control nobody
 ## asks for, and the UI bus exists so the click can duck under the music, not so
 ## the player has to balance it.
+## power_save = 幀率上限由 60 跌到 30(見 Flow.FPS_POWER_SAVE)。預設關 ——
+## 預設就慳電等於預設就冇咁順,而發熱唔係每部機都有嘅問題。
 var settings: Dictionary = {"volume": 0.8, "volume_bgm": 1.0, "volume_sfx": 1.0,
-	"muted": false, "locale": ""}
+	"muted": false, "locale": "", "power_save": false}
 var seen: Dictionary = {}             # bestiary: "fam_1".."fam_5","fam_boss" => true
 ## 快捷列 —— 戰鬥底欄常駐嗰 6 格。0 = 空格,位置有意義(第 i 格就係畫面第 i 格),
 ## 所以呢個 Array 唔可以用 _to_int_array() 讀:嗰個會隔走 0 又會去重,
@@ -518,6 +520,9 @@ func load_game() -> void:
 	# until the player picks one in 設定.
 	if not settings.has("locale"):
 		settings["locale"] = ""
+	# 效能輪加嘅。舊存檔冇呢個 key,false 就係佢哋一直以嚟嘅行為。
+	if not settings.has("power_save"):
+		settings["power_save"] = false
 	# 一定要喺 unlocked_towers 讀完之後 —— 清洗嘅規則要用到「呢座塔解鎖咗未」
 	_sanitize_quick_slots()
 

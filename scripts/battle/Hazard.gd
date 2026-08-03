@@ -90,9 +90,13 @@ func _process(delta: float) -> void:
 			m.apply_shred(float(extra.shred_armor), 0.0, 0.4)
 		if kind == Kind.SLOW or extra.has("slow"):
 			m.apply_slow(float(extra.get("slow", 0.25)), 0.4)
-		if do_dmg and dps > 0.0:
+		# `dpspct` = 每秒按目標**生命上限**嘅一份。點解要有:怪物血量係指數
+		# 成長(第 40 關 1426 倍),而一個固定 dps 喺嗰度等於零。兩份加埋:
+		# 固定值令早關嘅細怪即死,百分比令後關嘅大怪一樣痛。
+		var pct_dps: float = float(extra.get("dpspct", 0.0)) * m.max_hp
+		if do_dmg and (dps > 0.0 or pct_dps > 0.0):
 			var was_alive: bool = m.alive
-			var tick: float = dps * 0.3 * (1.0 + _ramp)
+			var tick: float = (dps + pct_dps) * 0.3 * (1.0 + _ramp)
 			_absorbed += tick
 			m.take_hit(tick, "magic")
 			if was_alive and not m.alive:

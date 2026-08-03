@@ -96,7 +96,10 @@ func _case_miasma_heal_cut() -> void:
 	_step(b, 0.05)
 	Spells.cast(b, 4, m.global_position)
 	_step(b, 0.1)
-	_ok("C0 瘴氣範圍內帶住重傷", m.heal_cut > 0.6, "heal_cut=%.2f" % m.heal_cut)
+	# 第十二輪:減回復由固定 0.70 變成逐階曲線,基礎值 0.20 -> t1 滿課 0.55
+	# -> t2 0.80 -> t3 1.00。呢度個測試用嘅係**未課過**嘅瘴氣,所以要對返
+	# 基礎值,唔係對舊嗰個 0.70。真正守住「去到 100%」嗰條喺 SpellRuleTest。
+	_ok("C0 瘴氣範圍內帶住重傷", m.heal_cut >= 0.19, "heal_cut=%.2f" % m.heal_cut)
 	var want: float = float(GameData.spell_by_id(4).stats.healcut)
 	_near("C0 減免幅度同資料一致", m.heal_cut, want, 0.001)
 	await _end(b)

@@ -25,6 +25,16 @@ static func _shockwaves(battle, pos: Vector2, r: float, c: Color, n := 3) -> voi
 	for i in n:
 		battle.spawn_fx_ring_dur(pos, r * (0.45 + 0.28 * i), c, 0.45 + 0.13 * i)
 
+
+## 一次傷害 = 固定值 + 目標生命上限嘅一份。
+##
+## 點解要有兩份:怪物血量係指數成長(第 40 關 wave_scale 1426 倍),所以任何
+## 固定傷害去到後段都等於零 —— 用戶報上嚟嘅「滿級隕石術喺第 20 關已經零存在
+## 感」就係呢件事。淨用百分比又會令頭幾關嘅細怪打唔死(佢哋血少,一成血
+## 等於冇)。兩份加埋先至兩頭都成立。
+static func _dmg(s: Dictionary, m) -> float:
+	return float(s.get("dmg", 0.0)) + float(s.get("dmgpct", 0.0)) * m.max_hp
+
 static func cast(battle, id: int, pos: Vector2) -> bool:
 	var s: Dictionary = Meta.spell_stats(id)
 	var def: Dictionary = GameData.spell_by_id(id)
@@ -46,7 +56,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 			battle.shake(16.0, 0.45)
 			battle.flash(Color(1, 0.55, 0.25, 0.14), 0.3)
 			for m in battle.monsters_in_radius(pos, s.radius, true):
-				m.take_hit(s.dmg, "magic")
+				m.take_hit(_dmg(s, m), "magic")
 			# T2 隕石風暴:主隕石之後跟三粒小嘅,散落喺周圍
 			if t2:
 				for i in GameData.METEOR_SHOWER_COUNT:
@@ -54,25 +64,26 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 						* s.radius * 1.4
 					_impact(battle, sp, s.radius * 0.5, Color(1, 0.6, 0.25), 0.7)
 					for m2 in battle.monsters_in_radius(sp, s.radius * 0.55, true):
-						m2.take_hit(s.dmg * GameData.METEOR_SHOWER_FRAC, "magic")
+						m2.take_hit(_dmg(s, m2) * GameData.METEOR_SHOWER_FRAC, "magic")
 			# T3 天隕滅世:著彈點留低熔岩地帶
 			if t3:
 				battle.spawn_hazard(pos, s.radius * 0.85,
 					s.dmg * GameData.CATACLYSM_DPS_FRAC, GameData.CATACLYSM_DUR,
-					Hazard.Kind.DOT, Color(1, 0.45, 0.15), true)
+					Hazard.Kind.DOT, Color(1, 0.45, 0.15), true,
+					{"dpspct": float(s.get("dmgpct", 0.0)) * GameData.CATACLYSM_DPS_FRAC})
 		"stormbolt":
 			var n := int(s.bolts)
 			var list: Array = battle.all_monsters()
 			list.shuffle()
 			for i in mini(n, list.size()):
 				var m = list[i]
-				m.take_hit(s.dmg, "magic")
+				m.take_hit(_dmg(s, m), "magic")
 				# T2 雷神之怒:每道閃電喺落點小範圍濺射
 				if t2:
 					for o in battle.monsters_in_radius(m.global_position,
 							GameData.WRATH_SPLASH, true):
 						if o != m:
-							o.take_hit(s.dmg * GameData.WRATH_SPLASH_FRAC, "magic")
+							o.take_hit(_dmg(s, o) * GameData.WRATH_SPLASH_FRAC, "magic")
 				# T3 萬雷天罰:被擊中嘅嘢一段時間內受到嘅所有傷害被放大
 				if t3 and m.alive:
 					m.apply_vuln(GameData.SKYFALL_VULN, GameData.SKYFALL_VULN_DUR)
@@ -92,7 +103,10 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 			for m in battle.all_monsters():
 				# T2 絕對零度:凍結期間所受傷害大幅提高
 				if t2:
-					m.apply_vuln(GameData.ABSZERO_VULN, s.dur)
+					m.apply_vuln(float(s.get("vuln", 0.0)) + GameData.ABSZERO_VULN, s.dur)
+				else:
+					# vuln 由第一級起就課得到 —— 佢係「減冷卻」嗰條軸嘅代替品。
+					m.apply_vuln(float(s.get("vuln", 0.0)), s.dur)
 				m.apply_freeze(s.dur)
 				m.apply_slow(s.slowafter, 2.0)
 				battle.spawn_fx_burst(m.global_position, 40, ice, 0.4)
@@ -112,6 +126,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 				mia["shred_armor"] = GameData.CORROSIVE_ARMOR
 			if t3:      # 瘟疫爆發:死喺霧入面就再生一團
 				mia["seed"] = true
+			mia["dpspct"] = float(s.get("dpspct", 0.0))
 			battle.spawn_hazard(pos, s.radius, s.dps, s.dur, Hazard.Kind.DOT, Color(0.5, 0.9, 0.2), false, mia)
 			battle.spawn_fx_burst(pos, s.radius * 0.8, Color(0.5, 0.9, 0.2), 0.5)
 			battle.spawn_sparks(pos, 10, Color(0.62, 0.95, 0.3), 130.0, 6.0, 0.9, -40.0)
@@ -227,14 +242,14 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 				if m.flying and not t3:
 					continue
 				if m.is_boss:
-					m.take_true(s.bossdmg)
+					m.take_true(s.bossdmg + float(s.get("bosspct", 0.0)) * m.max_hp)
 				else:
 					m.take_true(m.max_hp * s.pct)
 				if not m.alive:
 					continue
 				# T2 大地撕裂:裂縫拖慢地面單位;T3 世界崩塌:直接震暈
 				if t3:
-					m.apply_stun(GameData.SHATTER_STUN)
+					m.apply_stun(float(s.get("stunlen", 0.0)))
 				elif t2:
 					m.apply_slow(GameData.RIFT_SLOW, GameData.RIFT_DUR)
 				battle.spawn_sparks(m.global_position, 5, Color(0.55, 0.42, 0.3),
@@ -253,6 +268,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 				fw["advance"] = GameData.INFERNAL_ADVANCE
 			if t3:
 				fw["feed"] = GameData.PYRE_FEED
+			fw["dpspct"] = float(s.get("dpspct", 0.0))
 			battle.spawn_hazard(pos, s.length * 0.6, s.dps, s.dur, Hazard.Kind.DOT, Color(1, 0.5, 0.2), true, fw)
 			# flames erupting along the covered stretch of road
 			var rd2: float = battle.route.nearest_dist_param(pos)
@@ -268,7 +284,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 			var m2 = battle.target_support_first(pos, 240.0, Callable(battle, "nearest_any"))
 			if m2 == null:
 				return false
-			var d: float = s.dmg * (1.0 + (s.bossmult if m2.is_boss else 0.0))
+			var d: float = _dmg(s, m2) * (1.0 + (s.bossmult if m2.is_boss else 0.0))
 			if m2.is_support():
 				# T2 神罰之矛再加一倍有多
 				d *= (1.0 + float(s.get("supportmult", 0.0))
@@ -291,8 +307,10 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 		"emp":
 			# T2 癱瘓脈衝:範圍同時間一齊大幅延長(光環封鎖跟住暈眩,所以
 			# 延長暈眩就係延長「巫師唔准做嘢」呢件事本身)
-			var emp_r: float = s.radius * (GameData.PARALYSIS_AREA if t2 else 1.0)
-			var emp_d: float = s.dur * (GameData.PARALYSIS_DUR if t2 else 1.0)
+			# 範圍同暈眩秒數而家全部喺逐階曲線入面 —— 一個藏喺呢度嘅乘數
+			# 係控場不變式掃描唔到嘅,而掃唔到就守唔到。
+			var emp_r: float = s.radius
+			var emp_d: float = s.dur
 			var hit: Array = battle.monsters_in_radius(pos, emp_r, true)
 			for m3 in hit:
 				m3.apply_stun(emp_d)
@@ -312,6 +330,7 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 				bh["ramp"] = GameData.SINGULARITY_RAMP
 			if t3:
 				bh["implode"] = GameData.HORIZON_IMPLODE
+			bh["dpspct"] = float(s.get("dpspct", 0.0))
 			battle.spawn_hazard(pos, s.radius, s.dps, s.dur, Hazard.Kind.BLACKHOLE, Color(0.4, 0.2, 0.6), false, bh)
 			for i in 3:
 				battle.spawn_fx_ring_dur(pos, s.radius * (1.4 - i * 0.3),

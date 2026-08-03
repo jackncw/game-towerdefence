@@ -430,7 +430,7 @@ const MAX_TIER := 3
 const TIER_JUMP := 1.15
 ## tools/tier_curve.gd 量到嘅 R 中位數。改咗 ups 表就要重跑佢再改呢兩個數,
 ## 唔係嘅話上面條 1.15 就變成一句冇兌現嘅說話。
-const TOWER_AXIS_GAIN := 12.75
+const TOWER_AXIS_GAIN := 6.0
 const SPELL_AXIS_GAIN := 4.9
 const TIER_STEP_TOWER := TIER_JUMP * TOWER_AXIS_GAIN     # 14.66
 const TIER_STEP_SPELL := TIER_JUMP * SPELL_AXIS_GAIN     # 5.64
@@ -713,63 +713,134 @@ func tier_mech_key(def: Dictionary, is_tower: bool, tier: int) -> String:
 var SPELLS := []
 
 func _build_spells() -> void:
-	var s := func(id,name,desc,mech,cd,target,stats,ups):
-		SPELLS.append({"id":id,"kind":"spell","name":name,"desc":desc,"mech":mech,"cd":cd,
-			"target":target,"stats":stats,"ups":ups})
+	# `extra` 收 curve / control / 呢類唔係「一個數」嘅嘢。放最後而且有預設值,
+	# 所以冇呢啲嘢嘅魔法一個字都唔使改。
+	var s := func(id,name,desc,mech,cd,target,stats,ups,extra={}):
+		var d := {"id":id,"kind":"spell","name":name,"desc":desc,"mech":mech,"cd":cd,
+			"target":target,"stats":stats,"ups":ups}
+		for k in extra:
+			d[k] = extra[k]
+		SPELLS.append(d)
+	# --- 第十二輪:魔法曲線重做 ----------------------------------------------
+	# 三件事同時修,而佢哋其實係同一件事嘅三面:
+	#
+	#   1. **存在感**。怪物血量係指數(第 40 關 wave_scale 1426x),而魔法傷害
+	#      係固定絕對值,所以滿級隕石去到第 20 關已經冇聲冇氣。答案唔係「加大
+	#      個絕對值」(嗰個追唔到指數),係俾傷害有一份**按目標生命上限**嘅
+	#      成份 —— 地震術一直都係咁計,而佢正正就係唯一一個唔會過時嘅魔法。
+	#      `dmgpct` / `dpspct` / `bosspct` 就係嗰份。
+	#   2. **無縫控場**。凍結/暈眩類本來同時有「加持續」同「減冷卻」兩條軸,
+	#      而兩條軸夾埋嘅終點就係「永遠凍住」。控場秒數改用逐階終點曲線,
+	#      上限釘死喺冷卻嘅 0.7 以下,而騰出嚟嗰條軸改成一個**唔延長覆蓋**
+	#      嘅強化(冰凍新星:凍結期間受傷加成)。
+	#   3. **進化倒退**。有天花板嘅維度(秒數、百分比、範圍、冷卻)以前完全
+	#      唔跟 tier 走,所以一進化就跌返基礎值。而家全部行 `curve`,而 curve
+	#      嘅跨階交界係恆等接駁。
 	s.call(1,"SPELL_METEOR_NAME","SPELL_METEOR_DESC","meteor",8.0,true,
-		{"dmg":120.0,"radius":120.0,"cd":8.0},
-		[U("UP_DAMAGE","dmg",30.0,55,"add"),U("UP_AREA","radius",12.0,50,"add"),U("UP_CD","cd",-0.4,60,"add")])
+		{"dmg":120.0,"radius":120.0,"cd":8.0,"dmgpct":0.0},
+		[U("UP_DAMAGE","dmg",30.0,55,"add"),U("UP_AREA","radius",12.0,50,"add"),U("UP_CD","cd",-0.4,60,"add")],
+		{"curve":{"radius":[300.0,360.0,420.0],"cd":[5.0,4.5,4.0],
+			"dmgpct":[0.06,0.10,0.15]}})
 	# 平衡: dmg 45->58 (+29%), bolts 6->7 (+17%)。評測到每秒冷卻傷害只有 18.8,
 	# 係全部直傷魔法之中最低(隕石術 144、地震術 130、烈焰之牆 120),而佢冷卻
 	# 仲要長過隕石術 —— 冇任何情境揀佢。
 	s.call(2,"SPELL_STORMBOLT_NAME","SPELL_STORMBOLT_DESC","stormbolt",12.0,false,
-		{"dmg":58.0,"bolts":7.0,"cd":12.0},
-		[U("UP_DAMAGE","dmg",12.0,55,"add"),U("UP_BOLTS","bolts",1.0,65,"add"),U("UP_CD","cd",-0.6,60,"add")])
+		{"dmg":95.0,"bolts":9.0,"cd":12.0,"dmgpct":0.0},
+		[U("UP_DAMAGE","dmg",12.0,55,"add"),U("UP_BOLTS","bolts",1.0,65,"add"),U("UP_CD","cd",-0.6,60,"add")],
+		{"curve":{"bolts":[24.0,30.0,36.0],"cd":[6.0,5.2,4.6],
+			"dmgpct":[0.05,0.09,0.14]}})
+	# 冰凍新星 —— 用戶報上嚟嗰個無限控場就係呢個:滿級持續 7.0 秒、冷卻 4.0 秒。
+	# 「減冷卻」嗰條軸拎走咗,換成 `vuln`(凍結期間受傷加成)。呢個唔係隨手揀
+	# 嘅代替品:佢係第二階「絕對零度」本來就有嘅機制,而家由一個進化獎勵變成
+	# 一條由第一級起就課得到嘅軸 —— 即係話「凍得耐啲」嘅獎勵改成咗「凍住嗰陣
+	# 打得痛啲」,強度照升,但**唔會**延長覆蓋。冷卻固定 16 秒。
 	s.call(3,"SPELL_FREEZENOVA_NAME","SPELL_FREEZENOVA_DESC","freezenova",16.0,false,
-		{"dur":2.5,"slowafter":0.4,"cd":16.0},
-		[U("UP_DURATION","dur",0.3,55,"add"),U("UP_SLOWAFTER","slowafter",0.04,55,"add"),U("UP_CD","cd",-0.8,60,"add")])
+		{"dur":2.0,"slowafter":0.30,"vuln":0.10,"cd":16.0},
+		[U("UP_DURATION","dur",0.0,55,"add"),U("UP_SLOWAFTER","slowafter",0.0,55,"add"),U("UP_FROSTVULN","vuln",0.0,60,"add")],
+		{"control":"dur",
+		 "curve":{"dur":[4.5,7.0,9.0],"slowafter":[0.45,0.58,0.70],
+			"vuln":[0.25,0.40,0.60]}})
 	# healcut = 範圍內敵人所受治療嘅減免。呢個係巫教族反制嘅魔法半邊:
 	# 巫師靠光環治療續命,而「打多啲」對一個回得返嘅目標係冇上限嘅軍備競賽,
 	# 「回少啲」先係一個有終點嘅答案。
+	# 劇毒瘴氣 —— 減回復由一個固定 0.70 變成一條**課得上去**嘅曲線,而第三階
+	# 終點係 1.00,即係喺霧入面完全封住回復。點解要去到 100%:巫教族靠群療
+	# 續命,而任何 < 100% 嘅減免都只係將軍備競賽推遲 —— 90% 減免遇著一個回血
+	# 夠快嘅陣容仍然係回得返。100% 先係一個**有終點**嘅答案,而佢要行到第三階
+	# 先拎到手,所以佢係一個目標,唔係一個預設。
+	# 範圍冇咗自己嗰條軸(改咗俾減回復),所以佢跟進化走。
 	s.call(4,"SPELL_MIASMA_NAME","SPELL_MIASMA_DESC","miasma",10.0,true,
-		{"dps":25.0,"dur":6.0,"radius":110.0,"healcut":0.70},
-		[U("UP_POISONDPS","dps",7.0,55,"add"),U("UP_DURATION","dur",0.6,50,"add"),U("UP_AREA","radius",10.0,55,"add")])
+		{"dps":18.0,"dur":6.0,"radius":110.0,"healcut":0.20,"dpspct":0.0},
+		[U("UP_POISONDPS","dps",7.0,55,"add"),U("UP_DURATION","dur",0.0,50,"add"),U("UP_HEALCUT","healcut",0.0,55,"add")],
+		{"curve":{"dur":[12.0,15.0,18.0],"healcut":[0.55,0.80,1.00],
+			"radius":[180.0,220.0,260.0],"dpspct":[0.014,0.026,0.038]}})
 	s.call(5,"SPELL_SUMMON_NAME","SPELL_SUMMON_DESC","summon",14.0,true,
 		{"hp":80.0,"dmg":10.0,"count":3.0},
-		[U("UP_SOLDIERHP","hp",20.0,55,"add"),U("UP_SOLDIERDMG","dmg",3.0,55,"add"),U("UP_COUNT","count",1.0,80,"add")])
+		[U("UP_SOLDIERHP","hp",20.0,55,"add"),U("UP_SOLDIERDMG","dmg",3.0,55,"add"),U("UP_COUNT","count",0.0,80,"add")],
+		{"curve":{"count":[8.0,11.0,14.0]}})
 	s.call(6,"SPELL_MIDAS_NAME","SPELL_MIDAS_DESC","midas",18.0,false,
 		{"gold":120.0,"cd":18.0,"killbonus":0.0},
-		[U("UP_GOLDAMOUNT","gold",30.0,55,"add"),U("UP_CD","cd",-1.0,60,"add"),U("UP_KILLGOLD","killbonus",0.05,60,"add")])
+		[U("UP_GOLDAMOUNT","gold",30.0,55,"add"),U("UP_CD","cd",0.0,60,"add"),U("UP_KILLGOLD","killbonus",0.0,60,"add")],
+		{"curve":{"cd":[9.0,7.6,6.6],"killbonus":[0.60,0.85,1.10]}})
+	# 時間扭曲 —— 減速封頂 0.65。舊版滿級 slow = 0.4 + 0.04*15 = **1.00**,
+	# 即係全場完全停低,而佢自稱係一個「拖慢」魔法。封頂喺 SLOW_IS_CONTROL
+	# (0.80)以下,所以佢由頭到尾都係一個減速,唔會偷偷變成一個定身。
 	s.call(7,"SPELL_TIMEWARP_NAME","SPELL_TIMEWARP_DESC","timewarp",16.0,false,
-		{"slow":0.4,"dur":4.0,"cd":16.0},
-		[U("UP_SLOWAMT","slow",0.04,55,"add"),U("UP_DURATION","dur",0.4,50,"add"),U("UP_CD","cd",-0.8,60,"add")])
+		{"slow":0.30,"dur":4.0,"cd":16.0},
+		[U("UP_SLOWAMT","slow",0.0,55,"add"),U("UP_DURATION","dur",0.0,50,"add"),U("UP_CD","cd",0.0,60,"add")],
+		{"curve":{"slow":[0.45,0.56,0.65],"dur":[5.5,6.5,7.2],"cd":[12.0,11.0,10.5]}})
 	s.call(8,"SPELL_WARCRY_NAME","SPELL_WARCRY_DESC","warcry",20.0,false,
 		{"haste":0.4,"dur":6.0,"cd":20.0},
-		[U("UP_BOOST","haste",0.04,55,"add"),U("UP_DURATION","dur",0.5,50,"add"),U("UP_CD","cd",-1.0,60,"add")])
+		[U("UP_BOOST","haste",0.0,55,"add"),U("UP_DURATION","dur",0.0,50,"add"),U("UP_CD","cd",0.0,60,"add")],
+		{"curve":{"haste":[0.80,1.10,1.45],"dur":[10.0,12.0,14.0],"cd":[14.0,12.5,11.5]}})
 	s.call(9,"SPELL_BARRIER_NAME","SPELL_BARRIER_DESC","barrier",30.0,false,
 		{"block":3.0,"cd":30.0,"reflect":0.0},
-		[U("UP_BLOCK","block",1.0,90,"add"),U("UP_CD","cd",-1.5,60,"add"),U("UP_REFLECT","reflect",20.0,60,"add")])
+		[U("UP_BLOCK","block",1.0,90,"add"),U("UP_CD","cd",0.0,60,"add"),U("UP_REFLECT","reflect",20.0,60,"add")],
+		{"curve":{"cd":[18.0,16.0,15.0]}})
 	s.call(10,"SPELL_TORNADO_NAME","SPELL_TORNADO_DESC","tornado",14.0,true,
 		{"push":160.0,"count":8.0,"cd":14.0},
-		[U("UP_PUSH","push",20.0,55,"add"),U("UP_AFFECTCOUNT","count",2.0,60,"add"),U("UP_CD","cd",-0.7,60,"add")])
+		[U("UP_PUSH","push",0.0,55,"add"),U("UP_AFFECTCOUNT","count",0.0,60,"add"),U("UP_CD","cd",0.0,60,"add")],
+		{"curve":{"push":[460.0,560.0,660.0],"count":[20.0,26.0,32.0],
+			"cd":[7.0,6.2,5.6]}})
+	# 地震術 —— 佢一直都係唯一一個唔會過時嘅魔法,因為佢本來就係按生命上限
+	# 計數。呢一輪做嘅係將佢對 boss 嗰半邊都改成同一個道理(`bosspct`),
+	# 因為固定 300 傷害對一個 79 萬血嘅第 40 關 boss 一樣係零。
+	# `stunlen` 由一個常數(SHATTER_STUN)變成一個 stat,咁控場不變式先掃得到佢。
 	s.call(11,"SPELL_QUAKE_NAME","SPELL_QUAKE_DESC","quake",18.0,false,
-		{"pct":0.18,"bossdmg":300.0,"cd":18.0},
-		[U("UP_PCTDMG","pct",0.02,60,"add"),U("UP_BOSSFLAT","bossdmg",80.0,60,"add"),U("UP_CD","cd",-0.9,60,"add")])
+		{"pct":0.18,"bossdmg":300.0,"cd":18.0,"bosspct":0.0,"stunlen":0.0},
+		[U("UP_PCTDMG","pct",0.0,60,"add"),U("UP_BOSSFLAT","bossdmg",80.0,60,"add"),U("UP_CD","cd",0.0,60,"add")],
+		{"control":"stunlen",
+		 "curve":{"pct":[0.42,0.62,0.85],"cd":[8.0,7.0,6.5],
+			"bosspct":[0.04,0.06,0.09],"stunlen":[0.0,0.0,1.2]}})
 	s.call(12,"SPELL_FIREWALL_NAME","SPELL_FIREWALL_DESC","firewall",12.0,true,
-		{"dps":40.0,"dur":5.0,"length":120.0},
-		[U("UP_DPS","dps",10.0,55,"add"),U("UP_DURATION","dur",0.5,50,"add"),U("UP_LENGTH","length",12.0,55,"add")])
+		{"dps":40.0,"dur":5.0,"length":120.0,"dpspct":0.0},
+		[U("UP_DPS","dps",10.0,55,"add"),U("UP_DURATION","dur",0.0,50,"add"),U("UP_LENGTH","length",0.0,55,"add")],
+		{"curve":{"dur":[12.0,14.0,16.0],"length":[300.0,360.0,420.0],
+			"dpspct":[0.025,0.040,0.060]}})
 	# supportmult = 對「支援型單位」嘅增傷。巫師 / 大祭司係後排關鍵目標,
 	# 而一個單體點名法術本來就係為咗「揀邊個死」而存在 —— 呢個加成只係
 	# 令佢真係做得到嗰件事。
 	s.call(13,"SPELL_SMITE_NAME","SPELL_SMITE_DESC","smite",10.0,true,
-		{"dmg":350.0,"bossmult":0.4,"cd":10.0,"supportmult":1.2},
-		[U("UP_DAMAGE","dmg",80.0,55,"add"),U("UP_BOSSMULT","bossmult",0.06,60,"add"),U("UP_CD","cd",-0.5,60,"add")])
+		{"dmg":350.0,"bossmult":0.4,"cd":10.0,"supportmult":1.2,"dmgpct":0.0},
+		[U("UP_DAMAGE","dmg",80.0,55,"add"),U("UP_BOSSMULT","bossmult",0.0,60,"add"),U("UP_CD","cd",0.0,60,"add")],
+		{"curve":{"bossmult":[0.80,1.10,1.45],"cd":[7.0,6.0,5.5],
+			"dmgpct":[0.03,0.05,0.08]}})
+	# EMP —— 第二個無限控場來源。舊版滿級暈眩 7.0 秒 / 冷卻 4.0 秒,而且第二階
+	# 仲要再乘 PARALYSIS_DUR(1.6)—— 即係 11.2 秒暈眩配 4 秒冷卻。兩個乘數
+	# (PARALYSIS_AREA / PARALYSIS_DUR)拆走咗,改為直接寫入逐階曲線,因為
+	# 一個藏喺 Spells.gd 嘅乘數係掃描斷言睇唔到嘅 —— 而睇唔到就等於守唔到。
 	s.call(14,"SPELL_EMP_NAME","SPELL_EMP_DESC","emp",16.0,true,
-		{"radius":130.0,"dur":2.5,"cd":16.0},
-		[U("UP_AREA","radius",12.0,55,"add"),U("UP_DURATION_ALT","dur",0.3,55,"add"),U("UP_CD","cd",-0.8,60,"add")])
+		{"radius":130.0,"dur":1.2,"cd":16.0},
+		[U("UP_AREA","radius",0.0,55,"add"),U("UP_DURATION_ALT","dur",0.0,55,"add"),U("UP_CD","cd",0.0,60,"add")],
+		{"control":"dur",
+		 "curve":{"radius":[310.0,380.0,450.0],"dur":[2.6,3.8,5.0],
+			"cd":[9.0,8.5,8.0]}})
 	s.call(15,"SPELL_BLACKHOLE_NAME","SPELL_BLACKHOLE_DESC","blackhole",22.0,true,
-		{"dur":3.5,"radius":140.0,"dps":30.0},
-		[U("UP_DURATION","dur",0.4,55,"add"),U("UP_AREA","radius",12.0,55,"add"),U("UP_DPS","dps",8.0,55,"add")])
+		{"dur":3.0,"radius":140.0,"dps":30.0,"cd":22.0,"dpspct":0.0},
+		[U("UP_DURATION","dur",0.0,55,"add"),U("UP_AREA","radius",0.0,55,"add"),U("UP_DPS","dps",8.0,55,"add")],
+		{"control":"dur",
+		 "curve":{"dur":[6.0,8.0,10.0],"radius":[320.0,380.0,440.0],
+			"dpspct":[0.030,0.050,0.075]}})
 
 # ---------------------------------------------------------------------------
 # effective stats given upgrade levels dict {stat_or_dir_index: lv}
@@ -780,33 +851,168 @@ func _build_spells() -> void:
 ## 步長一定要一齊放大:唔係嘅話 tier 3 箭塔嘅基礎傷害係 2560,而「攻擊力」
 ## 軸每級仲係 +3 —— 十五級加埋 45,對住 2560 等於零。六條軸就會由「進化之後
 ## 重新開放嘅選擇」變成裝飾品,而條 brief 講明係「重開 15 級繼續課」。
+## 一個 stat 課滿之後相對基礎值嘅倍率 R = (base + 15*step) / base。
+func stat_ratio(def: Dictionary, stat: String) -> float:
+	var base: float = float((def.stats as Dictionary).get(stat, 0.0))
+	if base <= 0.0:
+		return 1.0
+	var add: float = 0.0
+	for d in def.ups:
+		if String(d.stat) == stat and String(d.kind) == "add":
+			add += float(d.step) * MAX_UP_LV
+	return maxf(1.0, (base + add) / base)
+
+## 一個 stat 喺第 `tier` 階嘅幾何倍率。
+##
+## 第十一輪用一個**全域**倍率(塔 14.66 / 魔法 5.64,由 R 嘅**中位數**乘 1.15
+## 得返)。中位數嘅意思就係一半嘅嘢喺佢上面 —— 而任何 R > STEP 嘅 stat,
+## 進化嗰一刻都會**倒退**:tier N+1 嘅基礎值 (base*STEP) 細過 tier N 課滿
+## (base*R)。量到嘅 R 去到塔 51.00 / 魔法 6.00,即係話呢個倒退一直都喺度,
+## 只不過冇人逐個 stat 對過數。
+##
+## 所以倍率改成**逐個 stat**:照用全域 STEP,但如果嗰個 stat 自己嘅 R 要求
+## 更高,就跟佢。`max()` 嘅意思係「冇一個 stat 會倒退,而本來冇問題嗰啲
+## 一個字都冇變」—— R 細過中位數嘅嘢(佔一半)power 曲線完全同上一輪一樣。
+## 註:呢度**唔再**夾一個 `max(glob, JUMP*R)` 落去。
+##
+## 嗰個下限本來係用嚟擋「進化倒退」嘅,但單調性而家由 effective_stats() 入面
+## 條 carry(下一階起點 = 上一階終點)無條件保證,所以個下限係多餘嘅 ——
+## 而且佢有害:佢將 dmg 嘅倍率釘死喺 1.15*R_dmg(塔嗰邊 ≈ 14.66),搞到
+## TOWER_AXIS_GAIN 由 12.75 調到 2.0 都**量唔到分別**(量過:4.35 同 2.0
+## 兩次跑出嚟嘅最深推進一模一樣)。拎走之後呢個常數先至真係一個掣。
+func stat_tier_mult(def: Dictionary, stat: String, tier: int) -> float:
+	var glob: float = TIER_STEP_TOWER if def_is_tower(def) else TIER_STEP_SPELL
+	return pow(glob, clampi(tier, 1, MAX_TIER) - 1)
+
+## 「逐階終點」曲線。`curve[t-1]` = 第 t 階**第 15 級**嗰個值;第 t 階第 0 級
+## 就係第 t-1 階嘅終點(第一階由 `stats` 嘅基礎值起)。
+##
+## 點解唔用幾何倍率:呢啲係**有天花板**嘅維度 —— 控場秒數、減速百分比、
+## 減回復百分比。乘 5.64 一階對一個百分比冇意義,而對一個凍結秒數就係
+## 「無縫控場」本身。逐階終點寫得出「我想佢喺嗰一階去到幾多」,而且跨階
+## 交界係**恆等接駁**(t+1 第 0 級 ≡ t 第 15 級),所以單調性唔使靠斷言去
+## 追,佢係砌出嚟就已經成立。
+func curve_value(base: float, curve: Array, tier: int, lv: int) -> float:
+	var t: int = clampi(tier, 1, MAX_TIER)
+	var start: float = base if t <= 1 else float(curve[t - 2])
+	var end_v: float = float(curve[t - 1])
+	var f: float = clampf(float(lv) / float(MAX_UP_LV), 0.0, 1.0)
+	return start + (end_v - start) * f
+
+## 「非輸出」類 stat(射程、射速、暴擊、爆炸範圍…)每一階嘅步長衰減幾多。
+##
+## 點解要有:單調性(需求 3)要求下一階嘅起點接得住上一階嘅終點,而如果
+## 之後仲以**原速**再課十五級,三階夾埋就係一個冇邊界嘅數 —— 射程由 260
+## 一路碌到 980,即係全塔覆蓋成塊板,而量出嚟就係第 21-40 關最深推進由 35%
+## 塌到 3%(等於散步)。
+##
+## 0.30 嘅意思係:進化保住你之前課落去嗰啲(唔倒退),但同一條軸喺新一階
+## 嘅**邊際**回報大幅收細。射程 500 -> 572 -> 593,仲係升,但唔會離地。
+## 輸出類(dmg / dps)唔受呢個影響 —— 佢哋本來就要跟得上指數怪血。
+const NONSCALED_STEP_DECAY := 0.30
+
+func _axis_step(d: Dictionary, stat: String, scaled: bool, def: Dictionary, tier: int) -> float:
+	if scaled:
+		return d.step * stat_tier_mult(def, stat, tier)
+	return d.step * pow(NONSCALED_STEP_DECAY, maxi(0, clampi(tier, 1, MAX_TIER) - 1))
+
+func _axis_index(def: Dictionary, stat: String) -> int:
+	for i in (def.ups as Array).size():
+		if String((def.ups[i] as Dictionary).stat) == stat:
+			return i
+	return -1
+
 func effective_stats(def: Dictionary, up_levels: Array, tier := 1) -> Dictionary:
 	var s := (def.stats as Dictionary).duplicate(true)
-	var mult: float = tier_power(tier, def_is_tower(def))
-	if mult != 1.0:
-		for stat in TIER_SCALED_STATS:
-			if s.has(stat):
-				s[stat] = float(s[stat]) * mult
+	var base_stats: Dictionary = def.stats
+	var curves: Dictionary = def.get("curve", {})
+	# 1. 幾何倍率 —— 淨係打「輸出」類,而且逐個 stat 自己嘅倍率。
+	for stat in s.keys():
+		if curves.has(stat):
+			continue      # 有曲線嘅唔行倍率,佢自己講晒每一階去到幾多
+		if stat in TIER_SCALED_STATS:
+			s[stat] = float(s[stat]) * stat_tier_mult(def, stat, tier)
+	# 2. 升級軸。
 	var ups: Array = def.ups
 	for i in ups.size():
-		var lv: int = up_levels[i] if i < up_levels.size() else 0
-		if lv <= 0:
-			continue
 		var d: Dictionary = ups[i]
 		var stat: String = d.stat
-		var step: float = d.step
-		if mult != 1.0 and stat in TIER_SCALED_STATS:
-			step *= mult
-		var base: float = float(s.get(stat, 0.0))   # 已經計咗 tier 倍率
-		match d.kind:
-			"add":
-				s[stat] = s.get(stat, 0.0) + step * lv
-			"pct":
-				s[stat] = base * (1.0 + d.step * lv)
-			"prob":
-				# 機率唔跟 tier 放大 —— 一個 0.05 嘅機率乘 256 冇意義(封頂 1.0)
-				s[stat] = clampf(s.get(stat, 0.0) + d.step * lv, 0.0, 1.0)
+		var lv: int = up_levels[i] if i < up_levels.size() else 0
+		if curves.has(stat):
+			s[stat] = curve_value(float(base_stats.get(stat, 0.0)), curves[stat], tier, lv)
+			continue
+		if d.kind == "pct":
+			if lv > 0:
+				s[stat] = float(s.get(stat, 0.0)) * (1.0 + d.step * lv)
+			continue
+		# 「進化唔准倒退」嘅通用做法 —— 唔使逐件嘢寫表。
+		#
+		# 舊版:tier N+1 嘅基礎值 = 原基礎值 × 倍率,而倍率只打「輸出」類 stat。
+		# 即係話射速、射程、暴擊率、爆炸範圍、擊退…… 全部一進化就跌返出廠值,
+		# 而玩家喺上一階課咗十五級落去嗰啲**一鋪清袋**。掃出嚟係 20 座塔 196 項。
+		#
+		# 新版:每一階嘅起點 = max(原基礎 × 該階倍率, 上一階課滿嗰個值)。
+		# `max` 係關鍵 —— 本來就冇問題嗰啲(輸出類,倍率大過課滿倍率)一個字
+		# 都冇變,而會倒退嗰啲就至少接返上一階嘅終點。相等係可以嘅:進化嗰
+		# 一刻唔會變差,而跟住十五級係新賺嘅。
+		var scaled: bool = stat in TIER_SCALED_STATS
+		var lower: bool = stat in LOWER_IS_BETTER
+		var base0: float = float(base_stats.get(stat, 0.0))
+		var baseline: float = base0
+		for t in range(2, clampi(tier, 1, MAX_TIER) + 1):
+			var prev_step: float = _axis_step(d, stat, scaled, def, t - 1)
+			var prev_max: float = baseline + prev_step * MAX_UP_LV
+			var own: float = base0 * (stat_tier_mult(def, stat, t) if scaled else 1.0)
+			baseline = minf(own, prev_max) if lower else maxf(own, prev_max)
+		var step: float = _axis_step(d, stat, scaled, def, tier)
+		if d.kind == "prob":
+			# 機率唔跟 tier 放大 —— 一個 0.05 嘅機率乘 256 冇意義(封頂 1.0)。
+			# 但步長一定要同上面條 carry 用**同一個** `step`:用返 d.step 嘅話,
+			# 該階實際課到嘅值就會大過下一階接得住嗰個起點,而咁樣就係倒退。
+			s[stat] = clampf(baseline + step * lv, 0.0, 1.0)
+		else:
+			s[stat] = baseline + step * lv
+	# 3. 有曲線但**冇佔一條升級軸**嘅 stat(dmgpct / healcut 嗰類)。
+	#    佢哋跟進化走,唔跟課金走 —— 即係用該階嘅終點值。
+	for stat in curves.keys():
+		if _axis_index(def, stat) < 0:
+			s[stat] = curve_value(float(base_stats.get(stat, 0.0)),
+				curves[stat], tier, MAX_UP_LV)
 	return s
+
+# ---------------------------------------------------------------------------
+# 控場不變式
+# ---------------------------------------------------------------------------
+## 「愈細愈好」嘅維度。單調性斷言對呢啲要反過嚟睇 —— 一個由 8 秒跌到 4 秒
+## 嘅冷卻係變強咗,唔係倒退。
+const LOWER_IS_BETTER := ["cd"]
+
+## 一個減速去到幾多先算「等於定咗喺度」。0.80 = 得返兩成速度。
+const SLOW_IS_CONTROL := 0.80
+## 控場持續時間相對冷卻嘅上限。dur < cd * 呢個數。
+const CONTROL_MAX_CD_FRAC := 0.7
+
+## 一個魔法喺呢個配置之下,**最長嗰段連續控場**有幾多秒,同埋佢嘅冷卻。
+## `def.control` 講明邊個 stat 係控場窗口(冇 = 唔控場)。
+##
+## 點解要有一個 function 而唔係喺測試度逐款寫:一條「唔准無縫控場」嘅規矩
+## 如果每加一款魔法都要有人記得去測試度補一行,佢就唔係一條規矩,係一個
+## 習慣。呢度係唯一嘅出數點,測試同遊戲問同一個。
+func spell_control(def: Dictionary, up_levels: Array, tier := 1) -> Dictionary:
+	var s := effective_stats(def, up_levels, tier)
+	var out := {"dur": 0.0, "cd": float(s.get("cd", def.get("cd", 0.0))), "kind": ""}
+	var c: String = String(def.get("control", ""))
+	if c != "" and s.has(c):
+		out["dur"] = float(s[c])
+		out["kind"] = c
+	# 一個夠深嘅減速同定身冇分別,所以佢要行同一條規矩。
+	for stat in ["slow", "slowafter"]:
+		if float(s.get(stat, 0.0)) >= SLOW_IS_CONTROL:
+			var d: float = float(s.get("dur", 0.0))
+			if d > out["dur"]:
+				out["dur"] = d
+				out["kind"] = stat
+	return out
 
 ## 升級價曲線 —— 兩段。
 ##

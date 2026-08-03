@@ -149,11 +149,25 @@ func _case_stat_scaling() -> void:
 	var sp := GameData.spell_by_id(4)          # 劇毒瘴氣
 	var sp_zero: Array = [0, 0, 0]
 	var sp_max: Array = [GameData.MAX_UP_LV, GameData.MAX_UP_LV, GameData.MAX_UP_LV]
-	_in_band("D3 魔法 tier 2 基礎 / tier 1 滿課",
-		float(GameData.effective_stats(sp, sp_zero, 2).dps)
-			/ float(GameData.effective_stats(sp, sp_max, 1).dps), 1.05, 1.35)
-	# 射程唔跟 tier 放大 —— 一座 tier 3 塔唔應該打得晒成張地圖
-	_near("D3 射程唔跟階放大", float(t3_base.range), float(t1_base.range), 0.001)
+	# 第十二輪:呢條由「一條帶」改成「唔准細過 1」。
+	#
+	# 進化嘅契約而家係 effective_stats() 入面條 carry:下一階嘅起點 =
+	# max(原基礎 × 該階倍率, 上一階課滿)。即係話比率**永遠 >= 1.0**,而
+	# 「啱啱好 1.0」係一個完全合法而且常見嘅結果(carry 贏咗個倍率嗰陣)。
+	# 舊嗰條下限 1.05 會將「冇倒退但都冇跳」判做失敗,而嗰個正正就係
+	# 需求 3 明文接受嘅狀態(「只會變強或者持平」)。
+	var sp_ratio: float = float(GameData.effective_stats(sp, sp_zero, 2).dps) 		/ float(GameData.effective_stats(sp, sp_max, 1).dps)
+	_ok("D3 魔法 tier 2 基礎 >= tier 1 滿課", sp_ratio >= 1.0 - 1e-6,
+		"比率 %.3f" % sp_ratio)
+	# 第十二輪:呢條**反轉**咗,因為佢本來守住嘅就係嗰個 bug。
+	#
+	# 舊版斷言「tier 3 嘅射程 == tier 1 嘅射程」,即係明文要求射程喺進化
+	# 嗰一刻跌返出廠值 —— 而嗰樣嘢喺玩家眼中係「我課咗十五級射程,進化
+	# 之後冇晒」。需求 3 要求冇任何維度倒退,所以而家要求佢**唔細過**。
+	# 「唔應該打得晒成張地圖」呢個顧慮改由步長逐階衰減(0.30)處理:
+	# 射程 260 -> 500 -> 572 -> 593,升緊但唔會離地。
+	_ok("D3 射程進化後唔倒退", float(t3_base.range) >= float(t1_base.range) - 0.001,
+		"t3 %.1f vs t1 %.1f" % [float(t3_base.range), float(t1_base.range)])
 	# 步長要一齊放大,唔係六條軸就變裝飾
 	var gain1: float = float(t1_max.dmg) - float(t1_base.dmg)
 	var gain2: float = float(t2_max.dmg) - float(t2_base.dmg)

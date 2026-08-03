@@ -184,6 +184,8 @@
 "UP_DURATION","持續","Duration"
 "UP_DURATION_ALT","時長","Duration"
 "UP_SLOWAFTER","解凍後減速","Slow After Thaw"
+"UP_FROSTVULN","冰凍易傷","Frozen Vulnerability"
+"UP_HEALCUT","減回復","Healing Cut"
 "UP_POISONDPS","每秒毒傷","Poison per Second"
 "UP_COUNT","數量","Count"
 "UP_GOLDAMOUNT","金額","Gold Amount"

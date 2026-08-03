@@ -144,10 +144,17 @@ func _teeth() -> void:
 	var maxed := _levels_for(def.ups.size(), "max")
 	var t1: Array = UPG.now_next_values(def, maxed, 1, 0)
 	var t2: Array = UPG.now_next_values(def, [0, 0, 0], 2, 0)
-	_check(_same(float(t1[0]), 130.0),
-		"劇毒瘴氣 tier 1 滿課每秒毒傷 = 130 (得 %s)" % t1[0])
-	_check(float(t2[0]) > float(t1[0]),
-		"進化之後嘅起步值大過 tier 1 滿課 (t2=%s t1=%s)" % [t2[0], t1[0]])
+	# 第十二輪:基礎每秒毒傷由 25 調到 18(佢喺 --spells bench 度係全表最高,
+	# 417.8 對隕石 203.9),所以滿課由 130 變 123。呢度對嘅係「顯示側同引擎側
+	# 講唔講同一個數」,唔係「嗰個數係幾多」—— 所以跟住 GameData 出數,
+	# 唔再硬寫一個會隨平衡飄走嘅常數。
+	var engine_dps: float = float(GameData.effective_stats(def, maxed, 1).dps)
+	_check(_same(float(t1[0]), engine_dps),
+		"劇毒瘴氣 tier 1 滿課每秒毒傷:顯示 %s vs 引擎 %.1f" % [t1[0], engine_dps])
+	# 進化嘅契約係「唔會變弱」,唔係「一定變強」——  carry 令下一階嘅起點
+	# 啱啱好接住上一階嘅終點,而相等係需求 3 明文接受嘅(「只會變強或者持平」)。
+	_check(float(t2[0]) >= float(t1[0]) - 0.001,
+		"進化之後嘅起步值唔細過 tier 1 滿課 (t2=%s t1=%s)" % [t2[0], t1[0]])
 	# 而 tier 1 嘅公式套喺 tier 2 身上就係嗰單 bug 嘅樣:25 → 32。
 	var wrong: Array = UPG.now_next_values(def, [0, 0, 0], 1, 0)
 	_check(not _same(float(t2[0]), float(wrong[0])),

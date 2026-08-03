@@ -6,7 +6,7 @@
 呢個腳本影嘅係 GitHub Pages 上面真真正正嗰個畫面。
 
 用法:
-    python tools/web_shots.py [--dir docs] [--out qa/web_r11] [--port 8791]
+    python tools/web_shots.py [--dir docs] [--out qa/screenshots/round-13-web] [--port 8791]
 
 需要 playwright + chromium(`pip install playwright && playwright install
 chromium`)。冇就 exit 2,唔會扮成功。
@@ -156,7 +156,7 @@ def _tap(page, pt):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default="docs")
-    ap.add_argument("--out", default="qa/web_r11")
+    ap.add_argument("--out", default="qa/screenshots/web")
     ap.add_argument("--port", type=int, default=8791)
     ap.add_argument("--timeout", type=int, default=180)
     return run(ap.parse_args())

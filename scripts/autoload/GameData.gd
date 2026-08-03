@@ -1068,7 +1068,7 @@ func spell_by_id(id: int) -> Dictionary:
 # `WALLS` 係空嘅,所以 level_config() 對每一關嘅行為同加牆之前一模一樣。
 #
 # 要重新開返呢個功能嘅人:**先讀完下面四件事**,唔好由零再試一次。
-# 完整數字喺 BALANCE_CHANGELOG.md「第九輪」,量度工具係 BalanceSim --walls。
+# 完整數字喺 docs/design/BALANCE_CHANGELOG.md「第九輪」,量度工具係 BalanceSim --walls。
 #
 #   1. `add_fams`(喺家族名單後面加)方向係錯嘅,已經移除。
 #      _spawn_wave_monster() 由 cfg.families **均勻抽**,所以加一個家族 = 溝淡

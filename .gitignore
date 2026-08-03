@@ -2,14 +2,15 @@
 .godot/
 /android/
 
-# build artifacts (not needed for rollback)
+# ---------------------------------------------------------------------------
+# Build 產物
+# ---------------------------------------------------------------------------
 /build/
 *.apk
 *.aab
 
-# Web export dropped in the project root. The published build lives in /docs;
-# the Web preset used to default to ./index.html and littered a 38 MB duplicate
-# here every time it was exported without an explicit path.
+# Web export 掉咗喺 project root。出街嗰個 build 喺 /docs/ —— Web preset 以前
+# 預設 ./index.html,每次唔寫明路徑就喺呢度留低一份 38 MB 嘅重複品。
 /index.html
 /index.js
 /index.wasm
@@ -22,32 +23,37 @@
 /index.*.import
 /index.side.wasm
 
-# generated art exports / screenshots (re-renderable via tools/art_export.gd,
-# tools/heal_shots.gd).
-#
-# 新嘅輸出全部落 /qa/ 之下 —— 兩個 exporter 都會將 --out= 拉入去(見
-# tools/art_export.gd QA_ROOT)。咁樣 export_presets.cfg 個排除表就唔使再逐個
-# 目錄名追:一條 `qa/*` 覆蓋晒將來所有輪次。下面嗰堆係歷史目錄,由
-# `art_*` / `*_shots/*` 兩條 pattern 排除,留喺度淨係為咗本機仲有嗰幾份。
+# ---------------------------------------------------------------------------
+# QA / bench 產物 —— 全部重新跑得返,所以一律唔入 repo
+# ---------------------------------------------------------------------------
+# 一條規則覆蓋晒將來所有輪次:art_export / heal_shots 都會將 `--out=` 拉入
+# qa/screenshots/(見 tools/art_export.gd QA_ROOT),模擬同 log 落 qa/bench/。
+# qa/.gdignore 令 Godot 連 import 都唔 import,所以呢啲檔案結構上入唔到 build
+# —— 第九輪嗰次 50 MB QA 截圖被打包入 web build 嘅事故,唔會再靠人手維護排除表。
 /qa/
-/art_export/
-/heal_shots/
-/art_export_round6/
-/art_i18n_zh/
-/art_i18n_en/
-/art_r8_zh/
-/art_r8_en/
-/art_r9/
-/art_r9_en/
-/Claude art self improve/
 
-# translation resources compiled from i18n/*.csv by the Godot importer
+# ---------------------------------------------------------------------------
+# 本機執行產物
+# ---------------------------------------------------------------------------
+*.log
+*.err
+
+# 閃退證物。引擎同 Crash.gd 寫落 user://logs/(唔喺 project 入面),但如果有人
+# 抄返落嚟分析,唔應該連埋入 repo。
+/logs/
+crash_*.txt
+logcat*.txt
+
+# i18n/*.csv 經 Godot importer 編譯出嚟嘅翻譯資源
 *.translation
 
-# run logs and profiling output
-*.log
+# 字型 subset 中間檔。tools/subset_font.py 直接寫最終
+# assets/fonts/NotoSansTC-Subset.ttf(嗰個要入 repo),中間檔唔要。
+*.subset.ttf
+*.ttf.tmp
+.fonttools_cache/
 
-# local editor / tooling state
+# 本機 editor / 工具狀態
 .claude/settings.local.json
 __pycache__/
 *.pyc

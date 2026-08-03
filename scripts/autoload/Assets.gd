@@ -1,6 +1,6 @@
 extends Node
 ## Texture loader with caching + procedural fallback so the game never crashes
-## if a generated sprite is missing. Filenames follow CONTRACT.md.
+## if a generated sprite is missing. Filenames follow docs/design/CONTRACT.md.
 
 const GEN := "res://assets/generated/"
 var _cache: Dictionary = {}

@@ -1,7 +1,7 @@
 # Asset & Data Contract (shared by art generator and game code)
 
 All generated art goes to `res://assets/generated/`. Original pixel art only — no pixels copied
-from `art reference/`. Nearest-neighbour filtering (crisp pixels).
+from `art_reference/`. Nearest-neighbour filtering (crisp pixels).
 
 ## Family IDs (order 1..10)
 1 goblin, 2 wolf, 3 skeleton, 4 golem, 5 ghost, 6 bat, 7 treant, 8 beetle, 9 cultist, 10 slime

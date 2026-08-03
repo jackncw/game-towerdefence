@@ -3,7 +3,7 @@
 Procedural pixel-art generator for a mobile tower-defense game (Godot).
 Pure standard-lib + Pillow. Run:  python tools/gen_art.py
 
-Writes every PNG described in CONTRACT.md to assets/generated/ .
+Writes every PNG described in docs/design/CONTRACT.md to assets/generated/ .
 Style: draw on a small logical grid, hard-edged pixels (no AA), a uniform dark
 outline around each silhouette (via alpha dilation) and 2-3 flat cel-shading
 tones (base / shadow / highlight). Transparent background.
@@ -3472,7 +3472,9 @@ def gen_contactsheet():
 
     # QA artefact only — keep it OUT of assets/generated/ so it never gets
     # imported as a game resource and shipped inside the build.
-    qa = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "art_export")
+    qa = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "qa", "screenshots", "contactsheets")
     os.makedirs(qa, exist_ok=True)
     path = os.path.join(qa, "_contactsheet.png")
     sheet.save(path)

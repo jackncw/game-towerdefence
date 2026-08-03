@@ -32,7 +32,7 @@ ALWAYS = set(
     "　、。（）「」：；，！？～％"
 )
 
-SKIP_DIRS = {".godot", "docs", "build", "art reference", "Claude art self improve"}
+SKIP_DIRS = {".godot", "docs", "build", "qa", "art_reference"}
 
 _STR = re.compile(r'"([^"\\\n]*(?:\\.[^"\\\n]*)*)"' r"|'([^'\\\n]*(?:\\.[^'\\\n]*)*)'")
 

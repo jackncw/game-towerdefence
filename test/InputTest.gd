@@ -11,7 +11,9 @@ extends Node
 ## Every case asserts on game state and prints PASS/FAIL; exit code != 0 if any
 ## case fails.
 ##
-## Run: godot --headless --path . res://tests/input_test.tscn
+## Run: godot --headless --path . res://test/InputTest.tscn
+## (整理輪之前佢住喺 res://tests/input_test.tscn,唔喺 run_tests.ps1 嘅掃描範圍
+## 入面,所以成套跑嘅時候一直冇跑到。搬入 test/ 之後自動入晒套。)
 
 var battle
 var hud

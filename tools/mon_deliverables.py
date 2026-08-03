@@ -73,7 +73,8 @@ def progression(out):
 
 
 if __name__ == "__main__":
-    outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "art_export")
+    outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+        ROOT, "qa", "screenshots", "mon_deliverables")
     os.makedirs(outdir, exist_ok=True)
     boss_lineup(os.path.join(outdir, "boss_lineup.png"))
     progression(os.path.join(outdir, "progression_all.png"))

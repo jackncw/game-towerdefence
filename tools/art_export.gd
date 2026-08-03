@@ -3,7 +3,7 @@ extends Node
 ## Renders every game screen + every asset gallery to an output dir at full
 ## 1080x1920 via a SubViewport, then quits. Run windowed (needs a GPU):
 ##   Godot --path . tools/art_export.tscn -- --out=r5_before
-## 輸出永遠喺 res://qa/ 之下(見 QA_ROOT),`--out=` 淨係揀個仔目錄名。
+## 輸出永遠喺 res://qa/screenshots/ 之下(見 QA_ROOT),`--out=` 淨係揀個仔目錄名。
 ## The SubViewport gives exact resolution regardless of the OS window size.
 
 const VW := 1080
@@ -17,7 +17,10 @@ const UPG_PATH := "res://scripts/ui/Upgrade.gd"
 ## docs/index.pck 有 58.5MB,入面 50MB 係 art_r8_*/art_r9*/heal_shots 嘅 QA
 ## 截圖,每個 GitHub Pages 訪客開場前都要落載一次。一個固定 parent 換到一條
 ## `qa/*` 排除規則,之後開幾多個新目錄都自動喺遊戲外面,唔使有人記得去改個表。
-const QA_ROOT := "res://qa/"
+##
+## 整理輪之後多咗一層 `screenshots/`:qa/ 底下而家仲有 bench/ 放模擬同 log。
+## 兩層都喺 `qa/*` 排除規則同 qa/.gdignore 之下,所以安全性冇變。
+const QA_ROOT := "res://qa/screenshots/"
 
 ## 無論 `--out=` 傳咩入嚟,都拉返入 QA_ROOT 之下。已經喺 qa/ 入面就唔郁。
 static func qa_dir(out: String) -> String:

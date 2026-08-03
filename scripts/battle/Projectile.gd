@@ -89,7 +89,11 @@ func _process(delta: float) -> void:
 	rotation = to.angle()
 	if lob:
 		_t = 1.0 - (position.distance_to(target_pos) / _total_dist)
-	queue_redraw()
+	# 大部分彈藥喺自己嘅坐標系入面係**唔郁**嘅:飛行同轉向由 node 嘅
+	# position / rotation 帶,而嗰兩樣唔需要重畫。真正逐幀變樣嘅得三種 ——
+	# 冰(自轉嘅六角碎片)、魔法(反向轉嘅火花)、同拋物線(彈體騎住個弧)。
+	if lob or kind == "ice" or kind == "magic":
+		queue_redraw()
 
 func _hit() -> void:
 	if not alive:

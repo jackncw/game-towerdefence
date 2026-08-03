@@ -17,6 +17,9 @@ var hud: Control
 var proj_pool: Pool
 var dmg_pool: Pool
 var fx_pool: Pool
+var fx_render: FxRender
+var mon_overlay: MonsterOverlay
+var dmg_field: DamageField
 var monster_pool: Pool
 var soldier_pool: Pool
 var hazard_pool: Pool
@@ -331,6 +334,18 @@ func _build_pools() -> void:
 	# tab 上限係一個**硬**上限 —— 唔係「慢啲」係「殺咗個 tab」。收窄幅度同
 	# 下面嘅 fx / damage cap 係同一個比例(見 web_scale()),所以「網頁版預算」
 	# 係一個數,唔係散落幾處嘅魔術數字。
+	_build_holy_motes()
+	# 特效嘅畫全部集中喺呢度。佢加喺 fx_root 之後,所以喺同一個 z 桶入面
+	# 佢排喺炮彈同舊 fx node 之後 —— 同舊版嘅疊法一致。
+	fx_render = FxRender.new()
+	fx_render.pool = fx_pool
+	add_child(fx_render)
+	mon_overlay = MonsterOverlay.new()
+	mon_overlay.battle = self
+	add_child(mon_overlay)
+	dmg_field = DamageField.new()
+	dmg_field.pool = dmg_pool
+	add_child(dmg_field)
 	monster_pool.prewarm(web_scale(80))
 	proj_pool.prewarm(web_scale(64))
 	fx_pool.prewarm(web_scale(160))
@@ -434,6 +449,7 @@ func _process(delta: float) -> void:
 			spell_cd[k] = maxf(0.0, spell_cd[k] - delta)
 
 	_refresh_holy_aura()
+	_tick_holy_motes(delta)
 	_tick_curse_auras()
 	_spawn_logic(delta)
 	if boss_ref != null and is_instance_valid(boss_ref):
@@ -442,6 +458,54 @@ func _process(delta: float) -> void:
 			boss_best_frac = maxf(boss_best_frac, 1.0 - boss_ref.hp / bm)
 	if hud:
 		hud.refresh(delta)
+
+# ---------------------------------------------------------------------------
+# 聖光受惠標記(合批輪)
+# ---------------------------------------------------------------------------
+## 每座受惠嘅塔頭上有三粒繞行金光。舊版係每座塔喺自己 `_draw()` 度畫 ——
+## 43 座塔 × 3 粒 × 2 個圓 = 258 個 primitive,而且要 43 次 `queue_redraw()`,
+## 量到單係塔身上嘅光環(連詛咒符文)就佔咗高峰戰鬥 1053 個 draw call 入面
+## 嘅 259 個。
+##
+## 三粒點嘅半徑、顏色、透明度全部由**一個全場數**(holy_haste_total +
+## holy_power_total)決定,即係話成場所有光點一模一樣,淨係位置唔同 ——
+## MultiMesh 就係為咗呢件事而存在。一個 draw call 畫晒。
+var _holy_mm: MultiMeshInstance2D = null
+var _holy_phase: float = 0.0
+## 貼圖係 64px 代表 16 world px。
+const HOLY_MOTE_PX := 0.25
+
+func _build_holy_motes() -> void:
+	# 384 = 128 座塔 x 3 粒。一格 instance 大約 48 bytes,所以開闊啲嘅代價
+	# 係十幾 KB,而開窄咗嘅代價係「塔多過某個數之後,後面嗰啲靜靜冇咗光點」。
+	_holy_mm = Batch.layer(Assets.fx("holy_mote"), 384, 14)
+	add_child(_holy_mm)
+
+func _tick_holy_motes(delta: float) -> void:
+	if _holy_mm == null:
+		return
+	var mm: MultiMesh = _holy_mm.multimesh
+	var raw: float = holy_haste_total + holy_power_total
+	if raw <= 0.0:
+		mm.visible_instance_count = 0
+		return
+	_holy_phase += delta
+	var k: float = clampf(raw * 2.2, 0.25, 1.0)
+	_holy_mm.modulate = Color(1, 1, 1, k)
+	var sc := Vector2.ONE * (HOLY_MOTE_PX * k)
+	var want: int = mini(towers.size() * 3, mm.instance_count)
+	var idx := 0
+	for t in towers:
+		if idx >= want:
+			break
+		var tp: Vector2 = t.global_position
+		for i in 3:
+			var a: float = _holy_phase * 1.5 + TAU * i / 3.0
+			mm.set_instance_transform_2d(idx, Batch.xform(
+				tp + Vector2(cos(a) * 26.0, -34.0 + sin(a) * 7.0), sc))
+			mm.set_instance_color(idx, Color.WHITE)
+			idx += 1
+	mm.visible_instance_count = idx
 
 func _spawn_logic(delta: float) -> void:
 	if not boss_spawned and elapsed >= boss_time:
@@ -1105,49 +1169,80 @@ func spawn_damage(pos: Vector2, amount: int, col: Color, big := false, prefix :=
 const FX_SOFT_CAP := 220     # start halving garnish
 const FX_HARD_CAP := 400     # absolute ceiling on live fx nodes
 
+## 診斷計數器。pool 滿嗰陣「靜靜 return」係一個睇唔見嘅失敗:玩家見到嘅係
+## 一座塔冇咗光束,而唔係「特效預算爆咗」。逐類數住,先至講得出邊一類受罪。
+var fx_rejected: Dictionary = {"line": 0, "ring": 0, "burst": 0, "orb": 0, "spark": 0}
+## 徵用(recycle)咗幾多次 —— 即係「本來會靜靜消失,而家有畫出嚟」嘅次數。
+var fx_recycled: int = 0
+## 關咗佢就係舊行為(pool 滿 = 靜靜唔畫)。淨係 tools/prism_probe 用,為咗
+## **喺同一個 build 入面**量到「舊策略」同「新策略」兩組數 —— 用兩個唔同嘅
+## build 去比,量到嘅分別入面有幾多係策略、幾多係其他改動,講唔清。
+var fx_recycle: bool = true
+
 func _fx_room() -> int:
 	return web_scale(FX_HARD_CAP) - fx_pool.live_count()
+
+## 攞一個特效 node 出嚟畫**一件重要嘅嘢**(塔嘅主攻擊光束、光環脈衝、爆炸)。
+##
+## pool 滿嗰陣舊版直接 `return` —— 而喺 3x 之下火星同金幣可以喺一兩幀之內食晒
+## 400 個名額,於是稜鏡塔嘅光束就冇咗,睇落好似「呢座塔冇傷害」(實際傷害正常,
+## 見 harness)。而家改為徵用最早派出去嗰個特效:佢一定係場上最接近死亡嗰批
+## 之一,而「一個舊裝飾早零點幾秒消失」肉眼睇唔出,「主攻擊冇咗」睇得出。
+func _fx_take(kind: String) -> Fx:
+	if _fx_room() > 0:
+		return fx_pool.acquire()
+	var victim: Node = fx_pool.oldest_live() if fx_recycle else null
+	if victim != null:
+		fx_recycled += 1
+		(victim as Fx).cut_short()
+		return fx_pool.acquire()
+	fx_rejected[kind] = int(fx_rejected[kind]) + 1
+	return null
 
 ## How many garnish particles we are willing to spend right now.
 func _spark_allowance(n: int) -> int:
 	var live: int = fx_pool.live_count()
 	var hard: int = web_scale(FX_HARD_CAP)
 	if live >= hard:
+		fx_rejected["spark"] = int(fx_rejected["spark"]) + n
 		return 0
 	if live >= web_scale(FX_SOFT_CAP):
 		n = n / 2
-	return mini(n, hard - live)
+	var got: int = mini(n, hard - live)
+	if got < n:
+		fx_rejected["spark"] = int(fx_rejected["spark"]) + (n - got)
+	return got
 
 func spawn_line(pts: PackedVector2Array, col: Color, w: float, dur: float) -> void:
-	if _fx_room() <= 0:
+	var f: Fx = _fx_take("line")
+	if f == null:
 		return
-	var f: Fx = fx_pool.acquire()
 	f.line(pts, col, w, dur, fx_pool)
 
 func spawn_fx_ring(pos: Vector2, r: float, col: Color) -> void:
-	if _fx_room() <= 0:
+	var f: Fx = _fx_take("ring")
+	if f == null:
 		return
-	var f: Fx = fx_pool.acquire()
 	f.ring(pos, r, col, 0.4, fx_pool)
 
 ## Ring with an explicit lifetime (spell shockwaves / domes / funnels). Spells.gd
 ## used to acquire from fx_pool directly, which side-stepped this budget.
 func spawn_fx_ring_dur(pos: Vector2, r: float, col: Color, dur: float) -> void:
-	if _fx_room() <= 0:
+	var f: Fx = _fx_take("ring")
+	if f == null:
 		return
-	var f: Fx = fx_pool.acquire()
 	f.ring(pos, r, col, dur, fx_pool)
 
 func spawn_fx_burst(pos: Vector2, r: float, col: Color, dur: float) -> void:
-	if _fx_room() <= 0:
+	var f: Fx = _fx_take("burst")
+	if f == null:
 		return
-	var f: Fx = fx_pool.acquire()
 	f.burst(pos, r, col, dur, fx_pool)
 
 func spawn_fx_orb(pos: Vector2, col: Color) -> void:
-	if _fx_room() <= 0:
+	var f: Fx = _fx_take("orb")
+	if f == null:
 		return
-	var f: Fx = fx_pool.acquire()
 	f.orb(pos, 8, col, 0.3, fx_pool)
 
 ## Burst of small physics sparks (death dust, muzzle, elemental hits).

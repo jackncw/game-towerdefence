@@ -96,8 +96,6 @@ var _heal_bank_t: float = 0.0
 var boss_timer: float = 0.0
 var burn_tick: float = 0.0
 var _walk: float = 0.0            # walk-cycle phase (procedural bob/step)
-var _drawn_frac: float = -1.0     # HP fraction currently painted (redraw gate)
-var _drawn_cursed: bool = false   # curse mark currently painted (redraw gate)
 ## MEASUREMENT ONLY: latched once this monster crosses the "doorstep" distance, so
 ## Battle.sim_deep_* counts monsters rather than frames. See _process().
 var _sim_deep: bool = false
@@ -153,13 +151,11 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	_heal_flash = 0.0; _heal_bank = 0.0; _heal_bank_t = 0.0
 	phase_time = 0.0; phase_cd = 5.0; did_rootheal = false; boss_timer = 3.0
 	_sim_deep = false                 # pooled node: measurement latch resets too
-	poison_tick = 0.0; burn_tick = 0.0; _flash_t = 0.0; _drawn_frac = -1.0
-	_drawn_cursed = false
+	poison_tick = 0.0; burn_tick = 0.0; _flash_t = 0.0
 	_walk = randf() * TAU
 	sprite.position = Vector2.ZERO
 	sprite.rotation = 0.0
 	position = route.pos_at(dist)
-	queue_redraw()
 
 func is_alive() -> bool:
 	return alive
@@ -203,15 +199,6 @@ func _process(delta: float) -> void:
 			return
 	position = route.pos_at(dist)
 	_animate(delta, spd)
-	# _draw() only ever paints the HP bar, and the node transform already carries
-	# movement — so redrawing every monster every frame was pure waste. Only
-	# invalidate when the bar would actually look different.
-	var frac := clampf(hp / max_hp, 0.0, 1.0) if max_hp > 0.0 else 0.0
-	var cursed: bool = curse_amp > 0.0
-	if absf(frac - _drawn_frac) > 0.004 or cursed != _drawn_cursed:
-		_drawn_frac = frac
-		_drawn_cursed = cursed
-		queue_redraw()
 
 # Procedural walk cycle: grounded units bob up + lean each step; flyers hover.
 func _animate(delta: float, spd: float) -> void:
@@ -330,11 +317,9 @@ func _tick_channel(delta: float) -> void:
 		channel_heal = 0.0
 		rooted_time = 0.0
 		battle.spawn_fx_ring(global_position, 70, Color(0.9, 0.9, 0.4))
-		queue_redraw()
 		return
 	rooted_time = maxf(rooted_time, channel_time)   # held in place for the cast
 	channel_time -= delta
-	queue_redraw()                                  # the ring animates
 	if channel_time > 0.0:
 		return
 	if channel_heal > 0.0:
@@ -356,7 +341,6 @@ func begin_heal_channel(frac: float, secs: float) -> void:
 	# without this the cast's first frame still moved
 	rooted_time = maxf(rooted_time, secs)
 	battle.spawn_fx_ring(global_position, 60, Color(0.5, 1.0, 0.45))
-	queue_redraw()
 
 ## The single door every heal in the game goes through, so the ceiling and the
 ## on-screen feedback can never be bypassed by accident. For a boss the request
@@ -388,8 +372,6 @@ func _apply_heal(amount: float) -> float:
 	battle.sim_heal_enemy += amount     # measurement only; see Battle.sim_*
 	_heal_bank += amount
 	_heal_flash = HEAL_FLASH_DUR
-	_drawn_frac = -1.0          # force the bar to repaint on the way up too
-	queue_redraw()
 	return amount
 
 const HEAL_FLASH_DUR := 0.45
@@ -545,7 +527,6 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	battle.spawn_damage(global_position + Vector2(randf_range(-8, 8), -size * 0.5), int(round(d)), ncol, big)
 	if hp <= 0.0:
 		_die(false)
-	queue_redraw()
 
 func take_true(dmg: float) -> void:
 	take_hit(dmg, "true")
@@ -556,7 +537,6 @@ func _spend_channel(d: float) -> void:
 	if channel_time <= 0.0 or channel_heal <= 0.0:
 		return
 	channel_heal = maxf(0.0, channel_heal - d)
-	queue_redraw()
 
 func _deal_dot(amount: float, _col: Color) -> void:
 	if not alive:
@@ -672,8 +652,6 @@ func apply_poison(dmg: float, stacks_add: int, maxstacks: int, dur: float, rot :
 		rot_total += step
 		max_hp = maxf(1.0, max_hp * (1.0 - step))
 		hp = minf(hp, max_hp)
-		_drawn_frac = -1.0
-		queue_redraw()
 		if hp <= 0.0:
 			_die(false)
 
@@ -759,61 +737,7 @@ func _tick_flash(delta: float) -> void:
 		return
 	sprite.modulate = base.lerp(Color(1.6, 1.6, 1.6), _flash_t / FLASH_DUR)
 
-func _draw() -> void:
-	if curse_amp > 0.0:
-		_draw_curse_mark()
-	if channel_time > 0.0:
-		_draw_heal_cast()
-	if is_boss:
-		return
-	var frac := clampf(hp / max_hp, 0.0, 1.0)
-	if frac >= 0.999 and _heal_flash <= 0.0:
-		return
-	var w := size
-	var y := -size * 0.62
-	draw_rect(Rect2(-w * 0.5, y, w, 5), Color(0, 0, 0, 0.7))
-	var col := Color(0.3, 0.9, 0.3)
-	if frac < 0.3: col = Color(0.9, 0.25, 0.2)
-	elif frac < 0.6: col = Color(0.95, 0.8, 0.2)
-	# 視覺誠實: HP that came BACK is painted as a bright green cap on the bar that
-	# fades out, so healing is never silent. Without it the bar just crept right
-	# and the player read it as "my damage is doing nothing".
-	if _heal_flash > 0.0:
-		var k: float = _heal_flash / HEAL_FLASH_DUR
-		var lift: float = 3.0 * k
-		draw_rect(Rect2(-w * 0.5, y - lift, w * frac, 5 + lift * 2.0),
-			Color(0.55, 1.0, 0.5, 0.35 + 0.45 * k))
-	draw_rect(Rect2(-w * 0.5, y, w * frac, 5), col)
-
-## The 詠唱 tell: a glowing ring that fills over the cast, drawn in green while
-## the heal is still on the table and washing out to grey as damage eats it. A
-## fully greyed ring means the cast will pay nothing.
-func _draw_heal_cast() -> void:
-	var r: float = size * 0.85
-	var k: float = 1.0 - clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
-	var left: float = clampf(channel_heal / maxf(1.0, channel_heal0), 0.0, 1.0)
-	var live := Color(0.45, 1.0, 0.42)
-	var dead := Color(0.65, 0.65, 0.6)
-	var col: Color = dead.lerp(live, left)
-	draw_circle(Vector2.ZERO, r + 6.0, Color(live.r, live.g, live.b, 0.10 * left))
-	draw_arc(Vector2.ZERO, r, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 7.0)
-	draw_arc(Vector2.ZERO, r, -PI * 0.5, -PI * 0.5 + TAU * k, 40, col, 5.0)
-
-## A small violet wisp + hex sigil over anything standing in a 詛咒塔 aura, so it
-## is obvious at a glance WHICH monsters are currently taking amplified damage
-## (and will pay the bonus gold). Deliberately tiny — it has to read on a lv1
-## goblin without covering the sprite.
-func _draw_curse_mark() -> void:
-	var y: float = -size * 0.86
-	var vio := Color(0.72, 0.36, 0.95, 0.9)
-	# hex sigil
-	var pts := PackedVector2Array()
-	for i in 6:
-		var a: float = TAU * i / 6.0 - PI / 2.0
-		pts.append(Vector2(cos(a), sin(a)) * 7.0 + Vector2(0, y))
-	draw_polyline(pts + PackedVector2Array([pts[0]]), vio, 2.0, true)
-	# little flame licking up out of it
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0, y - 15.0), Vector2(-4.5, y - 4.0), Vector2(4.5, y - 4.0)]),
-		Color(0.86, 0.52, 1.0, 0.85))
-	draw_circle(Vector2(0, y - 6.0), 2.2, Color(1, 0.92, 1, 0.9))
+# 血條 / 詛咒印 / 詠唱環全部搬咗去 `MonsterOverlay` —— 一個 node 畫晒成場,
+# 而唔係 143 隻怪各自 `queue_redraw()` 再喺自己 `_draw()` 度畫。搬走之後
+# `Monster` 完全冇 `_draw()`,所以佢哋嘅 sprite 喺 render list 度變成連續
+# 一段,合批先至有得批。原因同對照數字寫喺 MonsterOverlay.gd 開頭。

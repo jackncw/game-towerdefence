@@ -3,19 +3,71 @@ extends Node
 ## if a generated sprite is missing. Filenames follow docs/design/CONTRACT.md.
 
 const GEN := "res://assets/generated/"
+const ATLAS := GEN + "atlas/"
 var _cache: Dictionary = {}
 var _fallback: Dictionary = {}
+
+# ---------------------------------------------------------------------------
+# Texture atlas(合批輪)
+# ---------------------------------------------------------------------------
+## 量到嘅事實:高峰戰鬥一幀 1053 個 draw call 入面,單係「換貼圖」就佔咗約
+## 270 個 —— 143 隻怪(60 張唔同嘅圖)124 個、43 座塔 37 個、120 個地面裝飾
+## 109 個。渲染器每次換 texture 就要斷一次 batch,唔理張圖幾細。
+##
+## `tools/gen_art.py` 嘅 `gen_atlas()` 將細圖砌成兩頁(battle / ui),再出一張
+## 座標表。呢度**淨係喺 `_load()` 入面轉一個彎**:表入面有就返一個
+## `AtlasTexture`,冇就照舊 load 原檔。所以三十幾個呼叫端一個字都唔使改,
+## 而任何一張未入表嘅圖(例如平鋪嘅地面同路面)自動行返舊路。
+var _atlas_map: Dictionary = {}
+var _atlas_page: Dictionary = {}
+var _atlas_ready: bool = false
+
+func _ensure_atlas() -> void:
+	if _atlas_ready:
+		return
+	_atlas_ready = true
+	var f := FileAccess.open(ATLAS + "atlas_map.json", FileAccess.READ)
+	if f == null:
+		return
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	if typeof(parsed) == TYPE_DICTIONARY:
+		_atlas_map = parsed
+
+func _atlas_tex(path: String) -> Texture2D:
+	_ensure_atlas()
+	if _atlas_map.is_empty() or not path.begins_with(GEN):
+		return null
+	var rel: String = path.substr(GEN.length())
+	if not _atlas_map.has(rel):
+		return null
+	var e: Dictionary = _atlas_map[rel]
+	var page: String = String(e["page"])
+	if not _atlas_page.has(page):
+		var p: String = ATLAS + "atlas_%s.png" % page
+		if not ResourceLoader.exists(p):
+			return null
+		_atlas_page[page] = load(p)
+	var at := AtlasTexture.new()
+	at.atlas = _atlas_page[page]
+	at.region = Rect2(float(e["x"]), float(e["y"]), float(e["w"]), float(e["h"]))
+	return at
 
 func _load(path: String, fallback_size: int, fallback_col: Color) -> Texture2D:
 	if _cache.has(path):
 		return _cache[path]
-	var tex: Texture2D = null
-	if ResourceLoader.exists(path):
+	var tex: Texture2D = _atlas_tex(path)
+	if tex == null and ResourceLoader.exists(path):
 		tex = load(path)
 	if tex == null:
 		tex = _make_fallback(fallback_size, fallback_col)
 	_cache[path] = tex
 	return tex
+
+## 有幾多張圖真係經 atlas 出。`test/AtlasTest` 用佢守住「應該入 atlas 嘅
+## 圖冇一張跌返落原檔」—— 因為原檔喺出貨包入面已經剔走咗。
+func atlas_entries() -> int:
+	_ensure_atlas()
+	return _atlas_map.size()
 
 func _make_fallback(size: int, col: Color) -> Texture2D:
 	var key := "%d_%s" % [size, str(col)]
@@ -85,6 +137,12 @@ func ui(name: String) -> Texture2D:
 ## Terrain / decoration tile (ground, road, deco_*, portal).
 func tile(name: String) -> Texture2D:
 	return _load(GEN + "tiles/%s.png" % name, 64, Color(0.3, 0.3, 0.34))
+
+## 特效 / 光環貼圖(合批輪加)。呢批**唔係**像素美術 —— 佢哋係原本由
+## `_draw()` 逐幀畫嘅圓同弧,預繪咗出嚟,所以呼叫端要用
+## `TEXTURE_FILTER_LINEAR`,唔係全場其他 sprite 嗰個 NEAREST。
+func fx(name: String) -> Texture2D:
+	return _load(GEN + "fx/%s.png" % name, 32, Color(1, 1, 1))
 
 ## Warm the texture cache for everything a battle can show. _load() otherwise
 ## does a synchronous ResourceLoader.load() the FIRST time each sprite appears —

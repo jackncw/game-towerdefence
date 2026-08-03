@@ -3407,6 +3407,350 @@ def gen_platform():
 # CONTACT SHEET
 # ============================================================================
 
+# ============================================================================
+# FX / 光環貼圖(合批輪)
+# ============================================================================
+# 呢一批唔係像素美術 —— 佢哋係本來由 GDScript `_draw()` 逐幀畫出嚟嘅圓、弧、
+# 線,而家預繪成貼圖,喺遊戲入面用 Sprite2D / MultiMesh 畫。所以:
+#   * 用 4x 超取樣再縮細(BOX = 純平均,唔會好似 LANCZOS 咁喺硬邊起振鈴),
+#     出嚟係平滑邊,同 draw_circle / draw_arc 嘅 antialiased 一致
+#   * 遊戲側要用 TEXTURE_FILTER_LINEAR(唔係 NEAREST)—— 呢啲係光暈唔係像素
+#   * 每張貼圖記住「幾多 texture px = 幾多 world px」,GDScript 靠嗰個算 scale
+#
+# 一個貫穿全組嘅手法:**顏色由 modulate 帶,貼圖淨係帶形狀同相對 alpha**。
+# 例如爆炸嘅煙圈原本係 Color(col.r*0.35, col.g*0.30, col.b*0.30, a*0.42),
+# 貼圖就寫死 (0.35, 0.30, 0.30, 0.42) 嗰個像素,再乘上 modulate = (col, a) ——
+# 乘出嚟同原本逐幀計嗰條式一模一樣,而一張貼圖服務得晒所有顏色嘅爆炸。
+FX_SS = 4          # 超取樣倍數
+
+
+def _fx_new(w, h):
+    return Image.new("RGBA", (w * FX_SS, h * FX_SS), (0, 0, 0, 0))
+
+
+def _fx_disc(base, cx, cy, r, col):
+    """半透明圓 —— PIL 嘅 fill 會**覆寫** alpha,所以每一層要自己一張再合成。"""
+    lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    ImageDraw.Draw(lay).ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
+    return Image.alpha_composite(base, lay)
+
+
+def _fx_poly(base, pts, col):
+    lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    ImageDraw.Draw(lay).polygon(pts, fill=col)
+    return Image.alpha_composite(base, lay)
+
+
+def _fx_line(base, p0, p1, col, width):
+    lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    ImageDraw.Draw(lay).line([p0, p1], fill=col, width=int(round(width)))
+    return Image.alpha_composite(base, lay)
+
+
+def _fx_ring(base, cx, cy, r, col, width):
+    lay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    ImageDraw.Draw(lay).ellipse([cx - r, cy - r, cx + r, cy + r],
+                                outline=col, width=int(round(width)))
+    return Image.alpha_composite(base, lay)
+
+
+def _fx_save(img, w, h, name):
+    return save(img.resize((w, h), Image.BOX), "fx", name + ".png")
+
+
+def _a(col, alpha):
+    """RGB + 0..1 alpha -> RGBA"""
+    return (col[0], col[1], col[2], clamp(alpha * 255.0))
+
+
+CURSE_VIOLET = (158, 66, 219)
+
+
+def gen_fx():
+    n = 0
+    S = FX_SS
+
+    # --- 詛咒塔地面符文 ------------------------------------------------------
+    # 兩隻實心碟。實心碟按比例放大係**完全準確**嘅(冇線寬呢個問題),所以
+    # 一張 256 嘅貼圖服務得晒所有射程嘅詛咒塔。
+    # 約定:貼圖代表 world 半徑 128 → sprite.scale = range / 128
+    img = _fx_new(256, 256)
+    c = 128 * S
+    img = _fx_disc(img, c, c, 128 * S, _a(CURSE_VIOLET, 0.055))
+    img = _fx_disc(img, c, c, 128 * 0.55 * S, _a(CURSE_VIOLET, 0.040))
+    _fx_save(img, 256, 256, "curse_haze"); n += 1
+
+    # 一粒符文:一條指向圓心嘅短劃 + 一粒亮點。世界尺寸 32x16,圓點喺正中,
+    # 短劃向 -X 伸 —— sprite.rotation = 該粒符文喺圓周上嘅角度,劃就自然指向圓心。
+    # alpha 用 0.80 做基準(原本嘅 0.55 + 0.25*pulse 嘅上限),遊戲側再乘返
+    # (0.55 + 0.25*pulse) / 0.80。
+    img = _fx_new(32, 16)
+    cx, cy = 16 * S, 8 * S
+    img = _fx_line(img, (cx, cy), (cx - 9 * S, cy), _a(CURSE_VIOLET, 0.80), 3 * S)
+    img = _fx_disc(img, cx, cy, 2.6 * S, _a((219, 168, 255), 0.70))
+    _fx_save(img, 128, 64, "curse_rune"); n += 1
+
+    # 由符文陣飄上嚟嗰粒金點(掉金加成嗰半個身份)
+    img = _fx_new(16, 16)
+    img = _fx_disc(img, 8 * S, 8 * S, 3.4 * S, _a((255, 214, 77), 1.0))
+    _fx_save(img, 64, 64, "curse_mote"); n += 1
+
+    # 中咗詛咒嘅怪身上嗰個六角印(六角線 + 火苗 + 白點)。
+    # 世界尺寸 16x24,原點(0,0)喺六角中心,火苗向上。
+    img = _fx_new(16, 24)
+    ox, oy = 8 * S, 16 * S
+    hexpts = []
+    for i in range(6):
+        ang = math.tau * i / 6.0 - math.pi / 2.0
+        hexpts.append((ox + math.cos(ang) * 7 * S, oy + math.sin(ang) * 7 * S))
+    lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(lay).line(hexpts + [hexpts[0]], fill=_a((184, 92, 242), 0.90),
+                             width=int(2 * S), joint="curve")
+    img = Image.alpha_composite(img, lay)
+    img = _fx_poly(img, [(ox, oy - 15 * S), (ox - 4.5 * S, oy - 4 * S),
+                         (ox + 4.5 * S, oy - 4 * S)], _a((219, 133, 255), 0.85))
+    img = _fx_disc(img, ox, oy - 6 * S, 2.2 * S, _a((255, 235, 255), 0.90))
+    _fx_save(img, 64, 96, "curse_mark"); n += 1
+
+    # --- 聖光 ---------------------------------------------------------------
+    # 繞行光點:外暈 + 內核,兩層嘅半徑同 alpha 都跟同一個 k 走,所以貼圖烘
+    # k=1,遊戲側 scale=k、modulate.a=k。
+    img = _fx_new(16, 16)
+    img = _fx_disc(img, 8 * S, 8 * S, 3.4 * S, _a((255, 235, 148), 0.75))
+    img = _fx_disc(img, 8 * S, 8 * S, 1.6 * S, _a((255, 252, 224), 0.90))
+    _fx_save(img, 64, 64, "holy_mote"); n += 1
+
+    # 聖光塔本體嗰條向上散開嘅光柱(兩塊梯形疊埋)。
+    # 世界尺寸 52x172,對應原本 y = -18 .. -190、x = -26 .. 26。
+    img = _fx_new(52, 172)
+    def _trap(w, alpha, im):
+        pts = [((-w * 0.45 + 26) * S, (-18 + 190) * S),
+               ((w * 0.45 + 26) * S, (-18 + 190) * S),
+               ((w + 26) * S, 0.0),
+               ((-w + 26) * S, 0.0)]
+        return _fx_poly(im, pts, _a((255, 242, 184), alpha))
+    img = _trap(26.0, 0.10, img)
+    img = _trap(13.0, 0.16, img)
+    _fx_save(img, 208, 688, "holy_pillar"); n += 1
+
+    # 光柱腳嗰粒光核(半徑跟 pulse 走)
+    img = _fx_new(32, 32)
+    img = _fx_disc(img, 16 * S, 16 * S, 12 * S, _a((255, 247, 204), 0.35))
+    _fx_save(img, 128, 128, "holy_core"); n += 1
+
+    # --- Fx 粒子 ------------------------------------------------------------
+    # 火星:暗暈(col*0.4, a*0.5)+ 本體(col, a)。貼圖存返嗰兩個比例,
+    # modulate = (col.rgb, a) 一乘就完全還原。
+    img = _fx_new(64, 64)
+    img = _fx_disc(img, 32 * S, 32 * S, 32 * S, (102, 102, 102, 128))
+    img = _fx_disc(img, 32 * S, 32 * S, 25.6 * S, (255, 255, 255, 255))
+    _fx_save(img, 64, 64, "spark"); n += 1
+
+    # 火星嘅白色高光 —— 分開一張,因為佢係**白色**唔跟 col 走,一張貼圖乘
+    # 一個顏色係做唔到「本體染色、高光唔染色」嘅。
+    img = _fx_new(64, 64)
+    img = _fx_disc(img, (32 - 6.4) * S, (32 - 6.4) * S, 8.96 * S, (255, 255, 255, 179))
+    _fx_save(img, 64, 64, "spark_hi"); n += 1
+
+    # 金幣:菱形 + 高光
+    img = _fx_new(64, 64)
+    r = 25.6 * S
+    img = _fx_poly(img, [(32 * S, 32 * S - r), (32 * S + r, 32 * S),
+                         (32 * S, 32 * S + r), (32 * S - r, 32 * S)],
+                   (255, 255, 255, 255))
+    _fx_save(img, 64, 64, "coin"); n += 1
+    img = _fx_new(64, 64)
+    img = _fx_disc(img, (32 - 6.4) * S, (32 - 6.4) * S, 7.68 * S, (255, 255, 255, 230))
+    _fx_save(img, 64, 64, "coin_hi"); n += 1
+
+    # 爆炸本體:煙圈 + 五嚿唔規則嘅火 + 熱核 + 亮邊。
+    # 約定:br_ref = 100 texture px,半邊 128 px → sprite.scale = br / 100。
+    img = _fx_new(256, 256)
+    C = 128 * S
+    BR = 100 * S
+    img = _fx_disc(img, C, C, BR * 1.06, (89, 77, 77, 107))          # 0.35/0.30/0.30 @ 0.42
+    jitter = [(0.31, 0.55), (0.42, 0.63), (0.18, 0.49), (0.60, 0.71), (0.05, 0.58)]
+    for i, (jang, jrad) in enumerate(jitter):
+        ang = math.tau * i / 5.0 + jang * 0.7
+        d = BR * jrad
+        img = _fx_disc(img, C + math.cos(ang) * d, C + math.sin(ang) * d,
+                       BR * 0.58, (255, 255, 255, 173))              # a*0.68
+    img = _fx_disc(img, C, C, BR * 0.62, (255, 255, 255, 242))       # a*0.95
+    img = _fx_ring(img, C, C, BR * 1.1, (255, 255, 255, 255), 3 * S)
+    _fx_save(img, 256, 256, "burst"); n += 1
+
+    # 爆炸嘅白色核心(半徑收縮得比本體快,所以佢係自己一個 sprite)
+    img = _fx_new(128, 128)
+    img = _fx_disc(img, 64 * S, 64 * S, 56 * S, (255, 255, 255, 230))
+    _fx_save(img, 128, 128, "burst_core"); n += 1
+
+    # 毒霧 / 氣團:五嚿散開嘅波 + 核 + 一點高光。orr_ref = 80 texture px。
+    img = _fx_new(192, 192)
+    C = 96 * S
+    OR = 80 * S
+    jit2 = [(0.62, 0.51), (0.19, 0.60), (0.88, 0.47), (0.34, 0.55), (0.71, 0.58)]
+    for i, (jang, jrad) in enumerate(jit2):
+        ang = math.tau * i / 5.0 + jang * 1.4
+        off = OR * 0.41
+        img = _fx_disc(img, C + math.cos(ang) * off, C + math.sin(ang) * off,
+                       OR * jrad, (255, 255, 255, 107))              # a*0.42
+    img = _fx_disc(img, C, C, OR * 0.55, (255, 255, 255, 140))       # a*0.55
+    img = _fx_disc(img, C - OR * 0.18, C - OR * 0.20, OR * 0.24, (255, 255, 255, 71))
+    _fx_save(img, 192, 192, "orb"); n += 1
+
+    # 一條純白嘅棒 —— 爆炸碎片用。世界尺寸由 instance transform 決定,所以
+    # 貼圖本身只需要係一格白。
+    img = _fx_new(8, 8)
+    img = _fx_disc(img, 4 * S, 4 * S, 8 * S, (255, 255, 255, 255))
+    _fx_save(img, 8, 8, "bar"); n += 1
+    return n
+
+
+# ============================================================================
+# TEXTURE ATLAS(合批輪)
+# ============================================================================
+# 量到嘅事實:高峰戰鬥一幀 1053 個 draw call 入面,單係「換貼圖」就佔咗
+# 大約 270 個 —— 143 隻怪(60 張唔同嘅圖)124 個、43 座塔 37 個、120 個
+# 地面裝飾 109 個。每一次換貼圖就斷一次 batch,即係話一隻哥布林同一隻骷髏
+# 排喺一齊嗰陣,渲染器一定要出兩個 draw call,唔理佢哋幾細。
+#
+# 解法就係將佢哋放埋同一張圖 —— 咁樣所有怪物 sprite 用嘅係同一個 texture
+# RID,合埋一個 batch。
+#
+# 三個實作決定:
+#   * **分組跟「同時上畫」**,唔係跟資料夾。戰鬥入面同一幀會出現嘅嘢
+#     (怪、塔、特效、裝飾、基地)入 battle 頁;介面嘅圖示同魔法卡入 ui 頁。
+#     混埋一齊嘅話兩頁都要常駐,而分開就可以各自係一頁。
+#   * **大圖唔入**。menu_bg / bd_* 呢啲全屏背景一張就食晒成頁,而且佢哋
+#     同時最多得一張喺畫面上,本來就冇 batch 可言。
+#   * **每格四邊向外擠出(extrude)**。texture_filter=NEAREST 加上鏡頭
+#     縮放(0.5x-2x)之後,取樣點會落喺格邊上,一個 pixel 都會滲到隔籬格。
+#     每格外圍 2px 複製返邊緣像素,滲出嚟嘅就係自己嘅邊,唔係人哋嘅身。
+ATLAS_PAD = 2
+## 呢啲唔可以入 atlas:佢哋靠 texture_repeat / Line2D 平鋪,而平鋪係對成張
+## texture 講嘅,入咗 atlas 就會鋪埋隔籬格。
+ATLAS_NEVER = {"tiles/ground.png", "tiles/road.png", "tiles/road_x.png"}
+## 太大嘅唔入(一張就食晒成頁,而且冇 batch 可言)。
+ATLAS_MAX_SIDE = 256
+
+
+def _atlas_group(rel):
+    """rel = 'monsters/goblin_1.png' -> 'battle' / 'ui' / None(唔入)"""
+    folder, name = rel.split("/", 1)
+    if rel in ATLAS_NEVER:
+        return None
+    # 9-patch 唔入:佢哋經 StyleBoxTexture 拉伸,而拉伸嘅取樣範圍係成張圖。
+    # **只限 ui/** —— 9-patch 全部住喺嗰度,而「檔名尾係 9」呢個規則掃全場
+    # 嘅話會順手剔走 tower_9 / tower_19 / spell_9 三張普通圖(踩過,由
+    # test/AtlasTest 抓返出嚟)。
+    if folder == "ui" and name.endswith("9.png"):
+        return None
+    if folder in ("monsters", "towers", "fx"):
+        return "battle"
+    if folder == "tiles":
+        return "battle"
+    if folder == "spells":
+        return "ui"
+    if folder == "ui":
+        # 金幣同魔晶主要係介面圖示(主選單、商店、結算都有),放 battle 頁
+        # 就等於一入主選單就為咗一粒 40px 嘅圖示載入成頁戰鬥圖 —— 實測
+        # 主選單嘅 texture memory 因為咁多咗 2.6MB。
+        if name.split(".")[0] in ("base", "soldier", "militia"):
+            return "battle"
+        return "ui"
+    return None
+
+
+def _extrude(im, pad):
+    w, h = im.size
+    out = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
+    out.paste(im, (pad, pad))
+    out.paste(im.crop((0, 0, 1, h)).resize((pad, h), Image.NEAREST), (0, pad))
+    out.paste(im.crop((w - 1, 0, w, h)).resize((pad, h), Image.NEAREST), (w + pad, pad))
+    strip = out.crop((0, pad, w + 2 * pad, pad + 1))
+    out.paste(strip.resize((w + 2 * pad, pad), Image.NEAREST), (0, 0))
+    strip = out.crop((0, h + pad - 1, w + 2 * pad, h + pad))
+    out.paste(strip.resize((w + 2 * pad, pad), Image.NEAREST), (0, h + pad))
+    return out
+
+
+def _shelf(items, page_w):
+    """棚式排版(按高度由大到小)。回傳 (擺位, 用到嘅高度)。"""
+    x = y = shelf_h = 0
+    placed = []
+    for rel, im in items:
+        w = im.width + 2 * ATLAS_PAD
+        h = im.height + 2 * ATLAS_PAD
+        if x + w > page_w:
+            x = 0
+            y += shelf_h
+            shelf_h = 0
+        placed.append((rel, im, x, y))
+        x += w
+        shelf_h = max(shelf_h, h)
+    return placed, y + shelf_h
+
+
+def _pow2(v):
+    p = 64
+    while p < v:
+        p *= 2
+    return p
+
+
+def gen_atlas():
+    import json
+    groups = {}
+    for folder in sorted(os.listdir(OUT)):
+        d = os.path.join(OUT, folder)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".png"):
+                continue
+            rel = folder + "/" + name
+            g = _atlas_group(rel)
+            if g is None:
+                continue
+            im = Image.open(os.path.join(d, name)).convert("RGBA")
+            if max(im.size) > ATLAS_MAX_SIDE:
+                continue
+            groups.setdefault(g, []).append((rel, im))
+
+    amap = {}
+    pages = []
+    for g, items in sorted(groups.items()):
+        items.sort(key=lambda kv: (-kv[1].height, kv[0]))
+        # 試多個頁闊,揀面積最細嗰個。高度唔湊夠 2 嘅次方 —— Godot 4 唔要求
+        # POT,而湊夠嘅話最壞情況白白多一倍 VRAM。
+        best = None
+        widths = [256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 2048]
+        for pw in widths:
+            placed, used_h = _shelf(items, pw)
+            if placed and max(p[2] + p[1].width + 2 * ATLAS_PAD for p in placed) > pw:
+                continue          # 有一格根本闊過成頁
+            area = pw * used_h
+            if best is None or area < best[0]:
+                best = (area, pw, used_h, placed)
+        area, pw, ph, placed = best
+        page = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+        for rel, im, x, y in placed:
+            page.paste(_extrude(im, ATLAS_PAD), (x, y))
+            amap[rel] = {"page": g, "x": x + ATLAS_PAD, "y": y + ATLAS_PAD,
+                         "w": im.width, "h": im.height}
+        save(page, "atlas", "atlas_%s.png" % g)
+        fill = sum(im.width * im.height for _, im, _, _ in placed) / float(pw * ph)
+        pages.append("%s %dx%d (%d 格, 填充率 %.0f%%)" % (g, pw, ph, len(placed), fill * 100))
+
+    path = os.path.join(OUT, "atlas", "atlas_map.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(amap, f, separators=(",", ":"), sort_keys=True)
+    for p in pages:
+        print("  atlas: " + p)
+    return len(pages)
+
+
 def label(draw, x, y, text, col=(230, 230, 235, 255)):
     draw.text((x, y), text, fill=col)
 
@@ -3504,6 +3848,8 @@ def main():
     counts["ui"] = ui
     counts["tiles"] = (gen_ground() + gen_road() + gen_decorations()
                        + gen_portal() + gen_scrim())
+    counts["fx"] = gen_fx()
+    counts["atlas"] = gen_atlas()
     sheet = gen_contactsheet()
     total = sum(counts.values())
     print("Generated:")

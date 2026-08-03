@@ -76,6 +76,10 @@ func setup(b, tower_id: int, world_pos: Vector2) -> void:
 	_salvo_count = 0
 	_pulse_count = 0
 	_holy_timer = 0.0
+	if mech == "curse":
+		_build_sigil()
+	elif mech == "holy":
+		_build_pillar()
 	if mech == "barracks":
 		rally_dist = battle.route.nearest_dist_param(world_pos)
 	if mech == "alchemy" and s.get("startgold", 0.0) > 0.0:
@@ -111,8 +115,9 @@ func _process(delta: float) -> void:
 		"barracks": _proc_barracks(delta)
 		"curse": _proc_curse_aura(delta)
 		_: _proc_attack(delta)
-	if selected:
-		queue_redraw()
+	# 揀中嗰座塔畫嘅係一個**唔郁**嘅射程圈,而揀中 / 唔揀中兩個時刻
+	# `Battle._set_selected()` 已經各叫咗一次 `queue_redraw()` —— 逐幀再叫
+	# 一次係重畫一個同上一幀一模一樣嘅圓。
 
 # generic: needs a target
 # MAX_SHOTS_PER_FRAME lets a very fast tower catch up when one frame covers
@@ -527,7 +532,7 @@ func _fire_missile(tgt) -> void:
 ## diminishing returns. All this does is keep the circle animating.
 func _proc_curse_aura(delta: float) -> void:
 	_aura_phase += delta
-	queue_redraw()
+	_anim_sigil()
 	# T2 夢魘之環「恐懼」:光環入面嘅嘢定期俾人嚇退一小段路。
 	if t2():
 		_dread_t -= delta
@@ -836,74 +841,153 @@ func sell_value() -> int:
 ##     喺**每一座**塔上面出現,先至讀得出「全場」呢個意思。
 ##   * 聖光塔本體:一條向上嘅光柱 —— 光源喺邊,睇一眼就知。
 ##
-## 逐幀 queue_redraw 只喺光環真係存在嗰陣先做(_holy_glow 由 0 變非 0 嗰下),
-## 唔係無條件逐幀 —— 冇聖光塔嘅局唔應該為咗一個唔存在嘅光環重畫四十三次。
+## 舊版:每座塔逐幀 `queue_redraw()` 再喺 `_draw()` 度畫三粒繞行光點 ——
+## 四十三座塔 = 258 個 primitive 一幀,而且三粒點嘅大細/顏色/透明度**全場
+## 一致**(k 只由 battle 嘅兩個全場光環總和決定),唯一唔同係位置。
+##
+## 所以受惠標記搬咗去 `Battle._tick_holy_motes()`,全場一個 MultiMesh 畫晒,
+## 一個 draw call。塔呢邊淨返光柱 —— 佢只喺聖光塔本體出現,而家係兩個
+## sprite,郁 scale / modulate,唔重畫。
 var _holy_glow: float = 0.0
+var _glow_phase: float = 0.0
+var _pillar: Sprite2D = null
+var _pillar_core: Sprite2D = null
+
+func _build_pillar() -> void:
+	_pillar = Sprite2D.new()
+	_pillar.texture = Assets.fx("holy_pillar")
+	_pillar.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_pillar.scale = Vector2.ONE * FX_PX
+	# 貼圖代表 world y = -190 .. -18,所以中心喺 -104
+	_pillar.position = Vector2(0, -104.0)
+	_pillar.z_index = -1
+	_pillar.visible = false
+	add_child(_pillar)
+	_pillar_core = Sprite2D.new()
+	_pillar_core.texture = Assets.fx("holy_core")
+	_pillar_core.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_pillar_core.position = Vector2(0, -20.0)
+	_pillar_core.z_index = -1
+	_pillar_core.visible = false
+	add_child(_pillar_core)
 
 func _tick_holy_glow(delta: float) -> void:
+	if _pillar == null:
+		return
 	var want: float = battle.holy_haste_total + battle.holy_power_total
 	if want > 0.0:
 		_glow_phase += delta
-	if absf(want - _holy_glow) > 0.0005 or want > 0.0:
-		_holy_glow = want
-		queue_redraw()
-
-var _glow_phase: float = 0.0
-
-func _draw_holy_marks() -> void:
-	if _holy_glow <= 0.0:
+	_holy_glow = want
+	var on: bool = want > 0.0
+	_pillar.visible = on
+	_pillar_core.visible = on
+	if not on:
 		return
-	var k: float = clampf(_holy_glow * 2.2, 0.25, 1.0)
-	# 受惠標記:三粒繞住塔頂轉嘅金色微光
-	for i in 3:
-		var a: float = _glow_phase * 1.5 + TAU * i / 3.0
-		var p := Vector2(cos(a) * 26.0, -34.0 + sin(a) * 7.0)
-		draw_circle(p, 3.4 * k, Color(1.0, 0.92, 0.58, 0.75 * k))
-		draw_circle(p, 1.6 * k, Color(1.0, 0.99, 0.88, 0.9 * k))
-	if mech != "holy":
-		return
-	# 光源本體:一條由塔身向上散開嘅光柱
 	var pulse: float = 0.75 + 0.25 * sin(_glow_phase * 2.4)
-	for w in [26.0, 13.0]:
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(-w * 0.45, -18.0), Vector2(w * 0.45, -18.0),
-			Vector2(w, -190.0), Vector2(-w, -190.0)]),
-			Color(1.0, 0.95, 0.72, 0.10 * pulse if w > 20.0 else 0.16 * pulse))
-	draw_circle(Vector2(0, -20.0), 12.0 * pulse, Color(1.0, 0.97, 0.80, 0.35))
+	_pillar.modulate = Color(1, 1, 1, pulse)
+	_pillar_core.scale = Vector2.ONE * (FX_PX * pulse)
 
 func _draw() -> void:
-	if mech == "curse":
-		_draw_curse_aura()
-	_draw_holy_marks()
 	if selected:
 		draw_arc(Vector2.ZERO, range_val, 0, TAU, 48, Color(1, 1, 1, 0.5), 3.0)
 		draw_circle(Vector2.ZERO, range_val, Color(1, 1, 1, 0.06))
 
+# ---------------------------------------------------------------------------
+# 詛咒塔地面符文陣(合批輪重寫)
+# ---------------------------------------------------------------------------
 ## Always-visible ground sigil for the 詛咒塔 aura: a violet haze disc, two
 ## counter-rotating rune rings and a pulsing rim, so the player can see which
 ## stretch of road is buffed without having to select the tower.
+##
+## 舊版係喺 `_draw()` 逐幀畫返晒出嚟:兩隻碟 + 一個 52 段嘅弧 + 兩圈共 13 條
+## 線 13 粒點 + 一粒金點 ≈ 每座塔每幀 90 個 primitive,而每一個 polygon 喺
+## Godot 嘅 2D renderer 度都係自己一個 draw call(rect 先批得埋)。量到光係
+## 塔身上嘅光環(詛咒 + 聖光)就佔咗高峰戰鬥 1053 個 draw call 入面嘅 259 個。
+##
+## 而家:形狀全部預繪成貼圖,一座塔 = 15 個 sprite + 1 個弧,而且**冇一個
+## 需要逐幀重畫** —— 旋轉係 `Node2D.rotation`、脈動係 `modulate.a`,兩樣都
+## 唔會令 CanvasItem 變 dirty。15 個 sprite 共用同一張圖,所以合埋一個 batch。
 const CURSE_VIOLET := Color(0.62, 0.26, 0.86)
+## 貼圖入面嗰條符文劃烘死咗嘅 alpha —— 遊戲側除返佢先乘返真正嘅脈動值。
+const RUNE_BAKED_ALPHA := 0.80
+## 光環外圈嗰個弧烘死咗嘅 alpha(0.42 + 0.22 嘅上限)。
+const RIM_BAKED_ALPHA := 0.64
+## curse_haze.png 代表嘅 world 半徑。
+const HAZE_TEX_R := 128.0
+## fx 貼圖統一 4 texture px = 1 world px。
+const FX_PX := 0.25
 
-func _draw_curse_aura() -> void:
+var _sigil: Node2D = null
+var _sigil_haze: Sprite2D = null
+var _sigil_rings: Array[Node2D] = []
+var _sigil_mote: Sprite2D = null
+var _sigil_rim: CanvasItem = null
+
+func _build_sigil() -> void:
+	_sigil = Node2D.new()
+	# 相對 z = -1 → 實際 z 14:喺塔身(15)同怪物(20)之下,同舊版一樣壓喺
+	# 地面。而且全場所有符文陣一齊落喺 z 14 呢個桶,所以佢哋批得埋一齊。
+	_sigil.z_index = -1
+	add_child(_sigil)
 	var r: float = range_val
-	var pulse: float = 0.5 + 0.5 * sin(_aura_phase * 1.6)
-	# kept deliberately faint: three overlapping auras stack their alpha, and at
-	# 0.09 + 0.07 each that turned a whole corner of the map into a purple slab
-	draw_circle(Vector2.ZERO, r, Color(CURSE_VIOLET.r, CURSE_VIOLET.g, CURSE_VIOLET.b, 0.055))
-	draw_circle(Vector2.ZERO, r * 0.55, Color(CURSE_VIOLET.r, CURSE_VIOLET.g, CURSE_VIOLET.b, 0.04))
-	draw_arc(Vector2.ZERO, r, 0.0, TAU, 52,
-		Color(CURSE_VIOLET.r, CURSE_VIOLET.g, CURSE_VIOLET.b, 0.42 + 0.22 * pulse), 3.0, true)
+
+	_sigil_haze = Sprite2D.new()
+	_sigil_haze.texture = Assets.fx("curse_haze")
+	_sigil_haze.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_sigil_haze.scale = Vector2.ONE * (r / HAZE_TEX_R)
+	_sigil.add_child(_sigil_haze)
+
+	var rune := Assets.fx("curse_rune")
 	for ring in 2:
+		var holder := Node2D.new()
+		_sigil.add_child(holder)
+		_sigil_rings.append(holder)
 		var rr: float = r * (0.78 if ring == 0 else 0.46)
-		var spin: float = _aura_phase * (0.35 if ring == 0 else -0.55)
 		var n: int = 8 if ring == 0 else 5
 		for i in n:
-			var a: float = spin + TAU * i / float(n)
-			var p := Vector2(cos(a), sin(a)) * rr
-			draw_line(p, p - p.normalized() * 9.0,
-				Color(CURSE_VIOLET.r, CURSE_VIOLET.g, CURSE_VIOLET.b, 0.55 + 0.25 * pulse), 3.0, true)
-			draw_circle(p, 2.6, Color(0.86, 0.66, 1.0, 0.7))
-	# a gold mote drifting up out of the sigil — the 掉金加成 half of the identity
+			var a: float = TAU * i / float(n)
+			var s := Sprite2D.new()
+			s.texture = rune
+			s.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+			s.scale = Vector2.ONE * FX_PX
+			s.position = Vector2(cos(a), sin(a)) * rr
+			s.rotation = a
+			holder.add_child(s)
+
+	_sigil_mote = Sprite2D.new()
+	_sigil_mote.texture = Assets.fx("curse_mote")
+	_sigil_mote.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_sigil_mote.scale = Vector2.ONE * FX_PX
+	_sigil.add_child(_sigil_mote)
+
+	# 外圈嗰個脈動光環仍然係一條真弧 —— 一條 3px 闊嘅線放大就會變粗,而
+	# 詛咒塔嘅射程係課得上去嘅,即係一張烘死嘅光環貼圖會跟住射程變肥。
+	# 一個弧 = 一個 draw call,而場上詛咒塔數得出,呢個代價買返一個完全
+	# 一樣嘅外觀。佢畫一次就唔再重畫,脈動行 modulate。
+	_sigil_rim = _CurseRim.new()
+	(_sigil_rim as _CurseRim).radius = r
+	_sigil.add_child(_sigil_rim)
+	_anim_sigil()
+
+## 符文陣嘅動畫。全部都係 node property —— 冇一句 queue_redraw。
+func _anim_sigil() -> void:
+	if _sigil == null:
+		return
+	var r: float = range_val
+	var pulse: float = 0.5 + 0.5 * sin(_aura_phase * 1.6)
+	var rune_a: float = (0.55 + 0.25 * pulse) / RUNE_BAKED_ALPHA
+	for ring in _sigil_rings.size():
+		_sigil_rings[ring].rotation = _aura_phase * (0.35 if ring == 0 else -0.55)
+		_sigil_rings[ring].modulate = Color(1, 1, 1, rune_a)
+	_sigil_rim.modulate = Color(1, 1, 1, (0.42 + 0.22 * pulse) / RIM_BAKED_ALPHA)
 	var gy: float = fmod(_aura_phase * 26.0, r * 0.7)
-	draw_circle(Vector2(sin(_aura_phase * 1.1) * r * 0.3, r * 0.35 - gy), 3.4,
-		Color(1.0, 0.84, 0.3, 0.55 * (1.0 - gy / maxf(1.0, r * 0.7))))
+	_sigil_mote.position = Vector2(sin(_aura_phase * 1.1) * r * 0.3, r * 0.35 - gy)
+	_sigil_mote.modulate = Color(1, 1, 1, 0.55 * (1.0 - gy / maxf(1.0, r * 0.7)))
+
+## 光環外圈。一個只畫一次嘅 CanvasItem。
+class _CurseRim extends Node2D:
+	var radius: float = 100.0
+	func _draw() -> void:
+		draw_arc(Vector2.ZERO, radius, 0.0, TAU, 52,
+			Color(Tower.CURSE_VIOLET.r, Tower.CURSE_VIOLET.g, Tower.CURSE_VIOLET.b,
+				Tower.RIM_BAKED_ALPHA), 3.0, true)

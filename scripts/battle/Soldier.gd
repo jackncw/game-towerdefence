@@ -104,7 +104,14 @@ func _process(delta: float) -> void:
 			else:
 				_die()
 				return
-	queue_redraw()
+	# 一個普通士兵畫出嚟嘅嘢係「一張圖 + 一條血條」,兩樣都唔會逐幀變 ——
+	# 郁位係 node transform 帶,唔使重畫。所以淨係血量真係郁咗先重畫。
+	# 魔法民兵唔同:佢有一個逐幀轉嘅符文圈同閃緊嘅身,嗰個真正需要逐幀。
+	if is_magic or absf(hp - _drawn_hp) > 0.01:
+		_drawn_hp = hp
+		queue_redraw()
+
+var _drawn_hp: float = -1.0
 
 func _die() -> void:
 	alive = false

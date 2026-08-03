@@ -10,6 +10,10 @@ var _parent: Node
 # `_free.has(n)` — a linear scan run on EVERY release, which with hundreds of
 # pooled fx/damage numbers churning at 3x speed was O(n^2) per frame.
 var _idle: Dictionary = {}
+# Nodes currently handed out. Kept so a caller can ask "which live node is
+# closest to expiring?" when the budget is full — without it, a full pool can
+# only refuse, and refusing is how a 稜鏡塔 beam silently disappeared at 3x.
+var _live: Dictionary = {}
 var _made: int = 0
 
 func _init(factory: Callable, parent: Node) -> void:
@@ -28,6 +32,7 @@ func acquire() -> Node:
 	if n is CanvasItem:
 		n.visible = true
 	n.process_mode = Node.PROCESS_MODE_INHERIT
+	_live[n.get_instance_id()] = n
 	return n
 
 func release(n: Node) -> void:
@@ -35,9 +40,26 @@ func release(n: Node) -> void:
 		n.visible = false
 	n.process_mode = Node.PROCESS_MODE_DISABLED
 	var iid := n.get_instance_id()
+	_live.erase(iid)
 	if not _idle.has(iid):
 		_idle[iid] = true
 		_free.append(n)
+
+## Nodes currently handed out, in no particular order.
+func live_nodes() -> Array:
+	return _live.values()
+
+## 同上,但唔起一個新 Array —— 逐幀行一次幾百個 fx 嘅渲染迴圈用呢個,
+## `values()` 每幀配置一個新 Array 出嚟就係逐幀垃圾。
+func live_map() -> Dictionary:
+	return _live
+
+## 最早派出去嗰個仲未還嘅 node。Godot 嘅 Dictionary 保住插入次序,所以行第一個
+## key 就係最舊 —— 唔使起一個 400 個元素嘅 Array 出嚟排序。
+func oldest_live() -> Node:
+	for iid in _live:
+		return _live[iid]
+	return null
 
 func idle_count() -> int:
 	return _free.size()

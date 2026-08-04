@@ -43,6 +43,7 @@ func _ready() -> void:
 	_build_spellbar()
 	_build_tower_panel()
 	_build_pause_menu()
+	_build_contract_ui()
 
 func _build_top() -> void:
 	var bar := Panel.new()
@@ -408,12 +409,12 @@ func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
 	coin.position = Vector2(cw * 0.5 - 36.0, 70)
 	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(coin)
-	var cost := UI.label(str(def.place_cost), 24, UI.GOLD)
+	var cost := UI.label(str(battle.place_cost(int(def.id))), 24, UI.GOLD)
 	cost.position = Vector2(cw * 0.5 - 10.0, 68)
 	cost.size = Vector2(64, 30)
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(cost)
-	quick_cards.append({"id": id, "btn": btn, "cost": int(def.place_cost), "slot": slot})
+	quick_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id)), "slot": slot})
 	return btn
 
 func _set_drawer(open: bool) -> void:
@@ -495,11 +496,11 @@ func _make_build_card(id: int, card_w: float) -> Control:
 	costrow.position = Vector2(text_x, 92)
 	costrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	costrow.add_child(UI.tex_rect(Assets.coin(), Vector2(34, 34)))
-	var cost := UI.label(str(def.place_cost), 30, UI.GOLD)
+	var cost := UI.label(str(battle.place_cost(int(def.id))), 30, UI.GOLD)
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	costrow.add_child(cost)
 	btn.add_child(costrow)
-	build_cards.append({"id": id, "btn": btn, "cost": def.place_cost})
+	build_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id))})
 	return btn
 
 func _build_tower_panel() -> void:
@@ -706,6 +707,208 @@ func _flash_card(btn: Button) -> void:
 	var tw := create_tween()
 	tw.tween_property(fl, "color:a", 0.0, 0.4)
 	tw.tween_callback(fl.queue_free)
+
+# ---------------------------------------------------------------------------
+# 風險合約 —— 三選一卡片 + 常駐狀態指示
+#
+# 卡片層係 PROCESS_MODE_ALWAYS 而場面係 pausable,所以攤卡嗰陣成個世界唔郁,
+# 但撳掣仲收得到 —— 「唔准俾怪物偷跑」呢句話喺呢一行落地。
+#
+# 卡面上面嘅字全部由 GameData.contract_buff_text() / contract_mult_text() 出,
+# 唔係喺呢度另外寫一次:一份喺 UI 度手寫嘅卡面,遲早會同數據講唔埋。
+# ---------------------------------------------------------------------------
+var contract_layer: Control
+var contract_badge: Button
+var contract_badge_label: Label
+
+func _build_contract_ui() -> void:
+	if not battle.contract_level:
+		return
+	# 常駐指示:撳一撳攤開而家背住乜。放喺頂欄下面、金幣badge 之上一行。
+	contract_badge = UI.button("", Vector2(300, 54), UI.PANEL, 22)
+	contract_badge.position = Vector2(390, 130)
+	contract_badge.pressed.connect(_toggle_contract_summary)
+	add_child(contract_badge)
+	contract_badge_label = UI.label("", 24, Color(1.0, 0.78, 0.42))
+	contract_badge_label.position = Vector2(396, 138)
+	contract_badge_label.size = Vector2(288, 40)
+	contract_badge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	contract_badge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(contract_badge_label)
+	_refresh_contract_badge()
+
+func _refresh_contract_badge() -> void:
+	if contract_badge_label == null:
+		return
+	var st: Dictionary = battle.contract_state
+	contract_badge_label.text = tr("CONTRACT_BADGE").format({
+		"n": battle.contract_picks_done,
+		"t": GameData.CONTRACT_PICKS,
+		"c": "%.2f" % float(st.get("crystal", 1.0)),
+	})
+
+func _toggle_contract_summary() -> void:
+	if battle.contract_pending:
+		return
+	if contract_layer != null and is_instance_valid(contract_layer):
+		hide_contract()
+		return
+	_build_contract_panel([], true)
+
+## 攤三張卡。`offer` = GameData.CONTRACTS 嘅索引。
+func show_contract(offer: Array) -> void:
+	_build_contract_panel(offer, false)
+
+func hide_contract() -> void:
+	if contract_layer != null and is_instance_valid(contract_layer):
+		contract_layer.queue_free()
+	contract_layer = null
+	_refresh_contract_badge()
+
+func _build_contract_panel(offer: Array, summary_only: bool) -> void:
+	hide_contract()
+	contract_layer = Control.new()
+	contract_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	contract_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(contract_layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0.05, 0.03, 0.02, 0.78)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	contract_layer.add_child(dim)
+
+	var head := UI.banner_title(tr("CONTRACT_TITLE"), 120, 760, 44)
+	contract_layer.add_child(head)
+	var sub := UI.label(tr("CONTRACT_WAVE_OF").format({
+		"n": battle.contract_picks_done + (0 if summary_only else 1),
+		"t": GameData.CONTRACT_PICKS}), 30, UI.TEXT_DIM)
+	sub.position = Vector2(160, 210)
+	sub.size = Vector2(760, 44)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	contract_layer.add_child(sub)
+
+	# --- 當前已疊加嘅總狀態 -------------------------------------------------
+	var st: Dictionary = battle.contract_state
+	var box := UI.panel_parch()
+	box.position = Vector2(80, 268)
+	box.size = Vector2(920, 190)
+	contract_layer.add_child(box)
+	var stt := UI.label(tr("CONTRACT_CURRENT"), 28, Color(0.35, 0.24, 0.12))
+	stt.position = Vector2(110, 284)
+	stt.size = Vector2(860, 36)
+	contract_layer.add_child(stt)
+	var cur_buff: String = _stacked_buff_text(st)
+	var clip := Control.new()
+	clip.position = Vector2(110, 322)
+	clip.size = Vector2(860, 78)
+	clip.clip_contents = true
+	contract_layer.add_child(clip)
+	var bl := UI.label(cur_buff if cur_buff != "" else tr("CONTRACT_NONE_YET"), 26,
+		Color(0.42, 0.18, 0.12))
+	bl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	clip.add_child(bl)
+	var ml := UI.label(tr("CONTRACT_TOTAL_MULT").format({
+		"c": "%.2f" % float(st.get("crystal", 1.0)),
+		"g": "%.2f" % float(st.get("gold", 1.0))})
+		+ ("  " + tr("CONTRACT_CAPPED") if bool(st.get("capped", false)) else ""),
+		30, Color(0.30, 0.17, 0.45))
+	ml.position = Vector2(110, 404)
+	ml.size = Vector2(860, 42)
+	contract_layer.add_child(ml)
+
+	if summary_only:
+		var close := UI.button(tr("COMMON_CLOSE"), Vector2(420, 104), UI.ACCENT, 36)
+		close.position = Vector2(330, 520)
+		close.pressed.connect(hide_contract)
+		contract_layer.add_child(close)
+		return
+
+	# --- 三張卡 -------------------------------------------------------------
+	const CARD_H := 356
+	for i in offer.size():
+		var idx: int = int(offer[i])
+		contract_layer.add_child(_contract_card(idx, Vector2(80, 500 + i * (CARD_H + 22)),
+			Vector2(920, CARD_H)))
+
+const RISK_COL := [Color(0.46, 0.72, 0.40), Color(0.93, 0.72, 0.30), Color(0.86, 0.38, 0.26)]
+
+func _contract_card(idx: int, pos: Vector2, sz: Vector2) -> Control:
+	var c: Dictionary = GameData.CONTRACTS[idx]
+	var risk: int = clampi(int(c["risk"]), 0, 2)
+	var btn := UI.button("", sz, UI.PANEL_HI, 30)
+	btn.position = pos
+	btn.pressed.connect(func(): battle.choose_contract(idx))
+	# 風險色帶 —— 綠 / 琥珀 / 紅。顏色係第一眼嘅資訊,唔使讀完成張卡先知深淺。
+	var stripe := ColorRect.new()
+	stripe.color = RISK_COL[risk]
+	stripe.position = Vector2(18, 18)
+	stripe.size = Vector2(14, sz.y - 36)
+	stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(stripe)
+	var name_l := UI.label(tr(String(c["name"])), 38, UI.TEXT)
+	name_l.position = Vector2(52, 22)
+	name_l.size = Vector2(sz.x - 80, 52)
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(name_l)
+	var risk_l := UI.label(tr(["CONTRACT_RISK_LOW", "CONTRACT_RISK_MID", "CONTRACT_RISK_HIGH"][risk]),
+		26, RISK_COL[risk])
+	risk_l.position = Vector2(52, 78)
+	risk_l.size = Vector2(sz.x - 80, 38)
+	risk_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(risk_l)
+	# 英文闊過中文兩三倍,所以描述要住喺一個固定 clip 入面 FULL_RECT 咁 wrap
+	var clip := Control.new()
+	clip.position = Vector2(52, 124)
+	clip.size = Vector2(sz.x - 96, 108)
+	clip.clip_contents = true
+	clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(clip)
+	var buff_l := UI.label(tr("CONTRACT_BUFF_PREFIX") + GameData.contract_buff_text(idx),
+		28, Color(1.0, 0.62, 0.52))
+	buff_l.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	buff_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	buff_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip.add_child(buff_l)
+	var mult_l := UI.label(GameData.contract_mult_text(idx), 32, UI.CRYSTAL)
+	mult_l.position = Vector2(52, 246)
+	mult_l.size = Vector2(sz.x - 96, 44)
+	mult_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(mult_l)
+	# 「揀咗之後總倍率會變成幾多」—— 玩家要比較嘅係呢個,唔係單卡倍率
+	var after: Dictionary = GameData.contract_accumulate(battle.contract_taken + [idx])
+	var after_l := UI.label(tr("CONTRACT_AFTER").format({
+		"c": "%.2f" % float(after["crystal"]), "g": "%.2f" % float(after["gold"])}),
+		26, UI.TEXT_DIM)
+	after_l.position = Vector2(52, 296)
+	after_l.size = Vector2(sz.x - 96, 40)
+	after_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(after_l)
+	return btn
+
+## 已疊加嘅增益寫成一句。同 GameData.contract_buff_text() 一樣嘅字眼,但佢讀嘅
+## 係**累積**結果而唔係單卡,所以要自己行一次。
+func _stacked_buff_text(st: Dictionary) -> String:
+	var b: Dictionary = st.get("buff", {})
+	var parts: Array = []
+	if float(b.get("hp", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_HP").format({"n": "%.0f" % (float(b["hp"]) * 100.0)}))
+	if float(b.get("speed", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_SPEED").format({"n": "%.0f" % (float(b["speed"]) * 100.0)}))
+	if float(b.get("armor", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_ARMOR").format({"n": "%.0f" % float(b["armor"])}))
+	if float(b.get("mres", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_MRES").format({"n": "%.0f" % float(b["mres"])}))
+	if float(b.get("regen", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_REGEN").format({"n": "%.1f" % (float(b["regen"]) * 100.0)}))
+	if float(b.get("dense", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_DENSE").format({"n": "%.0f" % (float(b["dense"]) * 100.0)}))
+	if float(b.get("elite", 0.0)) > 0.0:
+		parts.append(tr("CONTRACT_B_ELITE").format({"n": "%.0f" % (float(b["elite"]) * 100.0)}))
+	if bool(b.get("noslow", false)):
+		parts.append(tr("CONTRACT_B_NOSLOW"))
+	if parts.is_empty():
+		return ""
+	return ("、" if TranslationServer.get_locale().begins_with("zh") else ", ").join(parts)
 
 # --- pause menu -------------------------------------------------------------
 var pause_menu: Control

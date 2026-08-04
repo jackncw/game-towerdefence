@@ -379,7 +379,7 @@ func _zone_stats(def: Dictionary) -> Control:
 			box.add_child(_bar(def, tier, "ic_spark", tr(STAT_LABEL.get(sp, sp)), sp,
 				_fmt(stats.get(sp, 0.0), sp), float(stats.get(sp, 0.0)), "bar_crystal9"))
 		box.add_child(_kv_row(tr("UPG_COST"), "ic_coin",
-			tr("UPG_GOLD_VALUE").format({"n": int(def.place_cost)}), UI.GOLD))
+			tr("UPG_GOLD_VALUE").format({"n": GameData.place_cost(int(def.id), Meta.next_level())}), UI.GOLD))
 	else:
 		var has_cd := false
 		for up in def.ups:

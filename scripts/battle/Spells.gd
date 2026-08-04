@@ -151,8 +151,9 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 						sd.death_blast = s.dmg * GameData.EINHERJAR_BLAST
 						sd.share_life = true
 		"midas":
-			battle.add_gold(int(s.gold), true)       # 一次過派錢,唔係涓滴收入
-			battle.spawn_damage(pos, int(s.gold), Color(1, 0.85, 0.2), true)
+			var paid: int = battle.scale_gold(s.gold)   # 一次過派錢,唔係涓滴收入
+			battle.add_gold(paid, true)
+			battle.spawn_damage(pos, paid, Color(1, 0.85, 0.2), true)
 			# a coin fountain at the cast point and over the base
 			battle.spawn_coin_pop(pos, 10)
 			battle.spawn_coin_pop(battle.base_pos + Vector2(0, -40), 8)

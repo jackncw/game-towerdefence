@@ -303,7 +303,7 @@ func _stat_summary(def: Dictionary, is_tower: bool, _tier: int) -> Control:
 			float(s.get("dmg", 0.0)) * float(s.get("rate", 0.0)), "dmg", "")])
 		cells.append([tr("UP_RANGE"), Upgrade.fmt_value(float(s.get("range", 0.0)),
 			"range", "")])
-		cells.append([tr("UPG_COST"), str(int(def.place_cost))])
+		cells.append([tr("UPG_COST"), str(GameData.place_cost(int(def.id), Meta.next_level()))])
 	else:
 		var has_cd := false
 		for up in def.ups:

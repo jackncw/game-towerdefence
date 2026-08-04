@@ -365,36 +365,47 @@ func spell_up_cost(id: int, dir: int) -> int:
 func is_cleared(n: int) -> bool:
 	return cleared.has(str(n))
 
-func on_level_cleared(n: int) -> Dictionary:
+## `mult` = 合約關嘅總晶石倍率(普通關永遠 1.0)。
+##
+## **倍率對通關同敗仗一樣適用。** 呢個係一個決定,唔係一個疏忽:合約押嘅係
+## 「呢一場」,唔係「呢一場嘅勝利」——一個只喺贏嘅時候兌現嘅倍率會令高風險
+## 合約變成純粹嘅自殺,而條 brief 講明「揀咗高風險合約打輸,都照 Gate 1 規則
+## 有輸場晶石」。反farm 嘅兩道閘(LOSE_MIN_TIME、LOSE_REPLAY_FRAC)照行,
+## 所以「入去合約關即刻投降刷倍率」呢條路仍然係封住嘅。
+func on_level_cleared(n: int, mult := 1.0) -> Dictionary:
 	## Awards crystals and returns the breakdown the result screen itemises:
 	##   base   通關獎勵 (halved on a replay)
 	##   first  首次通關獎勵 (0 unless this is the first ever clear of level n)
 	## `cleared` IS the first-clear record and is persisted in save.json, so a
 	## replay after a restart correctly pays no first-clear bonus.
 	var replay := is_cleared(n)   # must be read BEFORE marking the level cleared
-	var base := GameData.level_crystal_reward(n)
+	var base := int(round(GameData.level_crystal_reward(n) * mult))
 	if replay:
 		base = int(base / 2)
-	var first := 0 if replay else GameData.level_first_clear_bonus(n)
+	var first := 0 if replay else int(round(GameData.level_first_clear_bonus(n) * mult))
 	cleared[str(n)] = true
 	highest_level = maxi(highest_level, n)
 	add_crystals(base + first)  # also saves
-	return {"base": base, "first": first, "total": base + first, "replay": replay}
+	return {"base": base, "first": first, "total": base + first, "replay": replay,
+		"mult": mult}
 
-func on_level_failed(n: int, kills: int, elapsed: float, boss_time_s: float, boss_frac: float) -> Dictionary:
+func on_level_failed(n: int, kills: int, elapsed: float, boss_time_s: float,
+		boss_frac: float, mult := 1.0) -> Dictionary:
 	## 輸咗都有魔晶: pays out by progress, capped at GameData.LOSE_REWARD_CAP_FRAC
 	## of the clear reward, and nothing at all inside the anti-farm window.
 	var replay := is_cleared(n)   # a loss on an already-cleared level pays less
-	var reward := GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac, replay)
+	var reward := int(round(
+		GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac, replay) * mult))
 	if reward > 0:
 		add_crystals(reward)  # also saves
 	return {
 		"crystals": reward,
 		"replay": replay,
 		"progress": GameData.lose_progress(kills, elapsed, boss_time_s, boss_frac),
-		"cap": GameData.level_lose_max(n, replay),
+		"cap": int(round(GameData.level_lose_max(n, replay) * mult)),
 		"too_short": elapsed < GameData.LOSE_MIN_TIME,
 		"boss_frac": clampf(boss_frac, 0.0, 1.0),
+		"mult": mult,
 	}
 
 func next_level() -> int:

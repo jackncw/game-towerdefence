@@ -136,14 +136,23 @@ func _case_stat_scaling() -> void:
 	# 「基礎能力大幅躍升(明顯強過 tier 1 滿課)」—— 呢句係一個可以量嘅要求
 	# 第十一輪:呢兩條由「大過就得」改成一條**帶**。
 	# 「大過」只擋到斷崖嘅一邊 —— 一個 3.3 倍嘅跳幅一樣過得到,而嗰個正正就係
-	# 第十輪魔法嗰邊發生嘅事(見 GameData 逐階倍率嗰段)。設計目標係 1.15,
-	# 所以測試要問「係咪 1.15 左右」,唔係「有冇大過 1.1」。
+	# 第十輪魔法嗰邊發生嘅事(見 GameData 逐階倍率嗰段)。
+	#
+	# 第十五輪:條帶由寫死嘅 1.05..1.35 改成**跟住 GameData.TIER_JUMP 走**。
+	# 嗰個常數就係「進化嗰一下相對上一階課到盡嘅躍升幅度」呢句設計話本身,
+	# 而佢今輪由 1.15 調到 1.45(理由喺 GameData 嗰度寫住 —— Gate 5 要 A2 同
+	# A3 之間有一段容得落廿九關嘅距離)。寫死嘅帶會令「調咗個掣」同「跌穿咗
+	# 設計目標」睇落一模一樣;跟住常數走就唔會 —— 佢問嘅永遠係「實際跳幅有冇
+	# 兌現你聲稱嗰個跳幅」,而唔係「係咪等於某個歷史數字」。
+	# 上下限係 ±25%:量出嚟嘅 R(逐條軸課滿嘅倍率)本身有分散,而 TIER_STEP
+	# 用嘅係中位數。
+	var jump: float = GameData.TIER_JUMP
 	var dps1_max: float = float(t1_max.dmg) * float(t1_max.rate)
 	var dps2_base: float = float(t2_base.dmg) * float(t2_base.rate)
-	_in_band("D3 tier 2 基礎 / tier 1 滿課", dps2_base / dps1_max, 1.05, 1.35)
+	_in_band("D3 tier 2 基礎 / tier 1 滿課", dps2_base / dps1_max, jump * 0.78, jump * 1.25)
 	var dps2_max: float = float(t2_max.dmg) * float(t2_max.rate)
 	var dps3_base: float = float(t3_base.dmg) * float(t3_base.rate)
-	_in_band("D3 tier 3 基礎 / tier 2 滿課", dps3_base / dps2_max, 1.05, 1.35)
+	_in_band("D3 tier 3 基礎 / tier 2 滿課", dps3_base / dps2_max, jump * 0.78, jump * 1.25)
 	# 魔法只得三條軸,所以佢要一個細啲嘅逐階倍率先落到同一條帶入面。
 	# 呢條 assertion 就係「一個倍率服侍唔到兩邊」呢個發現嘅守門員。
 	var sp := GameData.spell_by_id(4)          # 劇毒瘴氣

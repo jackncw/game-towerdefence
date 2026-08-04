@@ -106,6 +106,43 @@ func _ready() -> void:
 	add_child(sprite)
 	z_index = 20
 
+## 合約增益 / elite affix 嘅落地點。
+##
+## 兩樣嘢共用一個入口而唔係各寫一套,因為佢哋改嘅係**同一批欄位**,而兩套
+## 各自寫嘅版本一定會有一日喺某個欄位上面唔同步(例如 affix 記得改 size 而
+## 合約唔記得)。setup() 尾段叫一次,所以佢永遠喺基礎值計完之後先行。
+##   hp/speed  = 額外比例(0.30 = +30%)     armor/mres = 加多少點
+##   regen     = 每秒回復 max_hp 嘅幾多       noslow     = 免疫減速
+##   gold      = 掉金倍率                     tint/size  = 精英外觀
+var slow_immune: bool = false
+var elite_id: String = ""
+
+func apply_mods(mods: Dictionary) -> void:
+	if mods.is_empty():
+		return
+	var hp_mult: float = 1.0 + float(mods.get("hp", 0.0))
+	if hp_mult != 1.0:
+		max_hp *= hp_mult
+		hp = max_hp
+	base_speed *= 1.0 + float(mods.get("speed", 0.0))
+	armor += float(mods.get("armor", 0.0))
+	mres += float(mods.get("mres", 0.0))
+	var rg: float = float(mods.get("regen", 0.0))
+	if rg > 0.0:
+		regen_rate = maxf(regen_rate, max_hp * rg)
+	if bool(mods.get("noslow", false)):
+		slow_immune = true
+	var gm: float = float(mods.get("gold", 1.0))
+	if gm != 1.0:
+		gold = int(round(float(gold) * gm))
+	elite_id = String(mods.get("elite_id", ""))
+	if elite_id != "":
+		# 精英一眼認得出:染色 + 大一格。兩樣都係純視覺,但「睇唔出佢唔同」
+		# 就等於個機制唔存在 —— 玩家冇得針對一個佢見唔到嘅嘢。
+		sprite.modulate = mods.get("tint", Color.WHITE)
+		sprite.scale *= GameData.ELITE_SIZE_MULT
+		size *= GameData.ELITE_SIZE_MULT
+
 func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: float, p: Pool, start_dist := 0.0) -> void:
 	battle = b
 	route = r
@@ -113,7 +150,11 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	fam = fam_id
 	lvl = level
 	is_boss = boss
-	var st: Dictionary = GameData.boss_stats(fam_id, wave_scale) if boss else GameData.creature_stats(fam_id, level, wave_scale)
+	# boss 跟難度指數,雜兵跟(除返等級帶同密度之後嘅)血量倍率 —— 見
+	# GameData.difficulty()。兩條唔同曲線,所以呢度唔可以共用一個參數。
+	var bscale: float = float((b.cfg as Dictionary).get("boss_scale", wave_scale))
+	var st: Dictionary = GameData.boss_stats(fam_id, bscale) if boss 		else GameData.creature_stats(fam_id, level, wave_scale,
+			float((b.cfg as Dictionary).get("kill_gold_unit", 1.0)))
 	max_hp = st.hp
 	hp = max_hp
 	base_speed = st.speed
@@ -152,6 +193,7 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	phase_time = 0.0; phase_cd = 5.0; did_rootheal = false; boss_timer = 3.0
 	_sim_deep = false                 # pooled node: measurement latch resets too
 	poison_tick = 0.0; burn_tick = 0.0; _flash_t = 0.0
+	slow_immune = false; elite_id = ""
 	_walk = randf() * TAU
 	sprite.position = Vector2.ZERO
 	sprite.rotation = 0.0
@@ -519,7 +561,7 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 				o._deal_dot(d * battle.warcry_splash, Color(1, 0.85, 0.4))
 	# 邁達斯權柄 (點金 T3):敵人每被打中一次就掉一點金
 	if battle.midas_hit_gold > 0:
-		battle.gold += battle.midas_hit_gold
+		battle.gold += battle.scale_gold(battle.midas_hit_gold)
 	_flash()
 	Audio.play_hit(armor, mres)
 	var big := d >= max_hp * 0.18 and d >= 40.0
@@ -602,6 +644,11 @@ func _die(force: bool) -> void:
 
 # --- effect application -----------------------------------------------------
 func apply_slow(factor: float, dur: float) -> void:
+	## 「免疫減速」合約喺呢度收數,唔係喺每一個減速來源度。全部減速都經呢條
+	## 門,所以一張卡講「免疫減速」就真係對每一種減速都成立 —— 包括將來加嘅。
+	## 凍結 / 暈眩 / 定身係另一回事(佢哋唔經呢度),合約亦都冇講過佢哋。
+	if slow_immune:
+		return
 	if factor >= slow_factor or slow_time <= 0.0:
 		slow_factor = factor
 	slow_time = maxf(slow_time, dur)

@@ -58,6 +58,15 @@ func _ready() -> void:
 	prog.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(prog)
 
+	# 合約關輸咗一樣食倍率 —— 見 Meta.on_level_failed()。呢一行講明點解個數
+	# 同平時唔同,唔係俾玩家以為系統計錯數。
+	if float(r.get("mult", 1.0)) > 1.001:
+		var cm := UI.label(tr("RESULT_CONTRACT_MULT").format(
+			{"n": "%.2f" % float(r.get("mult", 1.0))}), 26, Color(0.86, 0.66, 1.0))
+		cm.position = Vector2(190, 754); cm.size = Vector2(700, 36)
+		cm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		add_child(cm)
+
 	var retry := UI.button(tr("FAIL_RETRY"), Vector2(500, 130), UI.ACCENT, 40)
 	retry.position = Vector2(290, 780)
 	retry.pressed.connect(func(): Flow.play_level(lv))

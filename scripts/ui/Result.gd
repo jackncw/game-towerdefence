@@ -32,6 +32,12 @@ func _ready() -> void:
 		vb.add_child(_stat_row(tr("RESULT_FIRST_CLEAR"), "+%d" % first, UI.GOLD,
 			Assets.crystal(), Assets.ui("ic_star")))
 		vb.add_child(_stat_row(tr("RESULT_TOTAL"), str(base + first), UI.CRYSTAL, Assets.crystal()))
+	# 合約關:倍率已經計入上面嘅數,所以呢一行係一個**解釋**,唔係一個加項。
+	if float(r.get("mult", 1.0)) > 1.001:
+		var cm := UI.label(tr("RESULT_CONTRACT_MULT").format(
+			{"n": "%.2f" % float(r.get("mult", 1.0))}), 28, Color(0.86, 0.66, 1.0))
+		cm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(cm)
 	if r.get("replay", false):
 		var note := UI.label(tr("RESULT_REPLAY_NOTE"), 24, Color(0.7, 0.6, 0.85))
 		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -43,9 +49,10 @@ func _ready() -> void:
 	hb.add_theme_constant_override("separation", 24)
 	add_child(hb)
 	var nextn := lv + 1
-	var nxt := UI.button(tr("RESULT_NEXT").format({"n": nextn}), Vector2(360, 130), UI.ACCENT, 36)
-	nxt.pressed.connect(func(): Flow.play_level(nextn))
-	hb.add_child(nxt)
+	if nextn <= GameData.FINAL_LEVEL:
+		var nxt := UI.button(tr("RESULT_NEXT").format({"n": nextn}), Vector2(360, 130), UI.ACCENT, 36)
+		nxt.pressed.connect(func(): Flow.play_level(nextn))
+		hb.add_child(nxt)
 	var replay := UI.button(tr("RESULT_REPLAY"), Vector2(360, 130), UI.PANEL_HI, 36)
 	replay.pressed.connect(func(): Flow.play_level(lv))
 	hb.add_child(replay)

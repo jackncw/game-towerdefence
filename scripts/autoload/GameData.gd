@@ -5,31 +5,140 @@ extends Node
 
 const MAX_UP_LV := 15
 const UP_COST_MULT := 1.35
-## 每關敵人強度成長率 (wave_scale = WAVE_GROWTH^(n-1))
-##
-## 第十輪加咗第二段。理由唔係「後面要難啲」呢種感覺,係一個量出嚟嘅斷層:
-## 二十關嘅曲線係喺一個「冇進化系統、而且六條軸永遠課唔滿」嘅世界入面
-## 定同量嘅。進化上線之後,一個專精玩家喺第 24 關拎到 tier 2(輸出 x16)、
-## 第 38 關拎到 tier 3(再 x16),而敵人喺 20→40 淨係 1.13^20 = 11.5 倍。
-## BalanceSim --evolve 量到嘅結果就係一次過通過率 40/40 —— 難度曲線唔係
-## 「變淺咗」,係由第 20 關開始就冇咗。
-##
-## 所以第 21 關起換一個較急嘅倍率。呢個唔係一堵牆:牆係「某一關特別難」,
-## 而呢個係同一條指數曲線換咗個斜率,每一關都照樣比上一關難少少 ——
-## 亦即係 brief 講嘅「沿用現有 wave scaling」。
-##
-## 第 1-20 關嘅 wave_scale 一個字都冇變(WAVE_LATE_FROM = 21),所以已經
-## 量過、已經出過街嗰二十關嘅平衡完全冇被呢個改動掂過。
-const WAVE_GROWTH := 1.13
-const WAVE_LATE_FROM := 21
-const WAVE_GROWTH_LATE := 1.28
 
-## 第 n 關嘅敵人強度倍率。
+# ---------------------------------------------------------------------------
+# 關卡總數同難度分段 (第十五輪:由 40 關延伸到 100 關)
+#
+# 舊版係兩段幾何曲線 (1.13 到第 20 關,之後 1.28)。1.28 一路推到第 100 關
+# 係 1.28^80 = 2.5e9 倍 —— 唔係「難」,係一個冇人夠火力嘅數。而更加要緊
+# 嘅係反方向:實測 --evolve 喺第 21-40 關嘅平均最深推進係 4-11%,即係話
+# 一個進化咗嘅玩家由第 20 關開始就係散步。兩件事一齊發生,因為舊曲線嘅
+# 斜率同**玩家實際攞得到嘅力量**冇對過數。
+#
+# 而家逐段對數。每一段對應 brief 嘅一條設計目標,而段嘅斜率係由「嗰一段
+# 玩家可以攞到幾多力量」倒推:
+#
+#   1-10   體驗關     白板玩家要贏得到           -> 最平
+#   11-40  逼升級     力量來源 = 升級軸 (~12x)
+#   41-70  逼進化一次 力量來源 = tier 2 (~6.9x 再乘軸)
+#   71-99  逼雙階段 3 力量來源 = tier 3
+#   100    最終關     另外再乘 FINAL_SCALE
+#
+# 段與段之間係**連續**嘅:每段由上一段嘅終點起,所以冇任何一關會出現
+# 「突然平咗」或者跳崖 —— Gate 7(難度單調)喺呢度就已經係砌出嚟嘅,
+# 唔使靠斷言去追。
+# ---------------------------------------------------------------------------
+const FINAL_LEVEL := 100
+## `to` = 呢一段最後嗰關;`g` = 段內**難度指數**每關嘅成長率。
+##
+## 注意呢啲係難度指數嘅斜率,唔係雜兵血量嘅斜率 —— 見 difficulty() / wave_scale()。
+## 每一段嘅數字都係由「嗰一段玩家實際攞得到幾多力量」倒推,而嗰個係量出嚟嘅
+## (test/GateSim --mode=power 直接行買嘢政策再問 Meta.tower_stats):
+##
+##   原型      力量上限(以第 1 關做 1)   對應段落
+##   A1 穩步   10.4x                       11-40 要收喺呢度以內
+##   A2 tier2  77.9x                       41-70
+##   A3 tier3  ~400x(未滿課)              71-99
+##   A4 滿級   ~550x + 三個滿級魔法         100
+## 第二段拆咗做兩截(11-16 同 17-40),而嗰個唔係一個擬合出嚟嘅殘留:
+## 第 11 關就係「逼你升級」呢一段嘅入口,而入口本身就要係一個坡。體驗關
+## 嘅難度要低到一個乜都冇買嘅玩家都贏得到(Gate 2),而「逼你升級」要求
+## 玩家一路企喺邊緣(Gate 3 嘅凍結測試 —— 五關冇升級就打唔郁)。呢兩個
+## 要求之間隔咗一個真實嘅距離,而 11-16 就係行完佢嗰六關。
+## 七段。三段係**門檻坡**(11-16、41-46、65-70),其餘四段係段內嘅平穩爬升。
+##
+## 點解要有坡:每一段嘅設計目標之間隔住一個真實嘅距離。第 10 關要平到一個
+## 乜都冇買嘅玩家贏得到(Gate 2),而第 17 關開始要一個唔升級就打唔郁嘅
+## 玩家企喺邊緣(Gate 3)—— 呢兩個要求之間差咗三倍幾,而三倍幾唔可能喺
+## 一關之內出現(嗰個就係一堵牆),亦都唔可以攤勻三十關(嗰個就係兩段
+## 目標都達唔到)。坡係中間嗰個答案:六關,每關明顯難咗,但每關都仲係
+## 上一關嘅延續。
+##
+## 41-46 同 65-70 兩段坡對應「逼你進化一次」同「逼你雙階段 3」嘅入口,
+## 道理一模一樣。
+const WAVE_BANDS := [
+	{"to": 10, "g": 1.080},    # 體驗關
+	{"to": 16, "g": 1.230},    # 坡:入「逼你升級」
+	{"to": 40, "g": 1.105},    # 逼你升級
+	{"to": 46, "g": 1.300},    # 坡:入「逼你進化一次」
+	{"to": 56, "g": 1.115},    # 逼你進化一次
+	{"to": 62, "g": 1.450},    # 坡(急):入「逼你雙階段 3」
+	{"to": 70, "g": 1.130},    # 坡(收):接返落平段,唔好一步踩落去
+	{"to": 99, "g": 1.046},    # 逼你雙階段 3
+]
+## 第 100 關嘅**難度指數**倍率(相對第 99 關)。
+##
+## 佢細過 1,而嗰個唔係手民之誤:第 100 關嘅難度唔係嚟自指數,係嚟自**編排**
+## —— 十隻 boss 同場,而一關普通關得一隻。後期嘅輸出幾乎全部都係倒落 boss
+## 血條度,所以「十隻」本身就抵得住大約六倍指數。實測:A4 喺第 99 關(指數
+## 107,000)贏得輕鬆,但喺第 100 關指數 28,000 之下只贏得一成三 —— 即係話
+## 呢一關嘅**有效**難度仍然係全遊戲最高,大約係第 99 關嘅 1.7 倍。
+##
+## 副作用係第 100 關嘅雜兵比第 99 關軟。呢個係有意留低嘅:嗰一場要玩家睇得
+## 清楚十條血條,而唔係俾雜兵蓋住。
+const FINAL_SCALE := 0.26
+
+var _diff_cache: Array = []
+
+func _build_wave_cache() -> void:
+	_diff_cache = [0.0, 1.0]          # index = 關數;第 1 關 = 1.0
+	var cur := 1.0
+	var n := 2
+	for band in WAVE_BANDS:
+		while n <= int(band["to"]):
+			cur *= float(band["g"])
+			_diff_cache.append(cur)
+			n += 1
+	_diff_cache.append(cur * FINAL_SCALE)   # 第 100 關
+
+## 第 n 關有幾難 —— **呢條先係難度嘅權威定義**,唔係 wave_scale。
+##
+## 點解要分開兩個概念(第十五輪改嘅):一關嘅實際壓力唔淨止係「一隻怪幾多血」,
+## 仲有「一隻怪係幾多級」同「一秒出幾多隻」。舊版三樣嘢各自跟自己嘅曲線行,
+## 而怪物等級帶係一個**階梯**(第 13/25/37/49 關各跳一級),所以實際難度喺
+## 嗰四關各自跳咗三成幾 —— 一個冇人設計過、亦都冇人量過嘅斷層,而且佢係
+## Gate 7(難度單調)嘅天然敵人。
+##
+## 而家反過嚟:difficulty() 係設計品,而雜兵血量係**由佢除返出嚟**嘅結果。
+## 怪物等級同密度想點行都得(佢哋而家係純粹嘅變化同視覺),總壓力照樣係
+## 設計嗰條平滑曲線。
+func difficulty(n: int) -> float:
+	if n <= 1:
+		return 1.0
+	if n < _diff_cache.size():
+		return float(_diff_cache[n])
+	var last: float = float(_diff_cache[FINAL_LEVEL - 1])
+	return last * pow(float(WAVE_BANDS[WAVE_BANDS.size() - 1]["g"]), n - (FINAL_LEVEL - 1))
+
+## 該關怪物等級帶嘅平均血量倍率,以第 1 關做 1。
+func _lvl_hp_norm(n: int) -> float:
+	var band: int = int(maxi(1, n) - 1) / LVL_BAND_EVERY
+	var lo: int = clampi(1 + band, 1, 5)
+	var hi: int = clampi(2 + band, 1, 5)
+	var s := 0.0
+	for l in range(lo, hi + 1):
+		s += LVL_HP[l]
+	return (s / float(hi - lo + 1)) / ((LVL_HP[1] + LVL_HP[2]) * 0.5)
+
+## 密度倍率(出怪頻率相對第 1 關)。
+func density(n: int) -> float:
+	return 1.0 + DENSITY_GAIN * clampf(float(n - 1) / float(FINAL_LEVEL - 1), 0.0, 1.0)
+
+const LVL_BAND_EVERY := 12
+const DENSITY_GAIN := 0.30
+
+## 雜兵嘅血量倍率 = 難度 ÷(等級帶 x 密度)。
 func wave_scale(n: int) -> float:
-	if n < WAVE_LATE_FROM:
-		return pow(WAVE_GROWTH, n - 1)
-	return pow(WAVE_GROWTH, WAVE_LATE_FROM - 2) \
-		* pow(WAVE_GROWTH_LATE, n - WAVE_LATE_FROM + 1)
+	return difficulty(n) / (_lvl_hp_norm(n) * density(n))
+
+## boss 冇「怪物等級帶」呢回事(佢永遠係 boss),而且佢係一隻,唔受密度影響
+## —— 所以佢直接跟難度指數,唔跟雜兵嗰條。冇呢個分別嘅話,怪物等級一跳
+## boss 就會靜靜咁變弱三成。
+func boss_scale(n: int) -> float:
+	return difficulty(n)
+
+func is_final_level(n: int) -> bool:
+	return n == FINAL_LEVEL
 ## 冇「基地生命值」呢樣嘢可以睇跌到幾多——一隻怪冇 Barrier 罩住走到底就係直接
 ## 輸,冧咗都冇一個「跌穿三成」嘅時刻存在。所以「危險」音效改以路程做距離代理:
 ## 一隻怪嘅路程比例(dist/route.total)第一次跨過呢個值,並且冇 Barrier 罩住
@@ -182,14 +291,124 @@ func family_ids() -> Array:
 ## (0.6 試過會令第 14/17/20 關滿場塔仲剩兩萬幾金)。
 const GOLD_WAVE_EXP := 0.45
 
-func creature_stats(fam: String, lvl: int, wave_scale: float) -> Dictionary:
+# ---------------------------------------------------------------------------
+# 場內金幣 vs 建塔成本 (第十五輪)
+#
+# 問題("30 關後殺幾隻怪就無限建塔")嘅根本唔係「金太多」,係**兩條曲線
+# 唔係同一條**:金收入跟 wave_scale^0.45 走,而建塔成本係一個常數。兩者
+# 嘅比率就係 wave_scale^0.45,喺第 100 關係 600 幾倍 —— 即係話「再起一座
+# 塔」呢個決定喺第 30 關之後就唔再係一個決定。
+#
+# 答案唔係調數字,係將建塔成本擺返落**同一條**曲線:
+#
+#     place_cost(id, n) = base_cost x wave_scale(n)^GOLD_WAVE_EXP
+#
+# 呢個令「全場金收入 ÷ 一座主力塔」變成一個同關數**無關**嘅常數 —— 唔係
+# 「調到唔發散」,係結構上發散唔到。剩返嗰個常數(目標 3-8)由基礎金掉落
+# 同基礎造價定,而佢係一個數,唔係一條曲線,所以調得郁亦都調得準。
+#
+# 場內每一個金來源都要行同一條曲線,唔係鍊金塔同點金術會隨關數變成零。
+# Battle.scale_gold() 係嗰個單一入口(怪物掉落已經喺 creature_stats 度乘咗
+# 同一個指數,所以佢唔使再經)。
+# ---------------------------------------------------------------------------
+## 一關嘅「金單位」。所有金額(建塔價、起手金、鍊金塔產出、怪物掉落)都以
+## 佢做單位,所以任何兩個金額之間嘅比例喺 100 關入面都係同一個數。
+func gold_scale(n: int) -> float:
+	return pow(difficulty(n), GOLD_WAVE_EXP)
+
+## 怪物掉落要除返「等級帶 x 密度」,理由同 wave_scale 一模一樣。
+##
+## 唔除嘅話:一隻第 60 關嘅 5 級怪掉 LVL_GOLD[5] = 3.6 倍金,而且一秒出多
+## 三成隻,即係全場金收入係第 1 關嘅 4.7 倍,但建塔價得 1 倍單位 —— 而嗰個
+## 就係實測到「31-50 關比率 44、51-70 關比率 95」嘅來源。呢個唔係「金太多」,
+## 係兩條曲線根本冇對齊。
+func _lvl_gold_norm(n: int) -> float:
+	var band: int = int(maxi(1, n) - 1) / LVL_BAND_EVERY
+	var lo: int = clampi(1 + band, 1, 5)
+	var hi: int = clampi(2 + band, 1, 5)
+	var s := 0.0
+	for l in range(lo, hi + 1):
+		s += LVL_GOLD[l]
+	return (s / float(hi - lo + 1)) / ((LVL_GOLD[1] + LVL_GOLD[2]) * 0.5)
+
+func kill_gold_unit(n: int) -> float:
+	return gold_scale(n) / (_lvl_gold_norm(n) * density(n))
+
+# ---------------------------------------------------------------------------
+# 遞增建塔成本 (第十五輪)
+#
+# 條 brief 要「建塔數量喺全程都係一個有張力嘅決定」。單靠「成本同收入同一條
+# 曲線」做唔到呢件事:佢保證嘅係**第一座**塔嘅相對價錢唔變,但一關入面起到
+# 第二十座嘅時候,第二十一座仍然係同一個價 —— 所以「再起一座」永遠係一個
+# 冇代價嘅決定,只不過要等錢。
+#
+# 而且有一條正回饋喺度:多塔 -> 殺快 -> 撐得耐 -> 多殺 -> 多金 -> 多塔。實測
+# 到第 51-70 關嘅模擬玩家可以起到成張圖(比率 95),即係話後期根本冇「起唔起」
+# 呢個問題存在。
+#
+# 每多一座就貴 BUILD_COST_STEP:第 5 座 1.16 倍、第 15 座 1.56、第 30 座 2.43、
+# 第 45 座 3.78。錢多幾倍都只係多起幾座,而唔係多起幾倍座 —— 亦即係嗰條
+# 正回饋由指數變成對數。
+const BUILD_COST_STEP := 1.030
+## 起手金。以「第一座塔嘅價」做單位嚟睇:280 / 60 = 4.7 座箭塔。
+const START_GOLD_BASE := 200.0
+
+## 第 n 關,場上已經有 `placed` 座塔,再起一座 `id` 要幾多金。
+func place_cost(id: int, n: int, placed := 0) -> int:
+	var def := tower_by_id(id)
+	if def.is_empty():
+		return 0
+	return int(round(float(def.place_cost) * gold_scale(n)
+		* pow(BUILD_COST_STEP, maxi(0, placed))))
+
+# ---------------------------------------------------------------------------
+# ELITE AFFIX (第十五輪)
+#
+# 第九輪嘅難度牆死喺一個具體嘅缺口:「真正令一關變難嘅只有密度,而密度會
+# 蓋過幅牆想教嘅嘢」。affix 就係嗰個缺口嘅答案 —— 一個**唔靠密度**嘅難度掣。
+# 同一個怪數、同一個屍體數,但入面有一成係打法唔同嘅個體。
+#
+# 三個設計約束:
+#   1. 每個 affix 只改一樣嘢,而嗰樣嘢要對應一種**已經存在**嘅反制。
+#      (硬 -> 破甲/魔法;快 -> 控場;護 -> 減甲/真傷;再生 -> 減回復)
+#   2. 精英怪掉多啲金。佢係一個機會,唔淨係一個懲罰。
+#   3. 一眼認得出:sprite 加色 + 大一格。玩家要睇得出「呢隻唔同」。
+# ---------------------------------------------------------------------------
+const ELITE_AFFIXES := [
+	{"id": "brute",  "name": "ELITE_BRUTE",  "hp": 2.2, "speed": 0.88, "armor": 0,  "mres": 0,  "regen": 0.0,   "tint": Color(1.25, 0.72, 0.62)},
+	{"id": "swift",  "name": "ELITE_SWIFT",  "hp": 1.3, "speed": 1.42, "armor": 0,  "mres": 0,  "regen": 0.0,   "tint": Color(0.72, 1.25, 1.15)},
+	{"id": "warded", "name": "ELITE_WARDED", "hp": 1.5, "speed": 0.96, "armor": 12, "mres": 25, "regen": 0.0,   "tint": Color(0.85, 0.9, 1.35)},
+	{"id": "vital",  "name": "ELITE_VITAL",  "hp": 1.6, "speed": 0.94, "armor": 0,  "mres": 0,  "regen": 0.018, "tint": Color(0.75, 1.3, 0.78)},
+]
+## 精英怪掉幾多倍金。低過佢嘅血量倍率 —— 佢係一個機會,唔係一個提款機。
+const ELITE_GOLD_MULT := 1.9
+const ELITE_SIZE_MULT := 1.18
+
+func elite_affix(idx: int) -> Dictionary:
+	return ELITE_AFFIXES[posmod(idx, ELITE_AFFIXES.size())]
+
+## 普通關嘅精英出現率。**只喺第 41 關之後開始**:41 係「逼你進化一次」嗰段
+## 嘅起點,而 affix 存在嘅理由就係喺嗰度做一個唔靠密度嘅難度掣。體驗關同
+## 「逼升級」嗰段一隻精英都冇,因為嗰兩段要教嘅嘢係基本操作同升級循環。
+## 合約關另計 —— 佢嘅精英化係玩家自己揀返嚟嘅(見 CONTRACTS)。
+const ELITE_FROM_LEVEL := 41
+const ELITE_CHANCE_AT_START := 0.06
+const ELITE_CHANCE_AT_END := 0.20
+
+func elite_chance(n: int) -> float:
+	if n < ELITE_FROM_LEVEL:
+		return 0.0
+	var t: float = clampf(float(n - ELITE_FROM_LEVEL) / float(FINAL_LEVEL - ELITE_FROM_LEVEL), 0.0, 1.0)
+	return lerpf(ELITE_CHANCE_AT_START, ELITE_CHANCE_AT_END, t)
+
+func creature_stats(fam: String, lvl: int, wave_scale: float, gold_unit := 1.0) -> Dictionary:
 	var f: Dictionary = FAMILIES[fam]
 	return {
 		"hp": f.hp * LVL_HP[lvl] * wave_scale,
 		"speed": f.speed * LVL_SPEED[lvl],
 		"armor": f.armor + (lvl - 1),
 		"mres": f.mres,
-		"gold": int(round(f.gold * LVL_GOLD[lvl] * pow(wave_scale, GOLD_WAVE_EXP))),
+		"gold": int(round(f.gold * LVL_GOLD[lvl] * gold_unit)),
 		"flying": f.flying,
 		"mech": f.mech,
 		"size": LVL_SIZE[lvl],
@@ -427,7 +646,16 @@ func holy_stack_factor(index: int) -> float:
 # 所以兩邊各有各嘅 STEP,而兩個數都係由量出嚟嗰個 R 乘 1.15 得返:
 const MAX_TIER := 3
 ## 進化嗰一下相對「上一階課到盡」嘅躍升幅度。
-const TIER_JUMP := 1.15
+##
+## 第十五輪由 1.15 調到 1.45,而理由係量出嚟嘅。Gate 5 要求「A2(tier 2)
+## 喺第 71-99 關勝率 ≤15% 而 A3(tier 3)≥55%」—— 即係話兩個 build 之間要
+## 有一段容得落二十九關嘅距離。1.15 之下量到嘅距離只有 3.8 倍(A2 大約喺
+## 難度 9000 死,A3 撐到 34000),而三十關嘅曲線就算平到每關 +3.2% 都要
+## 用掉 2.5 倍 —— 所以 A2 死唔切,實測 71-99 仲有 19.5%。
+##
+## 躍升幅度打落 tier 3 係**平方**(tier 3 = STEP^2),所以呢個掣對「A2 vs A3」
+## 呢個距離嘅槓桿最大:1.15 -> 1.45 令 tier 2 強 26%,但 tier 3 強 59%。
+const TIER_JUMP := 1.70
 ## tools/tier_curve.gd 量到嘅 R 中位數。改咗 ups 表就要重跑佢再改呢兩個數,
 ## 唔係嘅話上面條 1.15 就變成一句冇兌現嘅說話。
 const TOWER_AXIS_GAIN := 6.0
@@ -1135,6 +1363,183 @@ func is_wall(n: int) -> bool:
 func wall_hint_key(n: int) -> String:
 	return String(wall_def(n).get("hint", ""))
 
+# ===========================================================================
+# 風險合約關 (第十五輪 Part A)
+#
+# 「賭出嚟嘅晶石」。逢 7 嘅倍數關,每一波開波前三選一,每張卡係一個
+# 「怪物增益 <-> 獎勵倍率」嘅交易,揀咗嘅效果疊落之後每一波。
+#
+# 三個結構性決定,同埋點解:
+#
+#  1. **增益加法疊,倍率乘法疊(有封頂)。** 加法嘅增益永遠算得出(血量
+#     +10% 揀五次就係 +50%),乘法嘅倍率先會令「連續貪心」有雪球感 ——
+#     而雪球一定要有牆,唔係第五張卡就變成無限。CONTRACT_MULT_CAP 就係嗰
+#     幅牆,而佢**真係會咬**:全程揀最高倍率係 1.45^5 = 6.4,封到 3.0。
+#
+#  2. **每一次抽卡都保證有一張 risk 0**,而 risk 0 **唔係「無增益 x1」**。
+#     一張 x1 嘅卡會令「穩陣策略」嘅合約關收入同普通關一模一樣,而 Gate 8
+#     要求佢係 1.1-1.3 倍 —— 即係話「唔賭」都應該有得賺少少,賭先係賺多。
+#     所以最安全嗰檔係「細增益 x1.05」,而唔係「乜都唔揀」。
+#
+#  3. **抽過嘅卡唔會再抽到。** 同一張卡揀五次係一條冇決策嘅路;唔重複逼
+#     玩家喺唔同軸之間揀,而每一軸都有唔同嘅反制。
+#
+# 增益欄位(全部加法疊):
+#   hp / speed  血量、速度嘅**額外**比例        armor / mres  加多少點
+#   regen       每秒回復 max_hp 嘅幾多          dense  出怪密度額外比例
+#   elite       精英出現率(加落關卡本身嗰個)   noslow 免疫減速(布林,或)
+# ===========================================================================
+const CONTRACT_EVERY := 7
+## 一場合約關要揀幾多次。5 = 四段波次 + boss 段,即係「貪心落去雪球越滾越大」
+## 有五級可以滾,而唔會滾到玩家記唔住自己背住乜。
+const CONTRACT_PICKS := 5
+const CONTRACT_CHOICES := 3
+## 總獎勵倍率硬封頂。晶石同金幣各自封。
+const CONTRACT_MULT_CAP := 3.0
+
+var CONTRACTS := [
+	# --- risk 0:細增益細倍率。每次抽卡保證有一張。--------------------------
+	{"id":"tithe_flesh", "risk":0, "name":"CONTRACT_TITHE_FLESH", "buff":{"hp":0.10},                "crystal":1.05, "gold":1.00},
+	{"id":"tithe_haste", "risk":0, "name":"CONTRACT_TITHE_HASTE", "buff":{"speed":0.07},             "crystal":1.05, "gold":1.10},
+	{"id":"tithe_plate", "risk":0, "name":"CONTRACT_TITHE_PLATE", "buff":{"armor":4.0},              "crystal":1.05, "gold":1.00},
+	{"id":"tithe_ward",  "risk":0, "name":"CONTRACT_TITHE_WARD",  "buff":{"mres":10.0},              "crystal":1.05, "gold":1.00},
+	{"id":"tithe_swarm", "risk":0, "name":"CONTRACT_TITHE_SWARM", "buff":{"dense":0.10},             "crystal":1.04, "gold":1.12},
+	# --- risk 1:中度。一條軸,一個明確反制。-------------------------------
+	{"id":"iron_pact",   "risk":1, "name":"CONTRACT_IRON",   "buff":{"hp":0.30},                     "crystal":1.22, "gold":1.00},
+	{"id":"swift_pact",  "risk":1, "name":"CONTRACT_SWIFT",  "buff":{"speed":0.18},                  "crystal":1.20, "gold":1.00},
+	{"id":"ward_pact",   "risk":1, "name":"CONTRACT_WARD",   "buff":{"mres":20.0},                   "crystal":1.18, "gold":1.00},
+	{"id":"plate_pact",  "risk":1, "name":"CONTRACT_PLATE",  "buff":{"armor":11.0},                  "crystal":1.18, "gold":1.00},
+	{"id":"regen_pact",  "risk":1, "name":"CONTRACT_REGEN",  "buff":{"regen":0.012},                 "crystal":1.16, "gold":1.16},
+	{"id":"swarm_pact",  "risk":1, "name":"CONTRACT_SWARM",  "buff":{"dense":0.26},                  "crystal":1.10, "gold":1.35},
+	{"id":"unbound_pact","risk":1, "name":"CONTRACT_UNBOUND","buff":{"noslow":true},                 "crystal":1.26, "gold":1.00},
+	# --- risk 2:高倍率。多過一條軸,或者一條好深嘅軸。---------------------
+	{"id":"titan_pact",  "risk":2, "name":"CONTRACT_TITAN",  "buff":{"hp":0.65},                     "crystal":1.38, "gold":1.00},
+	{"id":"elite_pact",  "risk":2, "name":"CONTRACT_ELITE",  "buff":{"elite":0.18},                  "crystal":1.34, "gold":1.12},
+	{"id":"hunt_pact",   "risk":2, "name":"CONTRACT_HUNT",   "buff":{"speed":0.32,"noslow":true},    "crystal":1.42, "gold":1.00},
+	{"id":"abyss_pact",  "risk":2, "name":"CONTRACT_ABYSS",  "buff":{"hp":0.45,"regen":0.010,"armor":8.0}, "crystal":1.30, "gold":1.30},
+	{"id":"dread_pact",  "risk":2, "name":"CONTRACT_DREAD",  "buff":{"elite":0.30,"dense":0.15},     "crystal":1.45, "gold":1.00},
+]
+
+func is_contract_level(n: int) -> bool:
+	## 第 100 關唔係合約關 —— 佢係終極戰,唔應該有第二套規則疊落去。
+	return n > 0 and n % CONTRACT_EVERY == 0 and n != FINAL_LEVEL
+
+func contract_by_id(cid: String) -> int:
+	for i in CONTRACTS.size():
+		if String(CONTRACTS[i]["id"]) == cid:
+			return i
+	return -1
+
+## 抽 CONTRACT_CHOICES 張唔重複、而且唔喺 `taken` 入面嘅卡,保證起碼一張 risk 0。
+## 用 `randi()`,所以 harness `seed()` 之後結果係可重複嘅。
+func contract_draw(taken: Array) -> Array:
+	var low: Array = []
+	var pool: Array = []
+	for i in CONTRACTS.size():
+		if i in taken:
+			continue
+		if int(CONTRACTS[i]["risk"]) == 0:
+			low.append(i)
+		else:
+			pool.append(i)
+	var out: Array = []
+	if not low.is_empty():
+		out.append(low[randi() % low.size()])
+	var rest: Array = []
+	for i in low:
+		if not (i in out):
+			rest.append(i)
+	rest += pool
+	while out.size() < CONTRACT_CHOICES and not rest.is_empty():
+		var k: int = randi() % rest.size()
+		out.append(rest[k])
+		rest.remove_at(k)
+	return out
+
+## 把一疊已揀合約結算成「怪物增益 + 兩個倍率」。UI、戰鬥同模擬全部問呢一個,
+## 所以「卡片顯示嘅總狀態」同「怪物實際食到嘅增益」冇可能講唔埋。
+func contract_accumulate(taken: Array) -> Dictionary:
+	var buff := {"hp": 0.0, "speed": 0.0, "armor": 0.0, "mres": 0.0,
+		"regen": 0.0, "dense": 0.0, "elite": 0.0, "noslow": false}
+	var crystal := 1.0
+	var gold := 1.0
+	for i in taken:
+		if i < 0 or i >= CONTRACTS.size():
+			continue
+		var c: Dictionary = CONTRACTS[i]
+		for k in (c["buff"] as Dictionary):
+			if k == "noslow":
+				buff["noslow"] = true
+			else:
+				buff[k] = float(buff[k]) + float(c["buff"][k])
+		crystal *= float(c["crystal"])
+		gold *= float(c["gold"])
+	return {
+		"buff": buff,
+		"crystal": minf(crystal, CONTRACT_MULT_CAP),
+		"gold": minf(gold, CONTRACT_MULT_CAP),
+		"crystal_raw": crystal,
+		"gold_raw": gold,
+		"capped": crystal > CONTRACT_MULT_CAP or gold > CONTRACT_MULT_CAP,
+	}
+
+## 一張卡嘅增益寫成一句人睇得明嘅字。UI 同報告共用,所以卡面永遠對得住數據。
+func contract_buff_text(idx: int) -> String:
+	if idx < 0 or idx >= CONTRACTS.size():
+		return ""
+	var b: Dictionary = CONTRACTS[idx]["buff"]
+	var parts: Array = []
+	if b.has("hp"):
+		parts.append(tr("CONTRACT_B_HP").format({"n": "%.0f" % (float(b["hp"]) * 100.0)}))
+	if b.has("speed"):
+		parts.append(tr("CONTRACT_B_SPEED").format({"n": "%.0f" % (float(b["speed"]) * 100.0)}))
+	if b.has("armor"):
+		parts.append(tr("CONTRACT_B_ARMOR").format({"n": "%.0f" % float(b["armor"])}))
+	if b.has("mres"):
+		parts.append(tr("CONTRACT_B_MRES").format({"n": "%.0f" % float(b["mres"])}))
+	if b.has("regen"):
+		parts.append(tr("CONTRACT_B_REGEN").format({"n": "%.1f" % (float(b["regen"]) * 100.0)}))
+	if b.has("dense"):
+		parts.append(tr("CONTRACT_B_DENSE").format({"n": "%.0f" % (float(b["dense"]) * 100.0)}))
+	if b.has("elite"):
+		parts.append(tr("CONTRACT_B_ELITE").format({"n": "%.0f" % (float(b["elite"]) * 100.0)}))
+	if b.has("noslow"):
+		parts.append(tr("CONTRACT_B_NOSLOW"))
+	return "、".join(parts) if TranslationServer.get_locale().begins_with("zh") else ", ".join(parts)
+
+## 一張卡嘅倍率寫成一句字。
+func contract_mult_text(idx: int) -> String:
+	if idx < 0 or idx >= CONTRACTS.size():
+		return ""
+	var c: Dictionary = CONTRACTS[idx]
+	var parts: Array = []
+	if float(c["crystal"]) > 1.001:
+		parts.append(tr("CONTRACT_M_CRYSTAL").format({"n": "%.2f" % float(c["crystal"])}))
+	if float(c["gold"]) > 1.001:
+		parts.append(tr("CONTRACT_M_GOLD").format({"n": "%.2f" % float(c["gold"])}))
+	return "  ".join(parts)
+
+# ===========================================================================
+# 第 100 關 —— 終極戰
+#
+# 「全部 boss 種類一次過輪流/同場出現」。分三潮而唔係十隻一次過:十隻同場
+# 嘅話畫面上分唔清邊條血條係邊隻,而且十個 boss 機制一齊行(復活光環 + 群療
+# + 分裂 + 狼群)係一鑊冇人睇得明嘅粥。三潮之下每一潮係一個睇得出嘅陣容,
+# 而三潮加埋仍然係「全部十隻」。
+#
+# 潮與潮之間唔等清場:下一潮嘅計時由上一潮出場嗰刻起計,所以拖得耐就一定
+# 會撞到重疊 —— 「多試幾場先過到」嘅壓力來源就係呢個,唔係一個更大嘅血條。
+# ===========================================================================
+const FINAL_WAVES := [
+	{"at":  30.0, "fams": ["goblin", "wolf", "skeleton"]},
+	{"at":  92.0, "fams": ["golem", "ghost", "bat", "treant"]},
+	{"at": 160.0, "fams": ["beetle", "cultist", "slime"]},
+]
+## 終極戰嘅 boss 血量相對一隻普通 boss。十隻疊埋唔可以每隻都係足血,唔係
+## 佢就唔係「難」而係「長」。0.55 之下十隻加埋 = 5.5 隻 boss 嘅血,而佢哋
+## 係同場嘅,所以實際壓力遠高過 5.5 隻順序出場。
+const FINAL_BOSS_HP_FRAC := 0.55
+
 # ---------------------------------------------------------------------------
 # LEVEL generation. Infinite levels. Returns config for level N (1-based).
 # ---------------------------------------------------------------------------
@@ -1152,27 +1557,48 @@ func level_config(n: int) -> Dictionary:
 	if n % 2 == 0:
 		fams.append(FAMILY_ORDER[(base_i + 6) % 10])
 	# creature level band by game level
-	var band := int((n - 1) / 9)  # 0 => lv1-2, 1 => lv2-3 ...
+	## 第十五輪由 /9 拉到 /12:曲線由 40 關變 100 關,而 /9 之下第 37 關已經
+	## 全部係 5 級怪,即係最後六十幾關嘅怪物等級係一條平線。/12 之下要去到
+	## 第 49 關先封頂,多咗十二關嘅視覺同數值變化。
+	var band := int((n - 1) / LVL_BAND_EVERY)  # 0 => lv1-2, 1 => lv2-3 ...
 	var lmin: int = clampi(1 + band, 1, 5)
 	var lmax: int = clampi(2 + band, 1, 5)
 	# boss family
 	var boss_fam: String = FAMILY_ORDER[base_i]
 	# path template index
 	var path_idx := (n - 1) % 6
+	## 密度輕微跟關數行。**輕微**係一個決定,唔係一個保守:第九輪嘅牆量到
+	## 密度會蓋過所有其他難度軸(玩家實際感覺到嘅係「屍體太多」),而屍體
+	## 數亦都係效能上限。難度主力交俾血量曲線同 affix,密度只做少少陪襯。
+	var dens: float = density(n)
 	var cfg := {
 		"level": n,
 		"wave_scale": wave_scale,
+		"boss_scale": boss_scale(n),
+		"kill_gold_unit": kill_gold_unit(n),
+		"difficulty": difficulty(n),
 		"families": fams,
 		"lvl_min": lmin,
 		"lvl_max": lmax,
 		"boss_family": boss_fam,
 		"path_idx": path_idx,
-		"start_gold": 220 + n * 8,
+		## 開場金同建塔成本行同一條曲線,所以「開場買得起幾多座」係一個常數。
+		"start_gold": int(round(START_GOLD_BASE * gold_scale(n))),
 		"boss_time": 60.0,
-		"spawn_interval_start": 1.6,
-		"spawn_interval_min": 0.45,
+		"spawn_interval_start": 1.6 / dens,
+		"spawn_interval_min": 0.45 / dens,
+		"elite_chance": elite_chance(n),
+		"is_contract": is_contract_level(n),
+		"is_final": is_final_level(n),
 		"is_wall": false,
 	}
+	if cfg["is_final"]:
+		# 終極戰:雜兵照出(俾玩家有金收入同鍊金塔有嘢做),但主角係十隻 boss。
+		cfg["families"] = FAMILY_ORDER.duplicate()
+		cfg["lvl_min"] = 4
+		cfg["lvl_max"] = 5
+		cfg["boss_time"] = FINAL_WAVES[0]["at"]
+		cfg["final_waves"] = FINAL_WAVES
 	# 難度牆疊喺程序生成之上。Battle.gd 完全唔知道有「牆」呢回事 —— 佢照讀
 	# families / spawn_interval_min,所以牆嘅每一個改動都留喺呢個檔案入面。
 	var w: Dictionary = wall_def(n)
@@ -1213,18 +1639,80 @@ const CRYSTAL_REWARD_MULT := 1.0
 ## not to go below: 3*(36+8) = 132 and 3*(40+10) = 150), and every later level
 ## pays MORE than the old ×3 line did, because 1.13 > the old curve's effective
 ## 1.082 growth.
-const REWARD_GROWTH := 1.13
-const REWARD_BASE_CLEAR := 132.0
-const REWARD_BASE_FIRST := 150.0
+## 第十五輪:單一幾何增長換成**分段**,同 WAVE_BANDS 一樣分段,而且分段點
+## 一樣 —— 因為兩者答緊同一個問題嘅兩面:「呢一段要玩家攞到幾多力量」。
+##
+## 段嘅斜率係由**累積**收入倒推,唔係由「每關派幾多」拍出嚟:
+##   L41 A2 要一座塔 + 一個魔法上到 tier 2  -> 累積 ~9 萬
+##   L71 A3 要兩件嘢都上到 tier 3           -> 累積 ~42 萬
+##   L100 A4 滿級                            -> 累積 ~160 萬(仲爭少少,所以要 farm)
+## 由呢三點反解出嚟就係下面三段。頭段特別急(1.30)係因為升級價喺頭六級
+## 本身就係 1.35 一級 —— 派彩要追得上嗰段,唔係第 5 關就買唔起嘢。
+const REWARD_BANDS := [
+	{"to": 10, "g": 1.100},
+	{"to": 40, "g": 1.115},
+	{"to": 70, "g": 1.030},
+	# 第 71 關之後**唔再加**。呢個唔係「懶得調」:實測到 A3 喺第 91-99 關
+	# 嘅勝率比第 81-90 關**高咗 26 點**(56% -> 82%),而嗰個倒掛嘅來源就係
+	# 呢一段嘅收入 —— 佢喺升級軸已經飽和嘅時候繼續派錢,錢就會流去「鋪闊」
+	# (多解鎖幾個魔法、多課幾座塔),而鋪闊嘅戰力增長快過難度曲線。
+	# 派平咗之後,呢一段嘅意思變成「元進度基本上行完,剩返嘅係操作」——
+	# 而嗰個先係「雙階段 3 之後仲有 29 關」應該講嘅嘢。
+	{"to": 99, "g": 1.010},
+]
+const REWARD_BASE_CLEAR := 55.0
+const REWARD_BASE_FIRST := 62.0
+## 第 100 關派多啲 —— 佢係一場要試好多次先贏得到嘅仗,而每一次失敗都要
+## 買得到落一次嘅本錢。
+const FINAL_REWARD_MULT := 2.5
+
+var _reward_cache: Array = []
+var _cumreward_cache: Array = []
+
+func _build_reward_cache() -> void:
+	_reward_cache = [0.0, 1.0]
+	var cur := 1.0
+	var n := 2
+	for band in REWARD_BANDS:
+		while n <= int(band["to"]):
+			cur *= float(band["g"])
+			_reward_cache.append(cur)
+			n += 1
+	_reward_cache.append(cur * FINAL_REWARD_MULT)   # 第 100 關
+	# 累積(通關 + 首通),typical_upgrade_cost() 用嚟推玩家嘅預算
+	_cumreward_cache = [0.0]
+	var acc := 0.0
+	for i in range(1, _reward_cache.size()):
+		acc += (REWARD_BASE_CLEAR + REWARD_BASE_FIRST) * float(_reward_cache[i]) * CRYSTAL_REWARD_MULT
+		_cumreward_cache.append(acc)
+
+func reward_scale(n: int) -> float:
+	if n <= 1:
+		return 1.0
+	if n < _reward_cache.size():
+		return float(_reward_cache[n])
+	var last: float = float(_reward_cache[FINAL_LEVEL - 1])
+	return last * pow(float(REWARD_BANDS[REWARD_BANDS.size() - 1]["g"]), n - (FINAL_LEVEL - 1))
 
 func level_crystal_reward(n: int) -> int:
 	## 通關獎勵. Meta.on_level_cleared halves this on a replay.
-	return int(round(REWARD_BASE_CLEAR * pow(REWARD_GROWTH, n - 1) * CRYSTAL_REWARD_MULT))
+	return int(round(REWARD_BASE_CLEAR * reward_scale(n) * CRYSTAL_REWARD_MULT))
 
 func level_first_clear_bonus(n: int) -> int:
 	## 首次通關獎勵 — paid ONCE per level, on top of the clear reward, so pushing
 	## into a NEW level always beats re-farming an old one.
-	return int(round(REWARD_BASE_FIRST * pow(REWARD_GROWTH, n - 1) * CRYSTAL_REWARD_MULT))
+	return int(round(REWARD_BASE_FIRST * reward_scale(n) * CRYSTAL_REWARD_MULT))
+
+## 打到第 n 關為止,一個一次過通關嘅玩家總共攞過幾多魔晶。
+func cumulative_reward(n: int) -> float:
+	if n <= 0:
+		return 0.0
+	if n < _cumreward_cache.size():
+		return float(_cumreward_cache[n])
+	var acc: float = float(_cumreward_cache[_cumreward_cache.size() - 1])
+	for k in range(_cumreward_cache.size(), n + 1):
+		acc += (REWARD_BASE_CLEAR + REWARD_BASE_FIRST) * reward_scale(k) * CRYSTAL_REWARD_MULT
+	return acc
 
 # --- the measured cost curve ------------------------------------------------
 ## C(N): what the player's NEXT upgrade level costs by the time they reach level
@@ -1256,17 +1744,69 @@ func level_first_clear_bonus(n: int) -> int:
 ## 所以呢度用返同一個形狀:兩段。C(N) 之所以係兩段,係因為升級價曲線本身
 ## 就係兩段 —— 模型跟返被模型嘅嘢嘅形狀,擬合就唔使靠緩衝硬食。
 ## 實測對照:C(1) 45 vs 45、C(10) 199 vs 199、C(20) 439 vs 438。
-const UPGRADE_COST_BASE := 45.0
-const UPGRADE_COST_GROWTH := 1.178        # 頭段(對應升級價嘅 1.35 段)
-const UPGRADE_COST_GROWTH_LATE := 1.082   # 後段(對應升級價嘅 1.10 段)
-const UPGRADE_COST_KNEE := 9              # 以 n-1 計
+## 第十五輪換咗**模型**,唔係換數字。
+##
+## 舊版係一條(兩段)幾何線,由 20 關嘅實測擬合出嚟。延伸到 100 關之後
+## 佢即刻壞:實際升級價有一個**天花板**(一條軸最貴嗰級 = base x 1.35^6
+## x 1.10^38 ≈ 249 x base ≈ 1.4 萬),而一條幾何線去到第 100 關會叫到
+## 23 萬。敗仗獎勵釘住呢個數,所以擬合一飄,敗仗就會派到「一場輸 = 十六級」。
+##
+## 而家直接計,唔擬合。C(N) 呢個概念本身就係一句可以computed嘅說話:
+##
+##   「玩家到第 N 關為止賺過嘅錢,攤落佢鋪開嗰幾條軸,買到第幾級,
+##     而第幾級嘅**下一級**要幾錢」
+##
+## 兩個輸入(累積派彩、鋪開幾多條軸)都係設計品,唔係實測殘差,所以:
+##   * 改派彩曲線,C(N) 自己跟住郁 —— 敗仗獎勵冇可能再靜靜咁飄離佢
+##     應該追蹤嗰樣嘢(呢個係舊模型每一輪都要人手重擬合嘅原因)。
+##   * 曲線自動飽和:軸課滿咗就唔會再貴,所以第 80 關同第 100 關嘅
+##     C(N) 差唔多,而嗰個就係事實。
+##
+## TYPICAL_AXES 係「一個合理玩家同時鋪開幾多條軸」。呢個數細啲 = 課得深啲
+## = C(N) 高啲,所以佢係一個真掣,而唔係一個殘差。
+##
+## 第十五輪由 9 調到 14,而理由係一條**兌現唔到嘅承諾**:9 之下量到嘅
+## 通關獎勵 / C(N) 喺第 9-19 關只有 1.06,而敗仗獎勵封頂係通關嘅 0.9 倍
+## —— 即係話「輸一場 = 一級升級」呢句話喺嗰幾關數學上唔可能成立
+## (0.9 x 1.06 = 0.95 < 1)。
+##
+## 14 唔係為咗遷就個上限拍出嚟嘅:佢係**實際政策**嘅數。GateSim 嘅 A1 買嘢
+## 政策係「主力塔六軸 + 主力魔法三軸,之後鋪去核心塔」,跑完一百關實際掂過
+## 嘅軸數係十幾條,唔係九條。9 呢個數來自一個舊 harness 嘅 CORE_COUNT x
+## CORE_DIRS,而嗰個 harness 已經唔係而家量緊嘢嗰個。
+const TYPICAL_AXES := 14.0
+## 平均一條升級軸嘅基價(20 座塔 x 6 條 + 15 個魔法 x 3 條嘅中位數)。
+const TYPICAL_AXIS_BASE := 55
+## 一個乜都未買嘅玩家買嘅唔係中位數嗰條軸,係**最平嗰條**(箭塔射程 35)。
+## 冇呢個 ramp,第 1 關嘅 C(N) 會報 55 而實際係 35,而敗仗獎勵封頂就會喺
+## 嗰一關(而且淨係嗰一關)跌穿「輸一場 = 一級」。ramp 喺頭六級之內收斂 ——
+## 六級之後玩家已經鋪開咗,中位數先至係啱嘅描述。
+const MIN_AXIS_BASE := 35
+const AXIS_BASE_RAMP := 6.0
+
+func _axis_base_at(lv: int) -> int:
+	var t: float = clampf(float(lv) / AXIS_BASE_RAMP, 0.0, 1.0)
+	return int(round(lerpf(float(MIN_AXIS_BASE), float(TYPICAL_AXIS_BASE), t)))
+
+var _cost_cache: Dictionary = {}
 
 func typical_upgrade_cost(n: int) -> int:
-	var x: int = maxi(1, n) - 1
-	var head: int = mini(x, UPGRADE_COST_KNEE)
-	var tail: int = maxi(0, x - UPGRADE_COST_KNEE)
-	return int(round(UPGRADE_COST_BASE * pow(UPGRADE_COST_GROWTH, head)
-		* pow(UPGRADE_COST_GROWTH_LATE, tail)))
+	var key: int = maxi(1, n)
+	if _cost_cache.has(key):
+		return int(_cost_cache[key])
+	var budget: float = cumulative_reward(key) / TYPICAL_AXES
+	var lv := 0
+	var spent := 0.0
+	var cap: int = MAX_UP_LV * MAX_TIER
+	while lv < cap:
+		var c: float = float(upgrade_cost(_axis_base_at(lv), lv))
+		if spent + c > budget:
+			break
+		spent += c
+		lv += 1
+	var out: int = upgrade_cost(_axis_base_at(lv), mini(lv, cap - 1))
+	_cost_cache[key] = out
+	return out
 
 # --- loss payout ------------------------------------------------------------
 # Losing pays a small progress-based amount so a failed run still feeds the
@@ -1344,6 +1884,8 @@ func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float,
 	return maxi(1, int(round(amount)))
 
 func _ready() -> void:
+	_build_wave_cache()
+	_build_reward_cache()
 	_build_towers()
 	_build_spells()
 	_build_tiers()

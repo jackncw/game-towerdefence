@@ -1024,3 +1024,73 @@ Bench 條件:第 14 關波次、900 金預算、60 秒、每 0.35 秒出一隻�
    係 `scripts/autoload/GameData.gd`(所有塔/魔法/怪/關卡/獎勵數值)同 `Monster.gd`
    入面兩個 const。所有改動都落咗嗰度,冇散落喺戰鬥邏輯。要獨立拆一層 JSON 係一個
    幾大嘅重構,我冇喺呢輪做。
+
+---
+
+# 第十五輪(2026-08-04)— 風險合約關 + 100 關經濟/難度總 rework
+
+設計理由喺 `docs/design/round-15-contract-and-balance.md`,量度結果喺
+`docs/reports/round-15-report.md`。呢度只列**改咗乜**同**還原方法**。
+
+還原點:`git checkout 4265c60 -- scripts/ test/ i18n/`。
+
+## 新增概念(改之前要先讀)
+
+| 概念 | 位置 | 一句 |
+|---|---|---|
+| `difficulty(n)` | GameData | 難度嘅權威定義。`wave_scale` 而家係由佢除返出嚟嘅**結果**。 |
+| `boss_scale(n)` | GameData | boss 跟難度指數,唔跟雜兵血量(佢冇等級帶亦唔受密度影響)。 |
+| `gold_scale(n)` / `kill_gold_unit(n)` | GameData | 一關嘅金單位。全部金額以佢做單位,所以任何兩個金額嘅比例喺 100 關入面唔變。 |
+| `place_cost(id, n, placed)` | GameData | 建塔價 = 基價 × 金單位 × 1.03^已建座數。 |
+| `CONTRACTS` / `contract_accumulate()` | GameData | 合約池同結算。UI / 戰鬥 / 模擬全部問呢一個。 |
+| `ELITE_AFFIXES` / `elite_chance(n)` | GameData | 唔靠密度嘅難度掣。 |
+
+## 數值改動總覽
+
+| 常數 | 舊 | 新 | 幅度 |
+|---|---|---|---|
+| 關卡總數 | 無限(設計覆蓋 40) | `FINAL_LEVEL = 100` | — |
+| 難度曲線 | 1.13 / 1.28 兩段 | 七段(見設計文件) | 重寫 |
+| `FINAL_SCALE` | — | 0.28(第 100 關指數倍率) | 新 |
+| `TIER_JUMP` | 1.15 | 1.45 | +26% |
+| `TIER_STEP_TOWER` | 6.90 | 8.70 | +26% |
+| `TIER_STEP_SPELL` | 5.64 | 7.11 | +26% |
+| `LVL_BAND_EVERY` | 9(寫死喺 level_config) | 12 | 怪物等級帶拉長 |
+| `DENSITY_GAIN` | 0(密度係常數) | 0.30 | 第 100 關密度 +30% |
+| `START_GOLD_BASE` | `220 + n*8`(線性) | `200 × 金單位` | 換模型 |
+| `BUILD_COST_STEP` | 1.0(冇遞增) | 1.030 | 新 |
+| 怪物掉金 | `f.gold × LVL_GOLD × wave_scale^0.45` | 再除「等級帶 × 密度」 | −60%@lv60 |
+| `REWARD_BASE_CLEAR` | 132 | 55 | −58% |
+| `REWARD_BASE_FIRST` | 150 | 62 | −59% |
+| 派彩成長 | 1.13 一段 | 1.10 / 1.115 / 1.03 / 1.00 四段 | 重寫 |
+| `typical_upgrade_cost` | 兩段幾何擬合 | 由累積派彩直接計(飽和) | 換模型 |
+| `TYPICAL_AXES` | 9(隱含) | 14 | +56% |
+| `ELITE_FROM_LEVEL` | — | 41 | 新 |
+
+**冇改嘅嘢(特登):** 20 座塔同 15 個魔法嘅基礎 stat、六條/三條升級軸嘅
+`step` 同 `base_cost`、進化費用表、控場不變式(`CONTROL_MAX_CD_FRAC`)、
+boss 回復上限、`HOLY_AURA_STACK`、`UP_COST_MULT` / `UP_COST_KNEE`、
+`WALLS`(仍然空)。塔仍然係嗰種塔,魔法仍然係嗰種魔法。
+
+## 測試改動
+
+| 測試 | 改咗乜 | 點解 |
+|---|---|---|
+| `EvolveTest` | tier 躍升嘅帶由寫死 `1.05..1.35` 改成 `TIER_JUMP ± 25%` | 寫死嘅帶會令「調咗個掣」同「跌穿設計目標」睇落一樣 |
+| `WallTest` | 出怪間隔預設值由寫死 0.45 改成問 `GameData.density()` | 寫死嗰版測緊嘅係「密度有冇改過」,唔係「牆有冇亂郁嘢」 |
+| `LeakTest` | 加咗循環 D:合約卡片開關 x20 | 合約卡片係全遊戲開關最密嘅 overlay |
+| `GateSim`(新) | 五原型 x 100 關 x 20 seed + 六個 mode | 見設計文件 |
+
+## 已知限制
+
+1. **`_median_core_cost()` 同 `typical_upgrade_cost()` 唔係同一個數。**
+   前者係模擬玩家實際面對嘅中位價,後者係模型。Gate 1 用後者判(佢先係
+   敗仗獎勵實際釘住嘅嘢),前者只作對照。兩者差幾成係正常嘅。
+
+2. **GateSim 分片唔可以同 `run_tests.ps1` 一齊跑。**
+   兩邊都用同一個 `user://save.json`。25 個 GateSim process 一齊寫嗰陣,
+   任何同時跑嘅測試讀出嚟嘅存檔都係垃圾。分片之間冇問題(冇人讀),
+   但要同測試分開跑。
+
+3. **第 100 關嘅雜兵比第 99 關軟**(`FINAL_SCALE = 0.28`)。
+   有意嘅 —— 見設計文件。

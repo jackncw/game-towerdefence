@@ -103,9 +103,14 @@ func _case_mechanism() -> void:
 	var dup: Dictionary = GameData.level_config(M_SLOT)
 	_ok("M pool 內嘅重複會被濾走", Array(dup.families) == ["wolf", "beetle"],
 		"families=%s" % str(dup.families))
-	# 冇寫 spawn_min 嘅牆唔應該郁到出怪間隔
-	_ok("M 冇寫 spawn_min 就唔郁", is_equal_approx(float(dup.spawn_interval_min), 0.45),
-		"spawn_interval_min=%.3f(期望 0.45)" % float(dup.spawn_interval_min))
+	# 冇寫 spawn_min 嘅牆唔應該郁到出怪間隔。
+	# 第十五輪:預設值唔再係一個常數 —— 出怪密度而家跟關數輕微爬升
+	# (GameData.density),所以「預設」要問返 GameData 攞,唔可以寫死 0.45。
+	# 寫死嗰個版本測緊嘅其實係「密度有冇改過」,而唔係「牆有冇亂郁嘢」。
+	_ok("M 冇寫 spawn_min 就唔郁",
+		is_equal_approx(float(dup.spawn_interval_min), _default_spawn_min(M_SLOT)),
+		"spawn_interval_min=%.3f(期望 %.3f)"
+		% [float(dup.spawn_interval_min), _default_spawn_min(M_SLOT)])
 
 	GameData.WALLS = saved
 	# 呢度本來仲有一句「還原之後 WALLS 仲係空」。刪咗:saved 就係 WALLS 開始
@@ -126,9 +131,14 @@ func _case_all_levels_baseline() -> void:
 		_ok("B 第 %d 關冇被牆改過" % n, Array(cfg.families) == want,
 			"got %s want %s" % [str(cfg.families), str(want)])
 		_ok("B 第 %d 關 spawn 間隔係預設" % n,
-			is_equal_approx(float(cfg.spawn_interval_min), 0.45),
-			"got %.3f" % float(cfg.spawn_interval_min))
+			is_equal_approx(float(cfg.spawn_interval_min), _default_spawn_min(n)),
+			"got %.3f want %.3f" % [float(cfg.spawn_interval_min), _default_spawn_min(n)])
 		_ok("B 第 %d 關冇標記做牆" % n, not bool(cfg.get("is_wall", false)), "is_wall true")
+
+## 冇牆嘅第 n 關嘅出怪間隔下限。獨立重算,唔係抄 level_config() 個結果。
+func _default_spawn_min(n: int) -> float:
+	return 0.45 / (1.0 + GameData.DENSITY_GAIN
+		* clampf(float(n - 1) / float(GameData.FINAL_LEVEL - 1), 0.0, 1.0))
 
 ## level_config() 入面嗰條程序生成規則,喺呢度獨立重算一次做對照。
 func _procedural_families(n: int) -> Array:

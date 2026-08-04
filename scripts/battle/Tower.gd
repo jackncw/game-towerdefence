@@ -57,7 +57,7 @@ func setup(b, tower_id: int, world_pos: Vector2) -> void:
 	id = tower_id
 	def = GameData.tower_by_id(id)
 	mech = def.mech
-	place_cost = def.place_cost
+	place_cost = b.place_cost(int(def.id))
 	tier = Meta.tower_tier(id)
 	s = Meta.tower_stats(id)
 	_read_axis_levels()
@@ -83,7 +83,7 @@ func setup(b, tower_id: int, world_pos: Vector2) -> void:
 	if mech == "barracks":
 		rally_dist = battle.route.nearest_dist_param(world_pos)
 	if mech == "alchemy" and s.get("startgold", 0.0) > 0.0:
-		battle.add_gold(int(s.startgold), true)      # 一次過入賬,唔係涓滴收入
+		battle.add_gold(battle.scale_gold(s.startgold), true)   # 一次過入賬,唔係涓滴收入
 
 func dtype() -> String:
 	if mech in TRUEDMG:
@@ -615,8 +615,9 @@ func _fire_alchemy() -> void:
 		for i in others:
 			bonus += GameData.FOUNDRY_STEP * pow(GameData.FOUNDRY_FALLOFF, i)
 		g *= (1.0 + bonus)
-	battle.add_gold(int(g))
-	battle.spawn_damage(global_position + Vector2(0, -20), int(g), Color(1, 0.85, 0.2))
+	var paid: int = battle.scale_gold(g)
+	battle.add_gold(paid)
+	battle.spawn_damage(global_position + Vector2(0, -20), paid, Color(1, 0.85, 0.2))
 
 func _fire_thorn() -> void:
 	# T3 世界樹根:覆蓋範圍由一個圓變成沿住路面嘅一段路。

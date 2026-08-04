@@ -37,6 +37,7 @@ func _ready() -> void:
 
 	await _cycle_battle_scene()
 	await _cycle_battle_overlays()
+	await _cycle_contract_cards()
 	await _cycle_menu_scenes()
 
 	Flow.nav_enabled = true
@@ -140,6 +141,49 @@ func _cycle_battle_overlays() -> void:
 	b.queue_free()
 	await _settle()
 	Engine.time_scale = 1.0
+
+# ---------------------------------------------------------------------------
+# D. 合約卡片開關(第十五輪)
+#
+# 合約卡片係整個遊戲入面**開關次數最密**嘅 overlay:一場合約關開五次,而一個
+# farm 緊嘅玩家一晚可以打幾十場。佢又係一個逐次由零砌返嘅 Control 樹(三張卡
+# 各自有色帶 / 兩個 clip / 五個 Label),所以佢正正就係「開咗又關,還唔還得清」
+# 呢條問題嘅最壞情況。
+# ---------------------------------------------------------------------------
+func _cycle_contract_cards() -> void:
+	Flow.selected_level = 7          # 逢 7 = 合約關
+	var b = load("res://scenes/Battle.tscn").instantiate()
+	add_child(b)
+	for k in 6:
+		await get_tree().process_frame
+	get_tree().paused = true
+	# 開場果次抽卡已經攤咗喺度,收返佢先開始數。`contract_pending` 亦都要清 ——
+	# 唔清嘅話「當前合約狀態」個掣會當你仲揀緊卡而直接 return,咁樣個循環就
+	# 變成一個乜都冇做嘅循環,而一個乜都冇做嘅循環永遠唔會 fail。
+	b.hud.hide_contract()
+	b.contract_pending = false
+	await _settle()
+	var base := -1
+	var last := 0
+	for i in CYCLES:
+		b.hud.show_contract(GameData.contract_draw([]))
+		await get_tree().process_frame
+		b.hud.hide_contract()
+		await get_tree().process_frame
+		# 「當前合約狀態」嗰個 summary 面板行嘅係同一條路,一併入循環
+		b.hud._toggle_contract_summary()
+		await get_tree().process_frame
+		b.hud._toggle_contract_summary()
+		await _settle()
+		if i == 0:
+			base = _nodes()
+		last = _nodes()
+	_check("合約卡片 x%d" % CYCLES, base, last, 0)
+	get_tree().paused = false
+	b.queue_free()
+	await _settle()
+	Engine.time_scale = 1.0
+	Flow.selected_level = 1
 
 # ---------------------------------------------------------------------------
 # C. 選單場景開關

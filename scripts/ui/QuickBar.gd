@@ -151,7 +151,7 @@ func _refresh() -> void:
 			icon.position = Vector2((btn.size.x - 60.0) * 0.5, 4)
 			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			btn.add_child(icon)
-			var cost := UI.label(str(GameData.tower_by_id(id).place_cost), 24, UI.GOLD)
+			var cost := UI.label(str(GameData.place_cost(id, Meta.next_level())), 24, UI.GOLD)
 			cost.position = Vector2(0, 68)
 			cost.size = Vector2(btn.size.x, 30)
 			cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

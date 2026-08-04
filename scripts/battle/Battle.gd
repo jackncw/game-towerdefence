@@ -100,6 +100,34 @@ var burst_def: Dictionary = {}
 var _burst_timer: float = 0.0
 var ended: bool = false
 var kills: int = 0
+
+# ---------------------------------------------------------------------------
+# 風險合約關 (第十五輪 Part A)
+#
+# 逢 7 嘅倍數關。整場關卡切成 CONTRACT_PICKS 段,每一段開波前攤三張卡俾玩家
+# 揀一張,揀咗嘅怪物增益疊落之後每一段。
+#
+# 「暫停」用真 `get_tree().paused`,唔係一個自訂 flag:場上有怪、有子彈、有
+# 地面效果、有塔喺度數冷卻,而佢哋全部都係獨立節點。一個只擋 Battle._process
+# 嘅 flag 會令怪物繼續行 —— 亦即係 brief 講明唔准嘅「俾怪物偷跑」。
+# ---------------------------------------------------------------------------
+var contract_level: bool = false
+var contract_taken: Array = []          # GameData.CONTRACTS 嘅索引,揀咗嘅次序
+var contract_offer: Array = []          # 而家攤喺枱面嗰三張
+var contract_pending: bool = false      # 等緊玩家揀
+var contract_picks_done: int = 0
+var contract_state: Dictionary = {}     # GameData.contract_accumulate() 嘅結果
+var _contract_next_t: float = 0.0       # 下一次抽卡嘅 elapsed
+## 段長 = boss_time / (CONTRACT_PICKS - 1),所以最後一次抽卡啱啱好落喺
+## boss 出場嗰一刻 —— 「boss 段」本身就係一段,唔使另外寫一條規則。
+var _contract_seg: float = 0.0
+
+## 場內金幣嘅關卡系數。怪物掉落已經喺 creature_stats 度乘咗同一個指數,所以
+## 佢哋唔經呢度;鍊金塔 / 點金術 / 起手金呢啲「絕對數」全部要經,唔係佢哋
+## 會隨關數變成零。合約嘅金幣倍率亦都疊喺呢度,一個入口。
+var gold_scale: float = 1.0
+## 精英怪出現率(關卡本身 + 合約疊上去)。
+var elite_chance: float = 0.0
 ## Total HP actually removed from enemies this battle (after armour / 魔抗 /
 ## 硬殼 caps). Fed by Monster; the balance bench reads it, because "kills" and
 ## "leaks" both saturate — one wave is either fully cleared or fully leaked —
@@ -196,6 +224,15 @@ func _ready() -> void:
 	route = PathRoute.template(cfg.path_idx)
 	boss_time = cfg.boss_time
 	gold = cfg.start_gold
+	gold_scale = GameData.gold_scale(level)
+	elite_chance = float(cfg.get("elite_chance", 0.0))
+	contract_level = bool(cfg.get("is_contract", false))
+	final_level = bool(cfg.get("is_final", false))
+	contract_state = GameData.contract_accumulate([])
+	if contract_level:
+		_contract_seg = boss_time / maxf(1.0, float(GameData.CONTRACT_PICKS - 1))
+		# 第一次抽卡喺 _ready() 尾段做,所以計時器由**第二**段起。
+		_contract_next_t = _contract_seg
 	base_pos = route.pos_at(route.total - 20.0)
 
 	Assets.prewarm_battle(cfg.families, cfg.boss_family)
@@ -208,6 +245,10 @@ func _ready() -> void:
 	Engine.time_scale = 1.0
 	set_process_unhandled_input(true)
 	Crash.crumb("battle", "開場 lv=%d 路線=%d 家族=%s" % [level, cfg.path_idx, str(cfg.families)])
+	# 第一次抽卡喺 HUD 起好之後先開 —— 佢要一個地方畫。開波前就要揀,所以
+	# 呢一下係 elapsed = 0,一隻怪都未出。
+	if contract_level:
+		_open_contract_offer()
 
 func _exit_tree() -> void:
 	Crash.crumb("battle", "離場 lv=%d 塔=%d 怪=%d 殺=%d" % [level, towers.size(), monsters.size(), kills])
@@ -390,6 +431,11 @@ const BASE_THREAT_R := 320.0
 func _process(delta: float) -> void:
 	if ended:
 		return
+	# 攤住合約卡 = 時間唔准行。真遊戲入面 tree.paused 已經做咗呢件事,但
+	# headless harness 係手動叫 _process 嘅,佢繞得過 pause —— 而繞得過就等於
+	# 「模擬入面隻怪偷咗跑,真機冇」,兩邊量出嚟嘅嘢就唔係同一隻遊戲。
+	if contract_pending:
+		return
 	# camera shake (uses cam.offset so pan/zoom clamp logic is untouched)
 	if _shake_t > 0.0:
 		_shake_t -= delta
@@ -507,8 +553,79 @@ func _tick_holy_motes(delta: float) -> void:
 			idx += 1
 	mm.visible_instance_count = idx
 
+# ---------------------------------------------------------------------------
+# 風險合約 —— 抽卡 / 揀卡 / 結算
+# ---------------------------------------------------------------------------
+## 攤三張卡出嚟並且**暫停成個場**。冇卡好抽(全部揀晒)就靜靜咁跳過。
+func _open_contract_offer() -> void:
+	if ended or contract_picks_done >= GameData.CONTRACT_PICKS:
+		return
+	var offer: Array = GameData.contract_draw(contract_taken)
+	if offer.is_empty():
+		contract_picks_done = GameData.CONTRACT_PICKS
+		return
+	contract_offer = offer
+	contract_pending = true
+	_set_world_paused(true)
+	if hud and hud.has_method("show_contract"):
+		hud.show_contract(offer)
+
+## 攤卡期間凍結成個場。
+##
+## `Flow.nav_enabled` 係現有嘅「邊個話事」旗:false = harness 自己揸住個 tree
+## (佢由頭到尾 paused,再手動逐個節點 _process)。喺嗰個世界度郁 tree.paused
+## 就等於幫佢解封,而跟住嗰半場就會用真 delta 跑 —— 所以呢度唔郁。
+func _set_world_paused(on: bool) -> void:
+	if Flow.nav_enabled:
+		get_tree().paused = on
+
+## 玩家揀咗第 `idx` 張(CONTRACTS 嘅索引)。
+func choose_contract(idx: int) -> void:
+	if not contract_pending:
+		return
+	if not (idx in contract_offer):
+		return
+	contract_taken.append(idx)
+	contract_picks_done += 1
+	contract_state = GameData.contract_accumulate(contract_taken)
+	contract_offer = []
+	contract_pending = false
+	# 密度係一個 spawn interval,唔係一個 monster 欄位,所以佢喺呢度收數。
+	var dense: float = 1.0 + float((contract_state["buff"] as Dictionary).get("dense", 0.0))
+	cfg["spawn_interval_start"] = float(GameData.level_config(level).spawn_interval_start) / dense
+	cfg["spawn_interval_min"] = float(GameData.level_config(level).spawn_interval_min) / dense
+	gold_scale = GameData.gold_scale(level) * float(contract_state["gold"])
+	elite_chance = float(cfg.get("elite_chance", 0.0)) \
+		+ float((contract_state["buff"] as Dictionary).get("elite", 0.0))
+	if hud and hud.has_method("hide_contract"):
+		hud.hide_contract()
+	_set_world_paused(false)
+	Audio.play("sfx_upgrade")
+	Crash.crumb("contract", "lv=%d 揀咗 %s (晶石 x%.2f)"
+		% [level, GameData.CONTRACTS[idx]["id"], contract_state["crystal"]])
+
+## 合約關嘅怪物增益,砌成 Monster.apply_mods() 收嘅格式。boss 一樣食 ——
+## 唔係嘅話「血量 +65%」呢張卡喺成場最硬嗰個目標上面係冇效嘅。
+func _contract_mods() -> Dictionary:
+	if not contract_level or contract_taken.is_empty():
+		return {}
+	var b: Dictionary = contract_state["buff"]
+	return {"hp": b.get("hp", 0.0), "speed": b.get("speed", 0.0),
+		"armor": b.get("armor", 0.0), "mres": b.get("mres", 0.0),
+		"regen": b.get("regen", 0.0), "noslow": b.get("noslow", false)}
+
 func _spawn_logic(delta: float) -> void:
-	if not boss_spawned and elapsed >= boss_time:
+	# 段與段之間開合約。boss 段嗰次啱啱好同 boss 出場同一刻,所以呢個檢查要
+	# 喺 _spawn_boss() 之前 —— 玩家要喺 boss 落地之前揀好。
+	if contract_level and not contract_pending \
+			and contract_picks_done < GameData.CONTRACT_PICKS \
+			and elapsed >= _contract_next_t:
+		_contract_next_t += _contract_seg
+		_open_contract_offer()
+		return
+	if final_level:
+		_final_wave_logic()
+	elif not boss_spawned and elapsed >= boss_time:
 		_spawn_boss()
 	if boss_spawned:
 		_burst_logic(delta)
@@ -535,16 +652,74 @@ func _spawn_logic(delta: float) -> void:
 func _spawn_wave_monster() -> void:
 	var fams: Array = cfg.families
 	var lv_bonus := 0
-	if boss_spawned:
+	if boss_spawned and not final_level:
 		fams = boss_profile.get("pool", fams)
 		lv_bonus = int(boss_profile.get("lvl_bonus", 0))
 	var fam: String = fams[randi() % fams.size()]
 	var lv: int = clampi(randi_range(cfg.lvl_min, cfg.lvl_max) + lv_bonus, 1, 5)
 	var m := _spawn_monster(fam, lv, false, 0.0)
-	if boss_spawned:
+	if boss_spawned and not final_level:
 		var mr: float = float(boss_profile.get("minion_regen", 0.0))
 		if mr > 0.0:
 			m.regen_rate = maxf(m.regen_rate, m.max_hp * mr)
+
+# ---------------------------------------------------------------------------
+# 第 100 關 —— 三潮 boss
+#
+# 潮嘅計時由**開場**起計,唔係「上一潮清晒先出下一潮」。即係話拖得耐就一定
+# 會撞到重疊,而嗰個就係終極戰嘅壓力來源 —— 唔係一個更大嘅血條,係一條你
+# 追唔追得切嘅時間線。
+# ---------------------------------------------------------------------------
+var final_level: bool = false
+var _final_wave_i: int = 0
+var final_bosses: Array = []
+
+func _final_wave_logic() -> void:
+	var waves: Array = cfg.get("final_waves", [])
+	while _final_wave_i < waves.size() and elapsed >= float(waves[_final_wave_i]["at"]):
+		var w: Dictionary = waves[_final_wave_i]
+		_final_wave_i += 1
+		for i in (w["fams"] as Array).size():
+			var fam: String = String(w["fams"][i])
+			var m := _spawn_monster(fam, 5, true, -float(i) * 90.0)
+			# 十隻足血 boss 唔係難,係長。減血之後同場十隻嘅壓力仍然遠高過
+			# 五隻半順序出場,因為佢哋嘅機制係一齊行嘅。
+			m.max_hp *= GameData.FINAL_BOSS_HP_FRAC
+			m.hp = m.max_hp
+			final_bosses.append(m)
+			if m.mech == "revive":
+				skeleton_boss_alive = m
+		if not boss_spawned:
+			boss_spawned = true
+			boss_profile = {"rate": GameData.BOSS_SPAWN_BASE_RATE}
+			burst_def = {}
+			Audio.play("sfx_boss_warning")
+			Audio.queue_bgm("bgm_boss")
+		# 血條追住而家最大嗰隻 —— 一個 HUD 條追十隻嘅話乜都睇唔到。
+		_final_pick_bar()
+
+## 血條指向仲生存而且血最多嗰隻 boss。
+func _final_pick_bar() -> void:
+	var best = null
+	var best_hp := -1.0
+	for m in final_bosses:
+		if is_instance_valid(m) and m.alive and m.hp > best_hp:
+			best_hp = m.hp
+			best = m
+	if best != null and best != boss_ref:
+		boss_ref = best
+		boss_best_frac = 0.0
+		if hud:
+			hud.show_boss(best)
+
+## 終極戰嘅勝利條件:十隻全部死晒。
+func final_all_dead() -> bool:
+	if _final_wave_i < (cfg.get("final_waves", []) as Array).size():
+		return false
+	for m in final_bosses:
+		if is_instance_valid(m) and m.alive:
+			return false
+	return true
 
 ## Burst-style boss profiles (wolf packs): every `interval` seconds a squad of
 ## count_min..count_max minions rushes out together from the path start.
@@ -578,6 +753,20 @@ func _spawn_boss() -> void:
 func _spawn_monster(fam: String, lv: int, boss: bool, start_dist: float) -> Monster:
 	var m: Monster = monster_pool.acquire()
 	m.setup(self, route, fam, lv, boss, cfg.wave_scale, monster_pool, start_dist)
+	var mods: Dictionary = _contract_mods()
+	# 精英化。boss 唔會精英化 —— 佢已經係一個 affix。
+	if not boss and elite_chance > 0.0 and randf() < elite_chance:
+		var af: Dictionary = GameData.elite_affix(randi())
+		mods["hp"] = float(mods.get("hp", 0.0)) + (float(af["hp"]) - 1.0)
+		mods["speed"] = float(mods.get("speed", 0.0)) + (float(af["speed"]) - 1.0)
+		mods["armor"] = float(mods.get("armor", 0.0)) + float(af["armor"])
+		mods["mres"] = float(mods.get("mres", 0.0)) + float(af["mres"])
+		mods["regen"] = maxf(float(mods.get("regen", 0.0)), float(af["regen"]))
+		mods["gold"] = GameData.ELITE_GOLD_MULT
+		mods["elite_id"] = af["id"]
+		mods["tint"] = af["tint"]
+	if not mods.is_empty():
+		m.apply_mods(mods)
 	monsters.append(m)
 	spawned_count += 1
 	sim_peak_alive = maxi(sim_peak_alive, monsters.size())   # measurement only
@@ -644,6 +833,12 @@ func on_boss_killed(m: Monster) -> void:
 	if skeleton_boss_alive == m:
 		skeleton_boss_alive = null
 	_remove(m)
+	# 終極戰唔係「打低一隻 boss 就贏」—— 十隻死晒先算。
+	if final_level:
+		_final_pick_bar()
+		if final_all_dead():
+			_win()
+		return
 	_win()
 
 ## 基地危險:第一次有隻怪嘅路程比例跨過 GameData.BASE_DANGER_ROUTE_FRAC,並且
@@ -727,6 +922,17 @@ func _remove(m: Monster) -> void:
 func add_gold(amount: int, lump := false) -> void:
 	Audio.play("sfx_gold_bank" if lump else "sfx_gold_pop")
 	gold += amount
+
+## 一個「絕對數」金額換算成呢一關嘅金。鍊金塔、點金術、起手金呢類寫死咗數字
+## 嘅來源要經呢度,唔係佢哋喺第 80 關等於零(建塔成本跟關數行,佢哋唔跟)。
+## 怪物掉落**唔經**呢度 —— creature_stats 已經乘咗同一個指數。
+func scale_gold(amount: float) -> int:
+	return int(round(amount * gold_scale))
+
+## 呢一關起一座 `id` 塔要幾多金。所有問價嘅地方都應該問呢個,唔好直接讀
+## def.place_cost —— 嗰個係第 1 關嘅價。
+func place_cost(id: int) -> int:
+	return GameData.place_cost(id, level, towers.size())
 
 func spend_gold(amount: int) -> bool:
 	if gold < amount:
@@ -1315,9 +1521,10 @@ func snap(pos: Vector2) -> Vector2:
 
 func place_tower(id: int, pos: Vector2) -> bool:
 	var def := GameData.tower_by_id(id)
-	if gold < def.place_cost or not can_place(pos):
+	var cost: int = place_cost(id)
+	if gold < cost or not can_place(pos):
 		return false
-	gold -= def.place_cost
+	gold -= cost
 	var t := Tower.new()
 	towers_root.add_child(t)
 	t.setup(self, id, pos)
@@ -1491,7 +1698,7 @@ func _handle_tap(pos: Vector2) -> void:
 	if build_id > 0:
 		var sp := snap(pos)
 		if place_tower(build_id, sp):
-			if gold < GameData.tower_by_id(build_id).place_cost:
+			if gold < place_cost(build_id):
 				cancel_modes()
 		else:
 			cancel_modes()
@@ -1579,7 +1786,7 @@ func card_release(screen: Vector2) -> void:
 			return
 		var sp := snap(_pointer_world)
 		if place_tower(dc, sp):
-			if gold < GameData.tower_by_id(dc).place_cost:
+			if gold < place_cost(dc):
 				build_id = 0
 		else:
 			build_id = 0
@@ -1640,15 +1847,23 @@ func cancel_modes() -> void:
 func _win() -> void:
 	if ended: return
 	ended = true
+	# 攤住卡嗰陣結算 = 卡片層留喺畫面上面而下面已經轉咗場。收返佢先。
+	if contract_pending:
+		contract_pending = false
+		if hud and hud.has_method("hide_contract"):
+			hud.hide_contract()
+		_set_world_paused(false)
 	Engine.time_scale = 1.0
 	Audio.stop_bgm()
 	Audio.play("jingle_win")
 	if not Meta.is_cleared(level):
 		Audio.play("jingle_first_clear")
-	var award := Meta.on_level_cleared(level)
+	var cmult: float = float(contract_state.get("crystal", 1.0))
+	var award := Meta.on_level_cleared(level, cmult)
 	Flow.last_result = {"win": true, "level": level, "kills": kills,
 		"crystals": award.total, "base": award.base, "first": award.first,
-		"replay": award.replay}
+		"replay": award.replay, "contract": contract_level, "mult": cmult,
+		"contracts": contract_taken.duplicate()}
 	for m in monsters:
 		spawn_fx_orb(m.global_position, Color(0.7, 0.7, 0.9))
 	_clear_field()
@@ -1657,14 +1872,22 @@ func _win() -> void:
 func _lose() -> void:
 	if ended: return
 	ended = true
+	if contract_pending:
+		contract_pending = false
+		if hud and hud.has_method("hide_contract"):
+			hud.hide_contract()
+		_set_world_paused(false)
 	Engine.time_scale = 1.0
 	Audio.stop_bgm()
 	Audio.play("jingle_lose")
-	var award := Meta.on_level_failed(level, kills, elapsed, boss_time, boss_best_frac)
+	var cmult: float = float(contract_state.get("crystal", 1.0))
+	var award := Meta.on_level_failed(level, kills, elapsed, boss_time, boss_best_frac, cmult)
 	Flow.last_result = {"win": false, "level": level, "kills": kills,
 		"crystals": award.crystals, "progress": award.progress, "cap": award.cap,
 		"too_short": award.too_short, "boss_frac": award.boss_frac,
-		"time": elapsed, "boss_reached": boss_spawned}
+		"time": elapsed, "boss_reached": boss_spawned,
+		"contract": contract_level, "mult": cmult,
+		"contracts": contract_taken.duplicate()}
 	get_tree().create_timer(0.2).timeout.connect(func(): Flow.goto(Flow.FAIL))
 
 ## Wipe the field once the run is decided. Monsters MUST be flagged dead before
@@ -1765,7 +1988,7 @@ class _Placer extends Node2D:
 	func _draw_build_ghost() -> void:
 		var def: Dictionary = GameData.tower_by_id(battle.build_id)
 		var pos: Vector2 = battle.snap(battle._pointer_world)
-		var affordable: bool = battle.gold >= int(def.place_cost)
+		var affordable: bool = battle.gold >= battle.place_cost(int(def.id))
 		var ok: bool = affordable and battle.can_place(pos)
 		var tint: Color = Color(0.35, 0.9, 0.45) if ok else Color(0.95, 0.32, 0.28)
 		var rng: float = float(Meta.tower_stats(battle.build_id).range)

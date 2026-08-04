@@ -772,16 +772,20 @@ func _build_contract_panel(offer: Array, summary_only: bool) -> void:
 	contract_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(contract_layer)
 	var dim := ColorRect.new()
-	dim.color = Color(0.05, 0.03, 0.02, 0.78)
+	# 0.78 唔夠:實機截圖入面頂欄嘅金幣/魔晶徽章同底欄嘅卡片仍然睇得清,
+	# 而一個「揀緊卡」嘅時刻唔應該有第二樣嘢喺度爭注意力。
+	dim.color = Color(0.05, 0.03, 0.02, 0.90)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	contract_layer.add_child(dim)
 
-	var head := UI.banner_title(tr("CONTRACT_TITLE"), 120, 760, 44)
+	# 標題由 120 落到 150:120 嗰陣個橫幅同頂欄嘅金幣/魔晶徽章(y=128-188)
+	# 疊住,兩行數字由橫幅兩邊窿出嚟。
+	var head := UI.banner_title(tr("CONTRACT_TITLE"), 150, 760, 44)
 	contract_layer.add_child(head)
 	var sub := UI.label(tr("CONTRACT_WAVE_OF").format({
 		"n": battle.contract_picks_done + (0 if summary_only else 1),
 		"t": GameData.CONTRACT_PICKS}), 30, UI.TEXT_DIM)
-	sub.position = Vector2(160, 210)
+	sub.position = Vector2(160, 244)
 	sub.size = Vector2(760, 44)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	contract_layer.add_child(sub)
@@ -789,17 +793,19 @@ func _build_contract_panel(offer: Array, summary_only: bool) -> void:
 	# --- 當前已疊加嘅總狀態 -------------------------------------------------
 	var st: Dictionary = battle.contract_state
 	var box := UI.panel_parch()
-	box.position = Vector2(80, 268)
-	box.size = Vector2(920, 190)
+	box.position = Vector2(80, 296)
+	box.size = Vector2(920, 200)
 	contract_layer.add_child(box)
+	# 羊皮紙框有一圈 baked border,所以入面嘅字要縮多 30px 先唔會被框邊蓋住
+	# (第一版縮 16px,截圖出嚟「目前已背負」同「總倍率」兩行都被啃咗一半)。
 	var stt := UI.label(tr("CONTRACT_CURRENT"), 28, Color(0.35, 0.24, 0.12))
-	stt.position = Vector2(110, 284)
-	stt.size = Vector2(860, 36)
+	stt.position = Vector2(128, 330)
+	stt.size = Vector2(848, 36)
 	contract_layer.add_child(stt)
 	var cur_buff: String = _stacked_buff_text(st)
 	var clip := Control.new()
-	clip.position = Vector2(110, 322)
-	clip.size = Vector2(860, 78)
+	clip.position = Vector2(116, 362)
+	clip.size = Vector2(848, 62)
 	clip.clip_contents = true
 	contract_layer.add_child(clip)
 	var bl := UI.label(cur_buff if cur_buff != "" else tr("CONTRACT_NONE_YET"), 26,
@@ -812,22 +818,23 @@ func _build_contract_panel(offer: Array, summary_only: bool) -> void:
 		"g": "%.2f" % float(st.get("gold", 1.0))})
 		+ ("  " + tr("CONTRACT_CAPPED") if bool(st.get("capped", false)) else ""),
 		30, Color(0.30, 0.17, 0.45))
-	ml.position = Vector2(110, 404)
-	ml.size = Vector2(860, 42)
+	ml.position = Vector2(116, 428)
+	ml.size = Vector2(848, 42)
 	contract_layer.add_child(ml)
 
 	if summary_only:
 		var close := UI.button(tr("COMMON_CLOSE"), Vector2(420, 104), UI.ACCENT, 36)
-		close.position = Vector2(330, 520)
+		close.position = Vector2(330, 560)
 		close.pressed.connect(hide_contract)
 		contract_layer.add_child(close)
 		return
 
 	# --- 三張卡 -------------------------------------------------------------
-	const CARD_H := 356
+	# 三張卡由 y=536 起,320 高、20 間隔 -> 尾張到 1496,啱啱喺快捷列(1586)之上。
+	const CARD_H := 320
 	for i in offer.size():
 		var idx: int = int(offer[i])
-		contract_layer.add_child(_contract_card(idx, Vector2(80, 500 + i * (CARD_H + 22)),
+		contract_layer.add_child(_contract_card(idx, Vector2(80, 536 + i * (CARD_H + 20)),
 			Vector2(920, CARD_H)))
 
 const RISK_COL := [Color(0.46, 0.72, 0.40), Color(0.93, 0.72, 0.30), Color(0.86, 0.38, 0.26)]
@@ -846,20 +853,20 @@ func _contract_card(idx: int, pos: Vector2, sz: Vector2) -> Control:
 	stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(stripe)
 	var name_l := UI.label(tr(String(c["name"])), 38, UI.TEXT)
-	name_l.position = Vector2(52, 22)
+	name_l.position = Vector2(52, 18)
 	name_l.size = Vector2(sz.x - 80, 52)
 	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(name_l)
 	var risk_l := UI.label(tr(["CONTRACT_RISK_LOW", "CONTRACT_RISK_MID", "CONTRACT_RISK_HIGH"][risk]),
 		26, RISK_COL[risk])
-	risk_l.position = Vector2(52, 78)
+	risk_l.position = Vector2(52, 70)
 	risk_l.size = Vector2(sz.x - 80, 38)
 	risk_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(risk_l)
 	# 英文闊過中文兩三倍,所以描述要住喺一個固定 clip 入面 FULL_RECT 咁 wrap
 	var clip := Control.new()
-	clip.position = Vector2(52, 124)
-	clip.size = Vector2(sz.x - 96, 108)
+	clip.position = Vector2(52, 114)
+	clip.size = Vector2(sz.x - 96, 92)
 	clip.clip_contents = true
 	clip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(clip)
@@ -870,7 +877,7 @@ func _contract_card(idx: int, pos: Vector2, sz: Vector2) -> Control:
 	buff_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip.add_child(buff_l)
 	var mult_l := UI.label(GameData.contract_mult_text(idx), 32, UI.CRYSTAL)
-	mult_l.position = Vector2(52, 246)
+	mult_l.position = Vector2(52, 212)
 	mult_l.size = Vector2(sz.x - 96, 44)
 	mult_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(mult_l)
@@ -879,7 +886,7 @@ func _contract_card(idx: int, pos: Vector2, sz: Vector2) -> Control:
 	var after_l := UI.label(tr("CONTRACT_AFTER").format({
 		"c": "%.2f" % float(after["crystal"]), "g": "%.2f" % float(after["gold"])}),
 		26, UI.TEXT_DIM)
-	after_l.position = Vector2(52, 296)
+	after_l.position = Vector2(52, 262)
 	after_l.size = Vector2(sz.x - 96, 40)
 	after_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(after_l)

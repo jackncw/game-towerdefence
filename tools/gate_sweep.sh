@@ -8,7 +8,7 @@ for A in A0 A1 A2 A3 A4; do
   while [ $i -lt $K ]; do
     EXTRA=""
     [ "$A" = "A4" ] && EXTRA="--from=$A4FROM"
-    sh tools/gate.sh "sweep_${TAG}_${A}_${i}" --arch=$A --seeds=$S --seed0=$((i*S)) $EXTRA &
+    sh tools/gate.sh "sweep_${TAG}_${A}_${i}" --mode=sweep --arch=$A --seeds=$S --seed0=$((i*S)) $EXTRA &
     i=$((i+1))
   done
 done

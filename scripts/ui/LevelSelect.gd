@@ -19,8 +19,8 @@ func _ready() -> void:
 	add_child(crys)
 
 	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(40, 170)
-	scroll.size = Vector2(1000, 1680)
+	scroll.position = Vector2(40, 186)
+	scroll.size = Vector2(1000, 1664)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
 	TouchScroll.attach(scroll)   # level tiles are Buttons; see TouchScroll
@@ -39,7 +39,8 @@ func _ready() -> void:
 	var prog := UI.label(tr("LEVELSEL_PROGRESS").format({
 		"n": mini(Meta.highest_level, GameData.FINAL_LEVEL), "t": GameData.FINAL_LEVEL}),
 		28, UI.TEXT_DIM)
-	prog.position = Vector2(40, 112)
+	# 132 而唔係 112:橫幅嘅下緣去到 ~125,擺喺 112 會俾框邊食一半。
+	prog.position = Vector2(40, 132)
 	prog.size = Vector2(1000, 44)
 	prog.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(prog)

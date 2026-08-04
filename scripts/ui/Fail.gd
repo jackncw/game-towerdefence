@@ -58,10 +58,11 @@ func _ready() -> void:
 	prog.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	panel.add_child(prog)
 
-	# 合約關輸咗一樣食倍率 —— 見 Meta.on_level_failed()。呢一行講明點解個數
-	# 同平時唔同,唔係俾玩家以為系統計錯數。
+	# 合約倍率**唔**兌現喺敗仗(見 Meta.on_level_failed 嗰段註解)。所以呢一行
+	# 唔可以照抄結算畫面嗰句 —— 喺一個冇加成嘅數字旁邊寫住「合約倍率 ×1.83」
+	# 係一句錯嘅說話。呢度講嘅係「你背住嘅倍率仲喺度,但要贏先攞得到」。
 	if float(r.get("mult", 1.0)) > 1.001:
-		var cm := UI.label(tr("RESULT_CONTRACT_MULT").format(
+		var cm := UI.label(tr("FAIL_CONTRACT_NOTE").format(
 			{"n": "%.2f" % float(r.get("mult", 1.0))}), 26, Color(0.86, 0.66, 1.0))
 		cm.position = Vector2(190, 754); cm.size = Vector2(700, 36)
 		cm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

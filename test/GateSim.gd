@@ -57,7 +57,9 @@ const A4_SPELLS := [1, 11, 13]               # 隕石 / 地震 / 天雷誅殺
 var arch := "A1"
 var seeds := 4
 var seed0 := 0
-var mode := "sweep"
+## 冇 `--mode=` 就係 "" —— 見 _ready() 個 match。**唔可以**預設做 "sweep":
+## `run_tests.ps1` 唔傳參數,而 sweep 係七分鐘。
+var mode := ""
 ## 由第幾關開始打。**只對 A4 有意義** —— 佢個 build 係直接授予嘅,唔靠歷史,
 ## 所以跳過頭九十關唔會令佢變弱。A0-A3 一定要由第 1 關打起(經濟要真)。
 var lv_from := 1
@@ -93,8 +95,14 @@ func _ready() -> void:
 			await _frozen_test()
 		"contract":
 			await _contract_test()
-		_:
+		"sweep":
 			await _sweep()
+		_:
+			# 冇參數 = 跑 gate1。`run_tests.ps1` 掃 test/*.tscn 唔會傳參數,而
+			# 一次完整 sweep 係七分鐘 —— 一個掃全部測試嘅 runner 唔應該行入去。
+			# gate1 係純算術、一秒行完,而且係一條真斷言(「輸一場 >= 一級升級」
+			# 喺一百關全部成立),所以佢係呢個場景喺套裝入面應該做嘅嘢。
+			_gate1_table()
 	get_tree().paused = false
 	Flow.nav_enabled = true
 	_restore_save()
@@ -265,6 +273,12 @@ func _gate1_table() -> void:
 			% [n, lose, c, ratio, GameData.level_crystal_reward(n),
 			GameData.level_lose_max(n), cl, cr])
 	print("GATE GATE1 min=%.3f max=%.3f below1=%d" % [worst, best, bad])
+	# 呢個 mode 喺 run_tests.ps1 入面跑,所以要出一個佢認得嘅 PASS/FAIL。
+	# 上限 3.0 係 brief 寫嘅「唔准去到 3+ 否則又太鬆」。
+	var ok: bool = bad == 0 and best <= 3.0
+	print("GATE1 %s (100 關全部 >= 1.0,最高 %.2f)" % ["PASS" if ok else "FAIL", best])
+	if not ok:
+		get_tree().quit(1)
 
 ## 穩陣策略五張卡嘅晶石倍率(全部 risk 0,取平均倍率嘅五次方)。
 func _safe_mult() -> float:
@@ -306,7 +320,7 @@ func _econ_curve() -> void:
 ## 且要量嘅係「一個五關冇升級過嘅玩家」,唔係「一個窮咗嘅玩家」。
 func _frozen_test() -> void:
 	print("GATE MODE=frozen seeds=%d seed0=%d" % [seeds, seed0])
-	print("GATE HDR seed lv live_win frozen_win frozen_frac")
+	print("GATE HDR seed lv live_win frozen5_win frozen15_win")
 	for si in seeds:
 		var sd: int = seed0 + si
 		seed(0xF0BE + sd * 7919)
@@ -316,16 +330,22 @@ func _frozen_test() -> void:
 			_spend_a1(lv)
 			snaps.append(_snapshot())
 			var live: Dictionary = await _play(lv)
-			var fw := -1
-			var ff := 0.0
+			var f5 := -1
+			var f15 := -1
 			if lv >= 16 and lv <= 40:
 				var keep: Dictionary = _snapshot()
+				# 條 brief 指定嘅窗口:第 N-5 關嘅 build
 				_restore_snapshot(snaps[lv - 6])   # snaps[i] = 第 i+1 關開波前
-				var fr: Dictionary = await _play(lv)
-				fw = 1 if fr.win else 0
-				ff = fr.frac
+				f5 = 1 if (await _play(lv)).win else 0
+				# 診斷用嘅闊窗口:第 N-15 關。N-5 之下 A1 嘅力量只差一成幾,
+				# 而一成幾喺呢條曲線上面唔夠翻盤;N-15 差成倍,先睇得出
+				# 「停低唔升級」呢件事本身有冇代價。兩個數一齊報,因為
+				# 「指定嘅窗口達唔到標」同「機制根本唔存在」係兩件唔同嘅事。
+				if lv - 16 >= 0:
+					_restore_snapshot(snaps[lv - 16])
+					f15 = 1 if (await _play(lv)).win else 0
 				_restore_snapshot(keep)
-			print("GATE ROW %d %d %d %d %.4f" % [sd, lv, 1 if live.win else 0, fw, ff])
+			print("GATE ROW %d %d %d %d %d" % [sd, lv, 1 if live.win else 0, f5, f15])
 
 # ===========================================================================
 # MODE contract — Gate 8

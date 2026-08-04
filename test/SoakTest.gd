@@ -115,6 +115,14 @@ class _Driver extends Node:
 		while not b.ended and t < BATTLE_MAX_GAME_S and is_instance_valid(b) and guard < 400000:
 			guard += 1
 			await get_tree().process_frame
+			# 逢 7 嘅倍數關(第十五輪起)開波即刻攤三張合約卡並且凍結成個場。
+			# 一個唔識答佢嘅 soak 會喺嗰一輪坐足全個預算、零擊殺 —— 而零擊殺
+			# 唔會令任何斷言變紅,所以呢一輪會靜靜咁由「壓力測試」變成「乜都
+			# 冇做」。逐段答一張(輪住揀,唔係永遠揀第一張),順便令合約嘅
+			# 疊加路徑同卡片 UI 都行入三十分鐘嘅 soak 入面。
+			if b.contract_pending and not b.contract_offer.is_empty():
+				b.choose_contract(int(b.contract_offer[guard % b.contract_offer.size()]))
+				continue
 			# get_process_delta_time() 已經計埋 Engine.time_scale —— 再乘一次
 			# 就係按倍速食完個預算,結果每場淨係跑到二十幾秒遊戲時間,連 boss
 			# (第 60 秒)都未出過。呢個 soak 嘅重點正正就係 boss 場。

@@ -105,7 +105,7 @@ func _case_b_cap() -> void:
 func _case_c_channel() -> void:
 	print("BOSSHEAL -- C 樹妖詠唱")
 	# c1: it is a cast, not an instant, and it pays if ignored
-	var b = await _start(7)
+	var b = await _start(8)
 	var boss: Monster = _spawn_boss(b, "treant")
 	boss.hp = boss.max_hp * 0.35
 	_step(b, DT)
@@ -123,7 +123,7 @@ func _case_c_channel() -> void:
 	await _end(b)
 
 	# c2: on-curve damage during the cast denies it completely
-	b = await _start(7)
+	b = await _start(8)
 	boss = _spawn_boss(b, "treant")
 	boss.hp = boss.max_hp * 0.35
 	_step(b, DT)
@@ -153,7 +153,7 @@ func _case_c_channel() -> void:
 	await _end(b)
 
 	# c3: a stun breaks it outright
-	b = await _start(7)
+	b = await _start(8)
 	boss = _spawn_boss(b, "treant")
 	boss.hp = boss.max_hp * 0.35
 	_step(b, DT)
@@ -222,7 +222,7 @@ func _case_e_feedback() -> void:
 	# to ~1.25%/s, i.e. ~0.02% of the bar per frame. A frame-to-frame comparison
 	# never clears any sane threshold, so slow regen stayed completely silent on
 	# the boss bar. The band is measured from a low-water mark instead.
-	b = await _start(7)
+	b = await _start(8)
 	boss = _spawn_boss(b, "treant")
 	if b.hud == null:
 		_check(false, "Battle 有 HUD 可以驗 boss 血條")
@@ -244,6 +244,10 @@ func _case_e_feedback() -> void:
 	await _end(b)
 
 # ---------------------------------------------------------------------------
+## **唔好用逢 7 嘅倍數關做 harness 場景。** 第十五輪起佢哋係合約關:開場即刻
+## 攤三張卡並且凍結成個場(Battle._open_contract_offer),而一個唔識答佢嘅
+## harness 會坐喺度乜都唔郁 —— 症狀係「所有同時間有關嘅斷言一齊靜靜咁失敗」,
+## 而唔係一個講得出原因嘅錯誤。
 func _start(level: int):
 	Flow.selected_level = level
 	Flow.last_result = {}

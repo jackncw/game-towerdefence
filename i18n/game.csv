@@ -560,3 +560,4 @@
 "ELITE_WARDED","護符","Warded"
 "ELITE_VITAL","旺盛","Vital"
 "RESULT_CONTRACT_MULT","合約倍率 ×{n}","Contract bonus ×{n}"
+"FAIL_CONTRACT_NOTE","合約倍率 ×{n} 只喺通關時兌現","Contract ×{n} pays out on a clear only"

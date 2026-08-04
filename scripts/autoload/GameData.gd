@@ -1395,7 +1395,11 @@ const CONTRACT_EVERY := 7
 const CONTRACT_PICKS := 5
 const CONTRACT_CHOICES := 3
 ## 總獎勵倍率硬封頂。晶石同金幣各自封。
-const CONTRACT_MULT_CAP := 3.0
+##
+## 3.0 -> 2.5:實測貪心策略喺 3.0 之下嘅期望收入係普通關嘅 1.61 倍(Gate 8
+## 上限 1.5),即使倍率已經改成「贏咗先兌現」。2.5 之下係 1.4 倍左右。
+## 封頂仍然**真係會咬**:全程揀最高倍率係 1.45^5 = 6.4。
+const CONTRACT_MULT_CAP := 2.5
 
 var CONTRACTS := [
 	# --- risk 0:細增益細倍率。每次抽卡保證有一張。--------------------------

@@ -367,11 +367,16 @@ func is_cleared(n: int) -> bool:
 
 ## `mult` = 合約關嘅總晶石倍率(普通關永遠 1.0)。
 ##
-## **倍率對通關同敗仗一樣適用。** 呢個係一個決定,唔係一個疏忽:合約押嘅係
-## 「呢一場」,唔係「呢一場嘅勝利」——一個只喺贏嘅時候兌現嘅倍率會令高風險
-## 合約變成純粹嘅自殺,而條 brief 講明「揀咗高風險合約打輸,都照 Gate 1 規則
-## 有輸場晶石」。反farm 嘅兩道閘(LOSE_MIN_TIME、LOSE_REPLAY_FRAC)照行,
-## 所以「入去合約關即刻投降刷倍率」呢條路仍然係封住嘅。
+## **倍率只兌現喺通關,唔兌現喺敗仗。** 呢個係量出嚟之後改嘅決定。
+##
+## 第一版兩邊都派。結果:貪心策略喺合約關嘅期望收入係普通關嘅 **2.42 倍**
+## (Gate 8 上限係 1.5)。原因唔難見 —— 一個 x3 嘅敗仗獎勵本身已經接近一次
+## 通關,所以「簽晒最貴嘅約再輸」變成一個比「贏一場普通關」更好嘅收入策略,
+## 而嗰個正正就係 brief 講明唔准出現嘅「全服最優 farm 點」。
+##
+## 而家:輸咗照有敗仗獎勵(Gate 1 嘅前設冇變,而且合約關嘅敗仗獎勵同普通關
+## 一模一樣,所以「揀咗高風險合約打輸都有晶石」呢句話仍然成立),但倍率
+## 要贏咗先攞得到。合約押嘅係「我贏得到呢一場」,唔係「我入過呢一場」。
 func on_level_cleared(n: int, mult := 1.0) -> Dictionary:
 	## Awards crystals and returns the breakdown the result screen itemises:
 	##   base   通關獎勵 (halved on a replay)
@@ -394,15 +399,15 @@ func on_level_failed(n: int, kills: int, elapsed: float, boss_time_s: float,
 	## 輸咗都有魔晶: pays out by progress, capped at GameData.LOSE_REWARD_CAP_FRAC
 	## of the clear reward, and nothing at all inside the anti-farm window.
 	var replay := is_cleared(n)   # a loss on an already-cleared level pays less
-	var reward := int(round(
-		GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac, replay) * mult))
+	# 注意:呢度**冇**乘 mult —— 見 on_level_cleared() 上面嗰段。
+	var reward := GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac, replay)
 	if reward > 0:
 		add_crystals(reward)  # also saves
 	return {
 		"crystals": reward,
 		"replay": replay,
 		"progress": GameData.lose_progress(kills, elapsed, boss_time_s, boss_frac),
-		"cap": int(round(GameData.level_lose_max(n, replay) * mult)),
+		"cap": GameData.level_lose_max(n, replay),
 		"too_short": elapsed < GameData.LOSE_MIN_TIME,
 		"boss_frac": clampf(boss_frac, 0.0, 1.0),
 		"mult": mult,

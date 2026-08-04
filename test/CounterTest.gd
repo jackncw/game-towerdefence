@@ -44,11 +44,17 @@ func _ready() -> void:
 func _case_heal_cut() -> void:
 	var b = await _start()
 	var m = _spawn(b, "cultist", 3)
-	m.hp = m.max_hp * 0.5
+	# 治療量寫成 max_hp 嘅比例,唔係一個絕對數。舊版寫死 100:第十五輪重鋪
+	# 曲線之後,第 9 關嘅信徒得 163 血,半血就係 81 —— 一個 100 點嘅治療會
+	# 撞到滿血上限,而斷言就會報「治療冇全額到帳」,即係用一個關於**血量
+	# 曲線**嘅改動去紅一條關於**減療機制**嘅測試。
+	m.hp = m.max_hp * 0.4
 	var before: float = m.hp
-	m.request_heal(100.0, true)
+	var amount: float = m.max_hp * 0.3
+	m.request_heal(amount, true)
 	var full: float = m.hp - before
-	_ok("B1 未中重傷:治療全額到帳", full > 99.0, "healed %.1f" % full)
+	_ok("B1 未中重傷:治療全額到帳", full > amount * 0.99,
+		"healed %.1f / %.1f" % [full, amount])
 	m.hp = m.max_hp * 0.5
 	m.apply_heal_cut(0.7, 5.0)
 	before = m.hp

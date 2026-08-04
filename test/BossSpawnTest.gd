@@ -100,8 +100,10 @@ func _run_all() -> void:
 	_check(cnt > 0 and min_lv >= 2, "golem minions +1 lvl (n=%d min_lv=%d)" % [cnt, min_lv])
 	await _end(b)
 
-	# --- treant (lv7): ambient minions get light regen -----------------------
-	b = await _start(7)
+	# --- treant (lv17): ambient minions get light regen ----------------------
+	# 第 17 關同第 7 關嘅 boss 家族一樣係遠古樹妖((n-1) % 10 == 6),但第 7 關
+	# 由第十五輪起係合約關 —— 見 _start() 上面嗰段。
+	b = await _start(17)
 	_sim(b, 20.0)
 	var regen_ok := false
 	for m in b.monsters:
@@ -111,6 +113,10 @@ func _run_all() -> void:
 	await _end(b)
 
 # --- harness ----------------------------------------------------------------
+## **唔好用逢 7 嘅倍數關做 harness 場景。** 第十五輪起佢哋係合約關:開場即刻
+## 攤三張卡並且凍結成個場(Battle._open_contract_offer),而一個唔識答佢嘅
+## harness 會坐喺度乜都唔郁 —— 症狀係「所有同時間有關嘅斷言一齊靜靜咁失敗」,
+## 而唔係一個講得出原因嘅錯誤。
 func _start(level: int):
 	Flow.selected_level = level
 	var b = load("res://scenes/Battle.tscn").instantiate()

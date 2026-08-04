@@ -61,7 +61,7 @@ func _run() -> void:
 	await _shoot_scene("res://scenes/LevelSelect.tscn", "01_level_select")
 
 	# 2-4. 合約關開場:三選一 -> 揀 -> badge / 狀態面板
-	var b := await _mount_battle(7)
+	var b = await _mount_battle(7)
 	await _grab("02_contract_cards")
 	# 揀中間嗰張(唔係最保守亦唔係最貪)
 	var offer: Array = b.contract_offer
@@ -90,8 +90,21 @@ func _run() -> void:
 		await get_tree().process_frame
 	await _grab("05_stacked_status")
 
-	# 5. 第 100 關 —— 十 boss 場面
-	var f := await _mount_battle(GameData.FINAL_LEVEL)
+	# 5. 結算畫面 —— 合約關贏同輸各一。
+	#    直接砌 Flow.last_result 再掛畫面,同 SceneCheck 嘅 result#0 一樣做法:
+	#    要驗嘅係「畫面點讀呢份結果」,唔係「點打到呢份結果」。
+	Flow.last_result = {"win": true, "level": 21, "kills": 132,
+		"crystals": 3820, "base": 1900, "first": 1920, "replay": false,
+		"contract": true, "mult": 1.68, "contracts": []}
+	await _shoot_scene("res://scenes/Result.tscn", "07_result_contract_win")
+	Flow.last_result = {"win": false, "level": 21, "kills": 47,
+		"crystals": 620, "progress": 0.52, "cap": 1180, "too_short": false,
+		"boss_frac": 0.31, "time": 74.0, "boss_reached": true,
+		"contract": true, "mult": 1.68, "contracts": []}
+	await _shoot_scene("res://scenes/Fail.tscn", "08_fail_contract_loss")
+
+	# 6. 第 100 關 —— 十 boss 場面
+	var f = await _mount_battle(GameData.FINAL_LEVEL)
 	f.gold = 999999
 	# 快轉到第二潮出場,咁畫面上會同時有 boss 同雜兵
 	var t := 0.0

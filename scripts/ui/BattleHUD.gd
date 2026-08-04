@@ -414,7 +414,10 @@ func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
 	cost.size = Vector2(64, 30)
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(cost)
-	quick_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id)), "slot": slot})
+	# cost_label 一齊入 dict:建塔價跟場上塔數遞增(BUILD_COST_STEP),所以呢個數
+	# 唔係一個常數 —— refresh() 喺塔數改變嗰陣會重新問價再寫返落嚟。
+	quick_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id)),
+		"cost_label": cost, "slot": slot})
 	return btn
 
 func _set_drawer(open: bool) -> void:
@@ -500,7 +503,8 @@ func _make_build_card(id: int, card_w: float) -> Control:
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	costrow.add_child(cost)
 	btn.add_child(costrow)
-	build_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id))})
+	build_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id)),
+		"cost_label": cost})
 	return btn
 
 func _build_tower_panel() -> void:
@@ -592,6 +596,8 @@ func _tick_pops(delta: float) -> void:
 
 ## 上一次寫入 boss 倒數 label 嘅秒數。-2 = 未寫過,-1 = 已經寫咗「boss 到咗」。
 var _last_remain: int = -2
+## 上一次刷新建塔卡價錢嗰陣嘅場上塔數。-1 = 未刷過,首幀一定會刷一次。
+var _last_tower_n: int = -1
 
 func refresh(delta: float) -> void:
 	_tick_pops(delta)
@@ -675,6 +681,18 @@ func refresh(delta: float) -> void:
 		var sm := Color(1.35, 1.35, 0.9) if battle.aiming_spell == c.id else Color.WHITE
 		if c.btn.modulate != sm:
 			c.btn.modulate = sm
+	# 建塔價跟場上塔數遞增(GameData.BUILD_COST_STEP):起一座、賣一座都會令
+	# 「下一座」嘅實價變,而扣賬嗰邊(Battle.place_tower)永遠問 live 價。
+	# 所以塔數一變就重新問一次價,寫返落卡面 label 同 affordability 用嘅 cost ——
+	# 「卡上寫幾多」==「撳落去扣幾多」呢條不變式係喺呢度維持嘅。
+	var tn: int = battle.towers.size()
+	if tn != _last_tower_n:
+		_last_tower_n = tn
+		for c in _afford_cards:
+			var live: int = battle.place_cost(int(c.id))
+			if live != int(c.cost):
+				c.cost = live
+				c.cost_label.text = str(live)
 	# build affordability + active-card highlight
 	for c in _afford_cards:
 		var dis: bool = battle.gold < c.cost
@@ -897,20 +915,22 @@ func _contract_card(idx: int, pos: Vector2, sz: Vector2) -> Control:
 func _stacked_buff_text(st: Dictionary) -> String:
 	var b: Dictionary = st.get("buff", {})
 	var parts: Array = []
+	# 同 GameData.contract_buff_text 一樣行 Upgrade.fmt_pct_num:疊加後嘅
+	# regen 可以係 2.4% 呢類非整數,整數預設、有需要先一位小數。
 	if float(b.get("hp", 0.0)) > 0.0:
-		parts.append(tr("CONTRACT_B_HP").format({"n": "%.0f" % (float(b["hp"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_HP").format({"n": Upgrade.fmt_pct_num(float(b["hp"]) * 100.0)}))
 	if float(b.get("speed", 0.0)) > 0.0:
-		parts.append(tr("CONTRACT_B_SPEED").format({"n": "%.0f" % (float(b["speed"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_SPEED").format({"n": Upgrade.fmt_pct_num(float(b["speed"]) * 100.0)}))
 	if float(b.get("armor", 0.0)) > 0.0:
 		parts.append(tr("CONTRACT_B_ARMOR").format({"n": "%.0f" % float(b["armor"])}))
 	if float(b.get("mres", 0.0)) > 0.0:
 		parts.append(tr("CONTRACT_B_MRES").format({"n": "%.0f" % float(b["mres"])}))
 	if float(b.get("regen", 0.0)) > 0.0:
-		parts.append(tr("CONTRACT_B_REGEN").format({"n": "%.1f" % (float(b["regen"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_REGEN").format({"n": Upgrade.fmt_pct_num(float(b["regen"]) * 100.0)}))
 	if float(b.get("dense", 0.0)) > 0.0:
-		parts.append(tr("CONTRACT_B_DENSE").format({"n": "%.0f" % (float(b["dense"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_DENSE").format({"n": Upgrade.fmt_pct_num(float(b["dense"]) * 100.0)}))
 	if float(b.get("elite", 0.0)) > 0.0:
-		parts.append(tr("CONTRACT_B_ELITE").format({"n": "%.0f" % (float(b["elite"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_ELITE").format({"n": Upgrade.fmt_pct_num(float(b["elite"]) * 100.0)}))
 	if bool(b.get("noslow", false)):
 		parts.append(tr("CONTRACT_B_NOSLOW"))
 	if parts.is_empty():

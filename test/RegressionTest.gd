@@ -371,7 +371,9 @@ func _case_upgrade_stat_formatting() -> void:
 	_check(u._fmt(0.03, "knockslow") == "3%",
 		"擊退後減速 lv1 is visible, not \"0\" (%s)" % u._fmt(0.03, "knockslow"))
 	u._refresh_kind_map(GameData.tower_by_id(7))           # 狙擊塔 處決線
-	_check(u._fmt(0.012, "execute") == "1%",
+	# 第十六輪顯示規則:唔係成數嘅百分比印一位小數 —— 1.2% 先係真步長,
+	# 舊版四捨五入做 "1%" 令三級先郁一格。呢條斷言嘅重點不變:睇得見,唔係 "0"。
+	_check(u._fmt(0.012, "execute") == "1.2%",
 		"處決線 lv1 is visible, not \"0\" (%s)" % u._fmt(0.012, "execute"))
 	u.free()
 

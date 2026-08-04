@@ -806,7 +806,17 @@ const _PCT_STATS := ["curse", "vuln", "slow", "slowafter", "haste", "pct",
 	"knockslow", "execute", "heatrate", "ramprate", "rampmax",
 	# 詛咒塔 rework axes. bosseff is "prob" kind on 緩速力場塔 but "add" on 詛咒塔,
 	# so the kind check alone missed it and it rendered as a raw "0.6".
-	"goldbonus", "bosseff"]
+	"goldbonus", "bosseff",
+	# 顯示修正輪:呢五個以前直接印小數(healcut 0.35 印「0.3」、aurapower 0.25
+	# 印「0.2」)。critmult / heatmax 係倍率,跟 returnmult / rampmax 嘅先例
+	# 用 % 顯示(1.8 -> 180%)。dmgpct 三兄弟唔係升級軸,但佢哋係 0-1 分數,
+	# 一旦第日有人擺上畫面,預設就係 % 而唔係小數。
+	"critmult", "heatmax", "aurapower", "healcut", "supportmult",
+	"dmgpct", "dpspct", "bosspct"]
+
+# 攻速/頻率類(每秒次數)。固定兩位小數:好多塔嘅攻速步長係 0.04-0.18/級,
+# 一位小數之下「升咗級但個數字唔郁」,睇落好似買咗個空升級。
+const _RATE_STATS := ["rate", "pulserate"]
 
 # stat -> upgrade `kind` for the entry currently on screen, rebuilt per selection
 var _cur_kind: Dictionary = {}
@@ -825,11 +835,25 @@ static func is_pct_stat(stat: String, kind: String) -> bool:
 ## 一個 stat 值嘅顯示文字。呢個係全遊戲**唯一**將數字變成字嘅地方(升級介面、
 ## 圖鑑、效能面板都經佢),所以「畫面上見到嘅」同「引擎用緊嘅」之間只有一層
 ## 轉換,而嗰層有得逐項對數。
+## 百分比嘅「數字部分」(唔連 % 符號 —— 合約卡嘅 % 喺 i18n 字串入面)。
+## 預設整數(35),唔係成數先至一位小數(2.5)。入嚟嘅 p 已經係 0-100 刻度。
+static func fmt_pct_num(p: float) -> String:
+	if absf(p - round(p)) < 0.05:
+		return str(int(round(p)))
+	return "%.1f" % p
+
 static func fmt_value(v: float, stat: String, kind: String) -> String:
 	if is_pct_stat(stat, kind):
-		return "%d%%" % int(round(v * 100.0))
-	if stat == "cd":
-		return "%.1f" % v
+		# 百分比預設整數(35%);唔係成數先至一位小數(2.5%)。舊版一律
+		# int(round()) —— 狙擊塔處決線每級 +1.2%,四捨五入之下三級先郁一格,
+		# 中間兩級睇落係空升級。
+		return fmt_pct_num(v * 100.0) + "%"
+	if stat in _RATE_STATS:
+		# 攻速固定兩位小數(1.25),唔行下面「近整數就印整數」嗰條路 ——
+		# 「2 /秒」同「2.00 /秒」之間,後者先講得出下一級係 2.18。
+		return "%.2f" % v
+	# 冷卻唔再特事特辦("%.1f" 會印「8.0 秒」)—— 落通用規則:
+	# 整數就印整數,真係有小數先印一位。
 	if absf(v) >= 1000.0:
 		# tier 3 之後傷害去到四五位數,而 "2560.0" 呢類尾數係純粹噪音。
 		return str(int(round(v)))

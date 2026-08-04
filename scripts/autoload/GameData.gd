@@ -1493,20 +1493,23 @@ func contract_buff_text(idx: int) -> String:
 		return ""
 	var b: Dictionary = CONTRACTS[idx]["buff"]
 	var parts: Array = []
+	# 百分比數字統一經 Upgrade.fmt_pct_num(整數預設、有需要先一位小數)——
+	# 舊版 regen 硬寫 "%.1f",疊到 4% 嗰陣會印「4.0%」。armor/mres 係扁平點數,
+	# 唔係百分比,照舊整數。
 	if b.has("hp"):
-		parts.append(tr("CONTRACT_B_HP").format({"n": "%.0f" % (float(b["hp"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_HP").format({"n": Upgrade.fmt_pct_num(float(b["hp"]) * 100.0)}))
 	if b.has("speed"):
-		parts.append(tr("CONTRACT_B_SPEED").format({"n": "%.0f" % (float(b["speed"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_SPEED").format({"n": Upgrade.fmt_pct_num(float(b["speed"]) * 100.0)}))
 	if b.has("armor"):
 		parts.append(tr("CONTRACT_B_ARMOR").format({"n": "%.0f" % float(b["armor"])}))
 	if b.has("mres"):
 		parts.append(tr("CONTRACT_B_MRES").format({"n": "%.0f" % float(b["mres"])}))
 	if b.has("regen"):
-		parts.append(tr("CONTRACT_B_REGEN").format({"n": "%.1f" % (float(b["regen"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_REGEN").format({"n": Upgrade.fmt_pct_num(float(b["regen"]) * 100.0)}))
 	if b.has("dense"):
-		parts.append(tr("CONTRACT_B_DENSE").format({"n": "%.0f" % (float(b["dense"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_DENSE").format({"n": Upgrade.fmt_pct_num(float(b["dense"]) * 100.0)}))
 	if b.has("elite"):
-		parts.append(tr("CONTRACT_B_ELITE").format({"n": "%.0f" % (float(b["elite"]) * 100.0)}))
+		parts.append(tr("CONTRACT_B_ELITE").format({"n": Upgrade.fmt_pct_num(float(b["elite"]) * 100.0)}))
 	if b.has("noslow"):
 		parts.append(tr("CONTRACT_B_NOSLOW"))
 	return "、".join(parts) if TranslationServer.get_locale().begins_with("zh") else ", ".join(parts)

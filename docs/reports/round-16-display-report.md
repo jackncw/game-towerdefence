@@ -99,13 +99,21 @@ TradeDisplayTest 逐座斷言。
 
 ## 驗證
 
-- `run_tests.ps1` 全套(30 個,含新 TradeDisplayTest):**全綠**(見下)
+- `run_tests.ps1` 全套 **37 個測試全綠**(含新 TradeDisplayTest 2034 項)。
+  跑第一次嗰陣 RegressionTest 紅咗一項 —— 舊斷言寫死處決線印 "1%",
+  而新規則印真步長 "1.2%";斷言已按新規則更新(佢嘅原意「睇得見,唔係 0」不變)。
 - StatDisplayTest 4683 項、I18nTest 1152 項照舊全綠
 - 中英兩語截圖對照:`qa/screenshots/round-16-display-before-{zh,en}/` vs
-  `round-16-display-after-{zh,en}/`(升級介面、建塔面板、圖鑑)
-- Web build 真瀏覽器:起 3 座塔,卡面價逐座遞增(t1 價 → ×1.03 → ×1.03²)
-  且同扣賬一致;console 零 error
-- Pages 已部署新 build
+  `round-16-display-after-{zh,en}/`(升級介面 06*、建塔抽屜 21、圖鑑 08/27、
+  合約無關頁全部順手覆蓋)。實影對照:箭塔升級行 `2.2 → 2.4` 變 `2.20 → 2.38`、
+  `1.8 → 2` 變 `180% → 198%`,中英一致,英文冇爆版。
+- Web build 真瀏覽器(Playwright + 部署後嘅 Pages 網址,唔係本地檔案):
+  第 1 關起 3 座箭塔 —— 金 200 →(扣 60)→ 140 →(扣 62)→ 78 →(扣 64)→ 14,
+  每次扣嘅都係扣之前卡面寫嘅數;起完每座卡面即刻跳新價
+  60→62→64→66(=60×1.03ⁿ 四捨五入),全部塔卡同步跳(110→113→117→120、
+  90→93→95→98);唔夠錢嘅卡按**新價**變灰。console 零 error。
+  截圖:`qa/screenshots/round-16-web/`。
+- Pages 已部署新 build(pck 7,261,476 bytes,同本地 export 一致)
 
 ## Jack 要驗乜
 

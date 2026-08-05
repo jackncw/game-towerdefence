@@ -57,12 +57,25 @@ const A4_SPELLS := [1, 11, 13]               # 隕石 / 地震 / 天雷誅殺
 var arch := "A1"
 var seeds := 4
 var seed0 := 0
+## 策略質素(第十八輪 Part 0)。`--strat=` 收一串字母,每個字母開一個
+## 「熟手真人」嘅打法元件;`base` = 第十五輪嗰個原版,`strong` = PUC 全開。
+##   P  擺塔位按**路程覆蓋**排,唔係按沿路先後排
+##   U  升級軸按**邊際 DPS/魔晶**買,唔係按最平嗰條買
+##   C  魔法按威脅施放(boss 優先、雜兵夠密先落 AoE、留一手應急)
+## 五個原型共用同一個 strat —— 佢係「把尺」,唔係原型嘅一部分。
+var strat := "base"
+var s_place := false
+var s_upgrade := false
+var s_cast := false
 ## 冇 `--mode=` 就係 "" —— 見 _ready() 個 match。**唔可以**預設做 "sweep":
 ## `run_tests.ps1` 唔傳參數,而 sweep 係七分鐘。
 var mode := ""
 ## 由第幾關開始打。**只對 A4 有意義** —— 佢個 build 係直接授予嘅,唔靠歷史,
 ## 所以跳過頭九十關唔會令佢變弱。A0-A3 一定要由第 1 關打起(經濟要真)。
 var lv_from := 1
+## 打到第幾關為止。診斷用(Part 0 只需要 11-40,唔使行埋後面六十關);
+## 定版 gate 一律留返 0 = 打足 CAMPAIGN_LEVELS。
+var lv_to := 0
 var _save_bytes := PackedByteArray()
 var _had_save := false
 
@@ -82,6 +95,17 @@ func _ready() -> void:
 			mode = a.substr(7)
 		elif a.begins_with("--from="):
 			lv_from = int(a.substr(7))
+		elif a.begins_with("--strat="):
+			strat = a.substr(8)
+		elif a.begins_with("--to="):
+			lv_to = int(a.substr(5))
+	if strat == "strong":
+		strat = "PUC"
+	elif strat == "base":
+		strat = ""
+	s_place = "P" in strat
+	s_upgrade = "U" in strat
+	s_cast = "C" in strat
 	match mode:
 		"power":
 			_power_table()
@@ -494,11 +518,15 @@ func _auto_cast(b) -> void:
 	if b.monsters.is_empty():
 		return
 	var alive := 0
+	var deepest := 0.0
 	for m in b.monsters:
 		if m.alive:
 			alive += 1
+			deepest = maxf(deepest, float(m.dist) / maxf(1.0, b.route.total))
 	if alive < 4 and not b.boss_spawned:
 		return
+	# 強策略:一隻怪行到七成路就係應急,唔理密度即刻清場
+	var panic: bool = s_cast and deepest >= 0.70
 	for id in Meta.unlocked_spells:
 		if float(b.spell_cd.get(int(id), 0.0)) > 0.0:
 			continue
@@ -506,9 +534,48 @@ func _auto_cast(b) -> void:
 		if def.is_empty():
 			continue
 		if bool(def.target):
-			b._cast_spell_at(int(id), _cluster_pos(b))
+			if s_cast:
+				# 用魔法**自己嘅半徑**搵最多怪嗰點,唔係一個寫死嘅 150px。
+				# boss 在場照樣點名 boss(佢係血量水池),但冇 boss 嘅時候
+				# 要求聚到夠先落 —— 一個熟手唔會用隕石掃四隻雜兵。
+				var st: Dictionary = Meta.spell_stats(int(id))
+				var rad: float = maxf(60.0, float(st.get("radius", 120.0)))
+				var hit: Array = _best_cluster(b, rad)
+				if not panic and b.boss_ref == null and int(hit[1]) < 5:
+					continue
+				b._cast_spell_at(int(id), hit[0] as Vector2)
+			else:
+				b._cast_spell_at(int(id), _cluster_pos(b))
 		else:
+			if s_cast and not panic and not b.boss_spawned and alive < 6:
+				continue
 			b._cast_spell_now(int(id))
+
+## 半徑 r 之內最多怪嗰點,連同嗰點嘅怪數。O(n^2),每 0.5 秒行一次。
+func _best_cluster(b, r: float) -> Array:
+	var live: Array = []
+	for m in b.monsters:
+		if m.alive:
+			live.append(m)
+	if live.is_empty():
+		return [b.base_pos, 0]
+	if b.boss_ref != null and is_instance_valid(b.boss_ref) and b.boss_ref.alive:
+		var bn := 0
+		for o in live:
+			if b.boss_ref.global_position.distance_to(o.global_position) <= r:
+				bn += 1
+		return [b.boss_ref.global_position, maxi(bn, 5)]
+	var best: Vector2 = b.base_pos
+	var best_n := -1
+	for m in live:
+		var n := 0
+		for o in live:
+			if m.global_position.distance_squared_to(o.global_position) <= r * r:
+				n += 1
+		if n > best_n:
+			best_n = n
+			best = m.global_position
+	return [best, best_n]
 
 ## 最多怪聚埋嘅位。O(n^2) 但每 0.5 秒先行一次。
 func _cluster_pos(b) -> Vector2:
@@ -734,6 +801,7 @@ func _buy_core_upgrade() -> bool:
 	var best_id := 0
 	var best_dir := -1
 	var best_cost := 1 << 30
+	var best_v := -1.0
 	for id in _core_towers():
 		var levels: Array = Meta.tower_levels(id)
 		for d in levels.size():
@@ -742,7 +810,13 @@ func _buy_core_upgrade() -> bool:
 			if int(levels[d]) >= GameData.MAX_UP_LV:
 				continue
 			var c: int = Meta.tower_up_cost(id, d)
-			if c < best_cost:
+			if s_upgrade:
+				if not Meta.can_afford(c):
+					continue
+				var g: float = _axis_gain(id, true, d) / maxf(1.0, float(c))
+				if g > best_v:
+					best_v = g; best_cost = c; best_id = id; best_dir = d; best_kind = "tower"
+			elif c < best_cost:
 				best_cost = c; best_id = id; best_dir = d; best_kind = "tower"
 	for sid in Meta.unlocked_spells:
 		var slv: Array = Meta.spell_levels(int(sid))
@@ -750,7 +824,13 @@ func _buy_core_upgrade() -> bool:
 			if int(slv[d]) >= GameData.MAX_UP_LV:
 				continue
 			var c: int = Meta.spell_up_cost(int(sid), d)
-			if c < best_cost:
+			if s_upgrade:
+				if not Meta.can_afford(c):
+					continue
+				var g2: float = _axis_gain(int(sid), false, d) / maxf(1.0, float(c))
+				if g2 > best_v:
+					best_v = g2; best_cost = c; best_id = int(sid); best_dir = d; best_kind = "spell"
+			elif c < best_cost:
 				best_cost = c; best_id = int(sid); best_dir = d; best_kind = "spell"
 	if best_dir < 0 or not Meta.can_afford(best_cost):
 		return false
@@ -761,17 +841,65 @@ func _buy_cheapest_axis(id: int, is_tower: bool) -> bool:
 	var levels: Array = Meta.tower_levels(id) if is_tower else Meta.spell_levels(id)
 	var best_dir := -1
 	var best_cost := 1 << 30
+	var best_v := -1.0
 	for d in levels.size():
 		if int(levels[d]) >= GameData.MAX_UP_LV:
 			continue
 		var c: int = Meta.tower_up_cost(id, d) if is_tower else Meta.spell_up_cost(id, d)
-		if c < best_cost:
+		if s_upgrade:
+			# 強策略:買**邊際戰力 / 魔晶**最高嗰條軸,而唔係最平嗰條。
+			# 兩者嘅終點一樣(進化門檻要六條軸全滿),分別純粹係中段軌跡:
+			# 原版「最平先買」等於按 base_cost 反序輪住加,箭塔會由射程行先;
+			# 熟手真人會先谷傷害同攻速(兩者相乘),再補暴擊系。
+			if not Meta.can_afford(c):
+				continue
+			var g: float = _axis_gain(id, is_tower, d) / maxf(1.0, float(c))
+			if g > best_v:
+				best_v = g
+				best_dir = d
+				best_cost = c
+		elif c < best_cost:
 			best_cost = c
 			best_dir = d
 	if best_dir < 0 or not Meta.can_afford(best_cost):
 		return false
 	return Meta.buy_tower_upgrade(id, best_dir) if is_tower \
 		else Meta.buy_spell_upgrade(id, best_dir)
+
+## 買咗第 d 條軸一級之後,呢件嘢嘅戰力升幾多(絕對值)。
+func _axis_gain(id: int, is_tower: bool, d: int) -> float:
+	var levels: Array = (Meta.tower_levels(id) if is_tower else Meta.spell_levels(id)).duplicate()
+	var p0: float = _item_power(id, is_tower, levels)
+	levels[d] = int(levels[d]) + 1
+	return maxf(0.0, _item_power(id, is_tower, levels) - p0)
+
+## 戰力代理。塔:傷 x 攻速 x 暴擊期望 x 連擊期望;魔法:(直傷 + dps x 時長)/ 冷卻。
+## 唔係一個絕對 DPS(範圍/穿透/減速嗰啲效用軸唔入數),但佢喺**同一件嘢嘅
+## 唔同軸之間**排序係啱嘅,而呢個 greedy 只需要嗰個。
+func _item_power(id: int, is_tower: bool, levels: Array) -> float:
+	var def: Dictionary = GameData.tower_by_id(id) if is_tower else GameData.spell_by_id(id)
+	if def.is_empty():
+		return 0.0
+	var tier: int = Meta.tower_tier(id) if is_tower else Meta.spell_tier(id)
+	var st: Dictionary = GameData.effective_stats(def, levels, tier)
+	if not is_tower:
+		var cd: float = maxf(1.0, float(st.get("cd", 8.0)))
+		return (float(st.get("dmg", 0.0)) + float(st.get("dps", 0.0)) * float(st.get("dur", 0.0))) / cd
+	var dmg: float = float(st.get("dmg", 0.0))
+	var rate: float = float(st.get("rate", 0.0))
+	var crit: float = clampf(float(st.get("crit", 0.0)), 0.0, 1.0)
+	var cm: float = float(st.get("critmult", 1.0))
+	var dbl: float = clampf(float(st.get("double", 0.0)), 0.0, 1.0)
+	var p: float = dmg * rate * (1.0 + crit * maxf(0.0, cm - 1.0)) * (1.0 + dbl)
+	# 有持續傷害/脈衝嘅塔(火/毒/減速場)嘅主要輸出唔喺 dmg 度
+	p += float(st.get("burn", 0.0)) * float(st.get("burndur", 0.0)) * rate
+	p += float(st.get("pstack", 0.0)) * float(st.get("pmax", 0.0)) * 0.5
+	p += float(st.get("pulse", 0.0)) * float(st.get("pulserate", 0.0))
+	# 連鎖塔:每多一段等於多一份(帶衰減)輸出
+	var chain: float = float(st.get("chain", 0.0))
+	if chain > 0.0:
+		p *= 1.0 + (chain - 1.0) * maxf(0.0, 1.0 - float(st.get("falloff", 0.35)))
+	return p
 
 func _core_towers() -> Array:
 	var out: Array = []
@@ -879,9 +1007,42 @@ func _spots(b) -> Array:
 				out.append(p)
 			x += step
 		y += step
-	# 沿住路徑由出怪口排落去 —— 一個真人玩家就係咁鋪
-	out.sort_custom(func(a, c): return b.route.nearest_dist_param(a) < b.route.nearest_dist_param(c))
+	if s_place:
+		# 強策略:按「射程覆蓋到幾多路程」排。呢個係熟手真人真正做緊嘅嘢 ——
+		# 揀路折返嘅拐彎位,一座塔食兩三條線。原版嗰條 `nearest_dist_param`
+		# 排序講嘅係「最近路點喺條路嘅幾多 %」,即係由出怪口一路鋪落去;
+		# 佢冇避開低覆蓋嘅位,實測第 20 關頭 14 座嘅總覆蓋差 1.34 倍
+		# (test/StratDiag.tscn)。
+		var r: float = _main_range()
+		var cov := {}
+		for p in out:
+			cov[p] = _coverage(b, p, r)
+		out.sort_custom(func(a, c):
+			var ca: float = float(cov[a])
+			var cc: float = float(cov[c])
+			if absf(ca - cc) > 1.0:
+				return ca > cc
+			return b.route.nearest_dist_param(a) < b.route.nearest_dist_param(c))
+	else:
+		# 沿住路徑由出怪口排落去 —— 原版嘅「一個真人玩家就係咁鋪」
+		out.sort_custom(func(a, c): return b.route.nearest_dist_param(a) < b.route.nearest_dist_param(c))
 	return out
+
+## 主力輸出塔嘅射程 —— 覆蓋率用邊個射程量,答案唔同。用場上最抵嗰座。
+func _main_range() -> float:
+	var st: Dictionary = Meta.tower_stats(_main_field_tower())
+	return maxf(120.0, float(st.get("range", 260.0)))
+
+## 射程 r 覆蓋到幾多路程(沿路 16px 取樣)。每場只行一次。
+func _coverage(b, p: Vector2, r: float) -> float:
+	var tot: float = b.route.total
+	var d := 0.0
+	var hit := 0.0
+	while d < tot:
+		if b.route.pos_at(d).distance_to(p) <= r:
+			hit += 16.0
+		d += 16.0
+	return hit
 
 # --- save 備份 ---------------------------------------------------------------
 func _backup_save() -> void:

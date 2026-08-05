@@ -113,7 +113,7 @@ func _ready() -> void:
 # ===========================================================================
 func _sweep() -> void:
 	print("GATE MODE=sweep arch=%s seeds=%d seed0=%d" % [arch, seeds, seed0])
-	print("GATE HDR arch seed lv win frac kills towers gold_income gold_left tower_cost crystals cheapest start_gold")
+	print("GATE HDR arch seed lv win frac kills towers gold_income gold_left tower_cost crystals cheapest start_gold time")
 	for si in seeds:
 		var sd: int = seed0 + si
 		seed(0xC0FFEE + sd * 7919)
@@ -127,10 +127,11 @@ func _sweep() -> void:
 			var c0: int = Meta.crystals
 			var cheap: int = _median_core_cost()
 			var r: Dictionary = await _play(lv)
-			print("GATE ROW %s %d %d %d %.4f %d %d %d %d %d %d %d %d"
+			print("GATE ROW %s %d %d %d %.4f %d %d %d %d %d %d %d %d %.1f"
 				% [arch, sd, lv, 1 if r.win else 0, r.frac, r.kills, r.towers,
-				r.income, r.gold_left, GameData.place_cost(_main_field_tower(), lv),
-				Meta.crystals, cheap, int(GameData.level_config(lv).start_gold)])
+				r.income, r.gold_left, GameData.place_cost(_main_field_tower()),
+				Meta.crystals, cheap, int(GameData.level_config(lv).start_gold),
+				float(r.time)])
 			if lv % 10 == 0:
 				# 每十關報一次 build 狀態,pacing 曲線由呢啲行砌返出嚟
 				print("GATE BUILD %s %d %d T%d S%d axes=%d/%d crystals=%d cum=%d"
@@ -213,7 +214,8 @@ func _dense(n: int) -> float:
 	return 1.6 / float(GameData.level_config(n).spawn_interval_start)
 
 func _enemy_index(n: int) -> float:
-	return GameData.difficulty(n)
+	# 路長因子係實際壓力嘅一部分(第十七輪),唔計佢個表就同戰場對唔上。
+	return GameData.difficulty(n) * GameData.path_factor(n)
 
 # ===========================================================================
 # MODE final — 第 100 關嘅 A3 / A4 對照(唔使打成個 campaign)
@@ -228,7 +230,7 @@ func _final_test() -> void:
 	print("GATE MODE=final arch=%s seeds=%d 難度=%.0f" % [arch, seeds, GameData.difficulty(100)])
 	var wins := 0
 	for si in seeds:
-		seed(0xF1A1 + si * 7919)
+		seed(0xF1A1 + (seed0 + si) * 7919)
 		Meta.reset_save()
 		if arch == "A4":
 			_grant_a4()
@@ -260,10 +262,9 @@ func _gate1_table() -> void:
 		var lose: int = GameData.level_lose_reward(n, int(GameData.LOSE_EXPECTED_KILLS * 0.5),
 			30.0, 60.0, 0.35, false)
 		var ratio: float = float(lose) / maxf(1.0, float(c))
-		# 合約關:穩陣策略嘅倍率(五張 risk-0 卡)
+		# 合約關嘅敗仗**冇**倍率(倍率只喺通關兌現),所以 contract_lose 同
+		# 普通敗仗一樣 —— 兩欄照印,證明呢條規則冇被邊個靜靜改咗。
 		var cl: int = lose
-		if GameData.is_contract_level(n):
-			cl = int(round(float(lose) * _safe_mult()))
 		var cr: float = float(cl) / maxf(1.0, float(c))
 		worst = minf(worst, ratio)
 		best = maxf(best, ratio)
@@ -277,10 +278,35 @@ func _gate1_table() -> void:
 	# 上限 3.0 係 brief 寫嘅「唔准去到 3+ 否則又太鬆」。
 	var ok: bool = bad == 0 and best <= 3.0
 	print("GATE1 %s (100 關全部 >= 1.0,最高 %.2f)" % ["PASS" if ok else "FAIL", best])
-	if not ok:
+	# --- 合約 v2 嘅結構斷言(一齊跟 gate1 跑,純算術)------------------------
+	# 1. 三級風險各起碼一張卡  2. 冇卡超過單卡封頂 CONTRACT_MULT_CAP
+	# 3. contract_draw() 永遠出三張,順序低/中/高各一
+	var tier_n := [0, 0, 0]
+	var over_cap := 0
+	for c in GameData.CONTRACTS:
+		tier_n[clampi(int(c["risk"]), 0, 2)] += 1
+		if float(c["crystal"]) > GameData.CONTRACT_MULT_CAP + 0.0001 \
+				or float(c["gold"]) > GameData.CONTRACT_MULT_CAP + 0.0001:
+			over_cap += 1
+	var draw_ok := true
+	seed(0xD12A)
+	for _i in 50:
+		var offer: Array = GameData.contract_draw()
+		if offer.size() != 3:
+			draw_ok = false
+			continue
+		for k in 3:
+			if int(GameData.CONTRACTS[int(offer[k])]["risk"]) != k:
+				draw_ok = false
+	var ok2: bool = tier_n[0] > 0 and tier_n[1] > 0 and tier_n[2] > 0 \
+		and over_cap == 0 and draw_ok
+	print("GATE1B %s (卡數 低%d/中%d/高%d, 超封頂 %d, 50 次抽卡低中高各一 %s)"
+		% ["PASS" if ok2 else "FAIL", tier_n[0], tier_n[1], tier_n[2], over_cap,
+		"係" if draw_ok else "唔係"])
+	if not (ok and ok2):
 		get_tree().quit(1)
 
-## 穩陣策略五張卡嘅晶石倍率(全部 risk 0,取平均倍率嘅五次方)。
+## 穩陣策略嘅期望晶石倍率(v2:一關一卡,= risk-0 卡嘅平均卡面倍率)。
 func _safe_mult() -> float:
 	var s := 0.0
 	var n := 0
@@ -288,7 +314,7 @@ func _safe_mult() -> float:
 		if int(c["risk"]) == 0:
 			s += float(c["crystal"])
 			n += 1
-	return pow(s / maxf(1.0, float(n)), GameData.CONTRACT_PICKS)
+	return s / maxf(1.0, float(n))
 
 # ===========================================================================
 # MODE econ — 金幣 vs 建塔成本
@@ -304,7 +330,7 @@ func _econ_curve() -> void:
 	for lv in range(1, CAMPAIGN_LEVELS + 1):
 		_spend_a1(lv)
 		var r: Dictionary = await _play(lv)
-		var cost: int = GameData.place_cost(_main_field_tower(), lv)
+		var cost: int = GameData.place_cost(_main_field_tower())
 		var total: int = int(r.income) + int(GameData.level_config(lv).start_gold)
 		print("GATE ROW %d %d %d %d %.3f %d"
 			% [lv, r.income, GameData.level_config(lv).start_gold, cost,

@@ -39,7 +39,7 @@ for pat in sys.argv[1:]:
                 cry_lv[(strat, kind, lv)].append(crystals)
 
 if live:
-    print('=== Gate 3b 凍結升級測試(第 N-5 關嘅 A1 build 打第 N 關)===')
+    print('=== Gate 3b 凍結升級測試(第十七輪重釘:窗口 = 15 關)===')
     print('區間      實時勝率   凍5關勝率  凍15關勝率  樣本')
     for lo, hi in [(16, 25), (26, 35), (36, 40), (16, 40)]:
         lw = [x for lv in range(lo, hi + 1) for x in live.get(lv, [])]
@@ -51,12 +51,13 @@ if live:
               (lo, hi, 100.0 * sum(lw) / max(1, len(lw)),
                100.0 * sum(fw) / len(fw),
                ('%.1f%%' % (100.0 * sum(f15) / len(f15))) if f15 else '-', len(fw)))
+    g = [x for lv in range(16, 41) for x in frozen15.get(lv, [])]
+    r15 = 100.0 * sum(g) / max(1, len(g))
+    print('Gate3b 凍結 N-15 於 16-40 <= 25%%: %s (%.1f%%)' % ('PASS' if r15 <= 25 else 'FAIL', r15))
     fw = [x for lv in range(16, 41) for x in frozen.get(lv, [])]
-    r = 100.0 * sum(fw) / max(1, len(fw))
-    print('Gate3b 凍結 N-5 於 16-40 <= 25%%: %s (%.1f%%)' % ('PASS' if r <= 25 else 'FAIL', r))
-    g = [x for lv in range(31, 41) for x in frozen15.get(lv, [])]
-    if g:
-        print('(診斷)凍結 N-15 於 31-40: %.1f%%' % (100.0 * sum(g) / len(g)))
+    if fw:
+        print('(診斷)凍結 N-5 於 16-40: %.1f%%(v1 窗口,唔係 gate)'
+              % (100.0 * sum(fw) / len(fw)))
 
 if cry:
     print()

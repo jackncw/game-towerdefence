@@ -414,8 +414,8 @@ func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
 	cost.size = Vector2(64, 30)
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(cost)
-	# cost_label 一齊入 dict:建塔價跟場上塔數遞增(BUILD_COST_STEP),所以呢個數
-	# 唔係一個常數 —— refresh() 喺塔數改變嗰陣會重新問價再寫返落嚟。
+	# cost_label 一齊入 dict:固定價之下佢其實唔會變,但 refresh() 照樣以
+	# battle.place_cost() 為準重寫 —— 顯示價永遠問同一個入口,唔靠「唔會變」。
 	quick_cards.append({"id": id, "btn": btn, "cost": battle.place_cost(int(def.id)),
 		"cost_label": cost, "slot": slot})
 	return btn
@@ -681,10 +681,9 @@ func refresh(delta: float) -> void:
 		var sm := Color(1.35, 1.35, 0.9) if battle.aiming_spell == c.id else Color.WHITE
 		if c.btn.modulate != sm:
 			c.btn.modulate = sm
-	# 建塔價跟場上塔數遞增(GameData.BUILD_COST_STEP):起一座、賣一座都會令
-	# 「下一座」嘅實價變,而扣賬嗰邊(Battle.place_tower)永遠問 live 價。
-	# 所以塔數一變就重新問一次價,寫返落卡面 label 同 affordability 用嘅 cost ——
-	# 「卡上寫幾多」==「撳落去扣幾多」呢條不變式係喺呢度維持嘅。
+	# 固定價(第十七輪)之下 live 價其實唔會再變,但呢個 refresh 保留:
+	# 顯示價同扣賬價(Battle.place_tower)永遠問同一個 place_cost() 入口,
+	# 「卡上寫幾多」==「撳落去扣幾多」呢條不變式靠入口一致,唔靠假設價錢唔郁。
 	var tn: int = battle.towers.size()
 	if tn != _last_tower_n:
 		_last_tower_n = tn
@@ -727,7 +726,7 @@ func _flash_card(btn: Button) -> void:
 	tw.tween_callback(fl.queue_free)
 
 # ---------------------------------------------------------------------------
-# 風險合約 —— 三選一卡片 + 常駐狀態指示
+# 風險合約 (v2) —— 入關說明窗 -> 三選一卡片 + 常駐狀態指示
 #
 # 卡片層係 PROCESS_MODE_ALWAYS 而場面係 pausable,所以攤卡嗰陣成個世界唔郁,
 # 但撳掣仲收得到 —— 「唔准俾怪物偷跑」呢句話喺呢一行落地。
@@ -742,7 +741,7 @@ var contract_badge_label: Label
 func _build_contract_ui() -> void:
 	if not battle.contract_level:
 		return
-	# 常駐指示:撳一撳攤開而家背住乜。放喺頂欄下面、金幣badge 之上一行。
+	# 常駐指示:撳一撳攤開本關合約嘅詳情。放喺頂欄下面、金幣badge 之上一行。
 	contract_badge = UI.button("", Vector2(300, 54), UI.PANEL, 22)
 	contract_badge.position = Vector2(390, 130)
 	contract_badge.pressed.connect(_toggle_contract_summary)
@@ -755,14 +754,17 @@ func _build_contract_ui() -> void:
 	add_child(contract_badge_label)
 	_refresh_contract_badge()
 
+## 徽章顯示**當前生效嗰一張**:卡名 + 晶石倍率。未簽就話未簽。
 func _refresh_contract_badge() -> void:
 	if contract_badge_label == null:
 		return
-	var st: Dictionary = battle.contract_state
+	if battle.contract_taken.is_empty():
+		contract_badge_label.text = tr("CONTRACT_BADGE_NONE")
+		return
+	var c: Dictionary = GameData.CONTRACTS[int(battle.contract_taken[0])]
 	contract_badge_label.text = tr("CONTRACT_BADGE").format({
-		"n": battle.contract_picks_done,
-		"t": GameData.CONTRACT_PICKS,
-		"c": "%.2f" % float(st.get("crystal", 1.0)),
+		"name": tr(String(c["name"])),
+		"c": "%.2f" % float(battle.contract_state.get("crystal", 1.0)),
 	})
 
 func _toggle_contract_summary() -> void:
@@ -771,11 +773,12 @@ func _toggle_contract_summary() -> void:
 	if contract_layer != null and is_instance_valid(contract_layer):
 		hide_contract()
 		return
-	_build_contract_panel([], true)
+	_build_contract_summary()
 
-## 攤三張卡。`offer` = GameData.CONTRACTS 嘅索引。
+## 入關流程:先彈說明窗,撳確定先攤三張卡。每次入合約關都彈 ——
+## 呢個窗就係「合約關規則」嘅教學位,唔靠玩家記得七關之前見過一次。
 func show_contract(offer: Array) -> void:
-	_build_contract_panel(offer, false)
+	_build_contract_intro(offer)
 
 func hide_contract() -> void:
 	if contract_layer != null and is_instance_valid(contract_layer):
@@ -783,7 +786,8 @@ func hide_contract() -> void:
 	contract_layer = null
 	_refresh_contract_badge()
 
-func _build_contract_panel(offer: Array, summary_only: bool) -> void:
+## 全屏遮罩 + 大標題 —— 說明窗、選卡、詳情三個畫面共用嘅底。
+func _contract_backdrop() -> void:
 	hide_contract()
 	contract_layer = Control.new()
 	contract_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -795,65 +799,90 @@ func _build_contract_panel(offer: Array, summary_only: bool) -> void:
 	dim.color = Color(0.05, 0.03, 0.02, 0.90)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	contract_layer.add_child(dim)
+	# 標題喺 150:120 嗰陣個橫幅同頂欄嘅金幣/魔晶徽章(y=128-188)疊住。
+	contract_layer.add_child(UI.banner_title(tr("CONTRACT_TITLE"), 150, 760, 44))
 
-	# 標題由 120 落到 150:120 嗰陣個橫幅同頂欄嘅金幣/魔晶徽章(y=128-188)
-	# 疊住,兩行數字由橫幅兩邊窿出嚟。
-	var head := UI.banner_title(tr("CONTRACT_TITLE"), 150, 760, 44)
-	contract_layer.add_child(head)
-	var sub := UI.label(tr("CONTRACT_WAVE_OF").format({
-		"n": battle.contract_picks_done + (0 if summary_only else 1),
-		"t": GameData.CONTRACT_PICKS}), 30, UI.TEXT_DIM)
+## 入關說明窗。
+func _build_contract_intro(offer: Array) -> void:
+	_contract_backdrop()
+	var box := UI.panel_parch()
+	box.position = Vector2(80, 420)
+	box.size = Vector2(920, 560)
+	contract_layer.add_child(box)
+	var stt := UI.label(tr("CONTRACT_INTRO_TITLE"), 34, Color(0.35, 0.24, 0.12))
+	stt.position = Vector2(128, 460)
+	stt.size = Vector2(824, 44)
+	stt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	contract_layer.add_child(stt)
+	# 羊皮紙框有一圈 baked border,字要縮 30px+ 先唔會被框邊蓋住。
+	var clip := Control.new()
+	clip.position = Vector2(128, 520)
+	clip.size = Vector2(824, 400)
+	clip.clip_contents = true
+	contract_layer.add_child(clip)
+	var body := UI.label(tr("CONTRACT_INTRO_BODY"), 28, Color(0.30, 0.20, 0.12))
+	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# CJK 長句要 AUTOWRAP_ARBITRARY 先包得穩(WORD_SMART 對中文成日唔包)
+	body.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY \
+		if TranslationServer.get_locale().begins_with("zh") else TextServer.AUTOWRAP_WORD_SMART
+	clip.add_child(body)
+	var ok := UI.button(tr("CONTRACT_INTRO_OK"), Vector2(420, 104), UI.ACCENT, 36)
+	ok.position = Vector2(330, 1030)
+	ok.pressed.connect(func(): _build_contract_panel(offer))
+	contract_layer.add_child(ok)
+
+## 三選一。`offer` = GameData.CONTRACTS 嘅索引,[低, 中, 高]。
+func _build_contract_panel(offer: Array) -> void:
+	_contract_backdrop()
+	var sub := UI.label(tr("CONTRACT_PICK_HINT"), 30, UI.TEXT_DIM)
 	sub.position = Vector2(160, 244)
 	sub.size = Vector2(760, 44)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	contract_layer.add_child(sub)
+	# 三張卡由 y=360 起,320 高、40 間隔 -> 尾張到 1400,喺快捷列(1586)之上。
+	const CARD_H := 320
+	for i in offer.size():
+		var idx: int = int(offer[i])
+		contract_layer.add_child(_contract_card(idx, Vector2(80, 360 + i * (CARD_H + 40)),
+			Vector2(920, CARD_H)))
 
-	# --- 當前已疊加嘅總狀態 -------------------------------------------------
+## 徽章撳開嘅「本關合約」詳情。
+func _build_contract_summary() -> void:
+	_contract_backdrop()
 	var st: Dictionary = battle.contract_state
 	var box := UI.panel_parch()
 	box.position = Vector2(80, 296)
-	box.size = Vector2(920, 200)
+	box.size = Vector2(920, 240)
 	contract_layer.add_child(box)
-	# 羊皮紙框有一圈 baked border,所以入面嘅字要縮多 30px 先唔會被框邊蓋住
-	# (第一版縮 16px,截圖出嚟「目前已背負」同「總倍率」兩行都被啃咗一半)。
-	var stt := UI.label(tr("CONTRACT_CURRENT"), 28, Color(0.35, 0.24, 0.12))
+	var name_txt := tr("CONTRACT_NONE_YET")
+	if not battle.contract_taken.is_empty():
+		name_txt = tr(String(GameData.CONTRACTS[int(battle.contract_taken[0])]["name"]))
+	var stt := UI.label(tr("CONTRACT_CURRENT") + ":" + name_txt, 30, Color(0.35, 0.24, 0.12))
 	stt.position = Vector2(128, 330)
-	stt.size = Vector2(848, 36)
+	stt.size = Vector2(848, 40)
 	contract_layer.add_child(stt)
 	var cur_buff: String = _stacked_buff_text(st)
 	var clip := Control.new()
-	clip.position = Vector2(116, 362)
+	clip.position = Vector2(116, 378)
 	clip.size = Vector2(848, 62)
 	clip.clip_contents = true
 	contract_layer.add_child(clip)
-	var bl := UI.label(cur_buff if cur_buff != "" else tr("CONTRACT_NONE_YET"), 26,
+	var bl := UI.label(tr("CONTRACT_BUFF_PREFIX") + cur_buff if cur_buff != "" else " ", 26,
 		Color(0.42, 0.18, 0.12))
 	bl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	clip.add_child(bl)
 	var ml := UI.label(tr("CONTRACT_TOTAL_MULT").format({
 		"c": "%.2f" % float(st.get("crystal", 1.0)),
-		"g": "%.2f" % float(st.get("gold", 1.0))})
-		+ ("  " + tr("CONTRACT_CAPPED") if bool(st.get("capped", false)) else ""),
+		"g": "%.2f" % float(st.get("gold", 1.0))}),
 		30, Color(0.30, 0.17, 0.45))
-	ml.position = Vector2(116, 428)
+	ml.position = Vector2(116, 448)
 	ml.size = Vector2(848, 42)
 	contract_layer.add_child(ml)
-
-	if summary_only:
-		var close := UI.button(tr("COMMON_CLOSE"), Vector2(420, 104), UI.ACCENT, 36)
-		close.position = Vector2(330, 560)
-		close.pressed.connect(hide_contract)
-		contract_layer.add_child(close)
-		return
-
-	# --- 三張卡 -------------------------------------------------------------
-	# 三張卡由 y=536 起,320 高、20 間隔 -> 尾張到 1496,啱啱喺快捷列(1586)之上。
-	const CARD_H := 320
-	for i in offer.size():
-		var idx: int = int(offer[i])
-		contract_layer.add_child(_contract_card(idx, Vector2(80, 536 + i * (CARD_H + 20)),
-			Vector2(920, CARD_H)))
+	var close := UI.button(tr("COMMON_CLOSE"), Vector2(420, 104), UI.ACCENT, 36)
+	close.position = Vector2(330, 600)
+	close.pressed.connect(hide_contract)
+	contract_layer.add_child(close)
 
 const RISK_COL := [Color(0.46, 0.72, 0.40), Color(0.93, 0.72, 0.30), Color(0.86, 0.38, 0.26)]
 
@@ -894,20 +923,17 @@ func _contract_card(idx: int, pos: Vector2, sz: Vector2) -> Control:
 	buff_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	buff_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip.add_child(buff_l)
+	# 單卡就係成關嘅全部規則,所以倍率行唔使再有「簽下後總倍率」呢種二階數。
 	var mult_l := UI.label(GameData.contract_mult_text(idx), 32, UI.CRYSTAL)
-	mult_l.position = Vector2(52, 212)
+	mult_l.position = Vector2(52, 224)
 	mult_l.size = Vector2(sz.x - 96, 44)
 	mult_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(mult_l)
-	# 「揀咗之後總倍率會變成幾多」—— 玩家要比較嘅係呢個,唔係單卡倍率
-	var after: Dictionary = GameData.contract_accumulate(battle.contract_taken + [idx])
-	var after_l := UI.label(tr("CONTRACT_AFTER").format({
-		"c": "%.2f" % float(after["crystal"]), "g": "%.2f" % float(after["gold"])}),
-		26, UI.TEXT_DIM)
-	after_l.position = Vector2(52, 262)
-	after_l.size = Vector2(sz.x - 96, 40)
-	after_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(after_l)
+	var note_l := UI.label(tr("CONTRACT_WIN_ONLY_NOTE"), 24, UI.TEXT_DIM)
+	note_l.position = Vector2(52, 268)
+	note_l.size = Vector2(sz.x - 96, 36)
+	note_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(note_l)
 	return btn
 
 ## 已疊加嘅增益寫成一句。同 GameData.contract_buff_text() 一樣嘅字眼,但佢讀嘅

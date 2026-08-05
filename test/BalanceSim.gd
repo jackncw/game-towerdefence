@@ -607,9 +607,9 @@ func _evolve_table() -> void:
 	print("SIM 進化投資模型 (第 1-%d 關;主力 = %s)"
 		% [EVOLVE_LEVELS, GameData.tower_by_id(EVOLVE_MAIN_ID).name])
 	# 塔數上限:冇佢嘅話「一次過通過率」量唔到難度。呢個 harness 嘅玩家用金
-	# 買塔,而金收入本身跟住 wave_scale 走(GOLD_WAVE_EXP)—— 所以敵人硬咗
-	# 十倍,佢就多買十倍塔,通過率永遠貼住 100%。呢件事喺第九輪 --walls 嗰邊
-	# 已經撞過一次,答案就係 _wall_field_cap()。
+	# 買塔,而金收入跟關卡有成長(GameData.gold_scale)—— 敵人硬咗,佢就多
+	# 買塔,通過率永遠貼住 100%。呢件事喺第九輪 --walls 嗰邊已經撞過一次,
+	# 答案就係 _wall_field_cap()。
 	#
 	# 而且就算封咗頂,通過率仍然係一個飽和訊號(贏就係 1)。真正睇得出難度嘅
 	# 係**贏嘅幅度**:sim_max_frac = 全場敵人行得最深嗰個路程比例。0.4 = 輕鬆,

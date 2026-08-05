@@ -102,25 +102,20 @@ var ended: bool = false
 var kills: int = 0
 
 # ---------------------------------------------------------------------------
-# 風險合約關 (第十五輪 Part A)
+# 風險合約關 (第十七輪 v2:一關一卡)
 #
-# 逢 7 嘅倍數關。整場關卡切成 CONTRACT_PICKS 段,每一段開波前攤三張卡俾玩家
-# 揀一張,揀咗嘅怪物增益疊落之後每一段。
+# 逢 7 嘅倍數關。入關時攤三張卡(低/中/高風險各一)俾玩家揀一張,嗰張
+# 合約生效成關 —— v1 嘅逐段抽卡同疊加已拆走。
 #
 # 「暫停」用真 `get_tree().paused`,唔係一個自訂 flag:場上有怪、有子彈、有
 # 地面效果、有塔喺度數冷卻,而佢哋全部都係獨立節點。一個只擋 Battle._process
 # 嘅 flag 會令怪物繼續行 —— 亦即係 brief 講明唔准嘅「俾怪物偷跑」。
 # ---------------------------------------------------------------------------
 var contract_level: bool = false
-var contract_taken: Array = []          # GameData.CONTRACTS 嘅索引,揀咗嘅次序
-var contract_offer: Array = []          # 而家攤喺枱面嗰三張
+var contract_taken: Array = []          # GameData.CONTRACTS 嘅索引;v2 之下最多一個
+var contract_offer: Array = []          # 而家攤喺枱面嗰三張 [低, 中, 高]
 var contract_pending: bool = false      # 等緊玩家揀
-var contract_picks_done: int = 0
 var contract_state: Dictionary = {}     # GameData.contract_accumulate() 嘅結果
-var _contract_next_t: float = 0.0       # 下一次抽卡嘅 elapsed
-## 段長 = boss_time / (CONTRACT_PICKS - 1),所以最後一次抽卡啱啱好落喺
-## boss 出場嗰一刻 —— 「boss 段」本身就係一段,唔使另外寫一條規則。
-var _contract_seg: float = 0.0
 
 ## 場內金幣嘅關卡系數。怪物掉落已經喺 creature_stats 度乘咗同一個指數,所以
 ## 佢哋唔經呢度;鍊金塔 / 點金術 / 起手金呢啲「絕對數」全部要經,唔係佢哋
@@ -229,10 +224,6 @@ func _ready() -> void:
 	contract_level = bool(cfg.get("is_contract", false))
 	final_level = bool(cfg.get("is_final", false))
 	contract_state = GameData.contract_accumulate([])
-	if contract_level:
-		_contract_seg = boss_time / maxf(1.0, float(GameData.CONTRACT_PICKS - 1))
-		# 第一次抽卡喺 _ready() 尾段做,所以計時器由**第二**段起。
-		_contract_next_t = _contract_seg
 	base_pos = route.pos_at(route.total - 20.0)
 
 	Assets.prewarm_battle(cfg.families, cfg.boss_family)
@@ -245,8 +236,8 @@ func _ready() -> void:
 	Engine.time_scale = 1.0
 	set_process_unhandled_input(true)
 	Crash.crumb("battle", "開場 lv=%d 路線=%d 家族=%s" % [level, cfg.path_idx, str(cfg.families)])
-	# 第一次抽卡喺 HUD 起好之後先開 —— 佢要一個地方畫。開波前就要揀,所以
-	# 呢一下係 elapsed = 0,一隻怪都未出。
+	# 抽卡喺 HUD 起好之後先開 —— 佢要一個地方畫。成關唯一嗰次:入關、
+	# elapsed = 0,一隻怪都未出。HUD 會先彈說明窗,撳確定先攤卡。
 	if contract_level:
 		_open_contract_offer()
 
@@ -554,15 +545,14 @@ func _tick_holy_motes(delta: float) -> void:
 	mm.visible_instance_count = idx
 
 # ---------------------------------------------------------------------------
-# 風險合約 —— 抽卡 / 揀卡 / 結算
+# 風險合約 —— 抽卡 / 揀卡 / 結算 (v2:一關一卡)
 # ---------------------------------------------------------------------------
-## 攤三張卡出嚟並且**暫停成個場**。冇卡好抽(全部揀晒)就靜靜咁跳過。
+## 攤三張卡出嚟並且**暫停成個場**。一關只做一次(入關嗰下)。
 func _open_contract_offer() -> void:
-	if ended or contract_picks_done >= GameData.CONTRACT_PICKS:
+	if ended or not contract_taken.is_empty():
 		return
-	var offer: Array = GameData.contract_draw(contract_taken)
+	var offer: Array = GameData.contract_draw()
 	if offer.is_empty():
-		contract_picks_done = GameData.CONTRACT_PICKS
 		return
 	contract_offer = offer
 	contract_pending = true
@@ -579,14 +569,13 @@ func _set_world_paused(on: bool) -> void:
 	if Flow.nav_enabled:
 		get_tree().paused = on
 
-## 玩家揀咗第 `idx` 張(CONTRACTS 嘅索引)。
+## 玩家揀咗第 `idx` 張(CONTRACTS 嘅索引)。呢張就係成關嘅合約。
 func choose_contract(idx: int) -> void:
 	if not contract_pending:
 		return
 	if not (idx in contract_offer):
 		return
 	contract_taken.append(idx)
-	contract_picks_done += 1
 	contract_state = GameData.contract_accumulate(contract_taken)
 	contract_offer = []
 	contract_pending = false
@@ -615,14 +604,6 @@ func _contract_mods() -> Dictionary:
 		"regen": b.get("regen", 0.0), "noslow": b.get("noslow", false)}
 
 func _spawn_logic(delta: float) -> void:
-	# 段與段之間開合約。boss 段嗰次啱啱好同 boss 出場同一刻,所以呢個檢查要
-	# 喺 _spawn_boss() 之前 —— 玩家要喺 boss 落地之前揀好。
-	if contract_level and not contract_pending \
-			and contract_picks_done < GameData.CONTRACT_PICKS \
-			and elapsed >= _contract_next_t:
-		_contract_next_t += _contract_seg
-		_open_contract_offer()
-		return
 	if final_level:
 		_final_wave_logic()
 	elif not boss_spawned and elapsed >= boss_time:
@@ -753,6 +734,7 @@ func _spawn_boss() -> void:
 func _spawn_monster(fam: String, lv: int, boss: bool, start_dist: float) -> Monster:
 	var m: Monster = monster_pool.acquire()
 	m.setup(self, route, fam, lv, boss, cfg.wave_scale, monster_pool, start_dist)
+	m.split_child = false   # pool 重用;spawn_split 會喺出面set返 true
 	var mods: Dictionary = _contract_mods()
 	# 精英化。boss 唔會精英化 —— 佢已經係一個 affix。
 	if not boss and elite_chance > 0.0 and randf() < elite_chance:
@@ -782,13 +764,23 @@ func spawn_add(fam: String, count: int, at_dist: float) -> void:
 ## the base, where nothing could shoot them — a guaranteed uncounterable leak.
 ## SPLIT_BACK leaves them a short stretch of road to be killed on.
 const SPLIT_BACK := 80.0
+## 分裂子體嘅掉金折扣(第十七輪)。全額嘅話,級聯屍體逐具照 LVL_GOLD 派,
+## 史萊姆在場嗰啲關嘅場內收入係鄰關 5-6 倍(lv57:1,400 殺、收入 x6)——
+## 週期性金礦,固定塔價之下直接爆「收入/塔價 <= 20」嘅上限。子體掉金
+## 打 0.25 折(細數 round 落零係容許嘅 —— 唔設下限,一個「最少 1 金」
+## 嘅地板喺屍體數過千嗰陣自己就係個金礦)。入場嗰隻怪照全額。
+## 同一刀嘅另一半喺 Monster.split_child:子體唔再分裂,級聯冇咗。
+const SPLIT_GOLD_FRAC := 0.25
 
 func spawn_split(fam: String, lv: int, count: int, at_dist: float) -> void:
 	var cap: float = maxf(0.0, route.total - SPLIT_BACK)
 	sim_splits += count                                     # measurement only
 	for i in count:
 		var off := randf_range(-25, 25)
-		_spawn_monster(fam, maxi(1, lv), false, clampf(at_dist + off, 0.0, cap))
+		var m: Monster = _spawn_monster(fam, maxi(1, lv), false,
+			clampf(at_dist + off, 0.0, cap))
+		m.split_child = true
+		m.gold = int(round(m.gold * SPLIT_GOLD_FRAC))
 
 # ---------------------------------------------------------------------------
 # removal / economy
@@ -923,16 +915,16 @@ func add_gold(amount: int, lump := false) -> void:
 	Audio.play("sfx_gold_bank" if lump else "sfx_gold_pop")
 	gold += amount
 
-## 一個「絕對數」金額換算成呢一關嘅金。鍊金塔、點金術、起手金呢類寫死咗數字
-## 嘅來源要經呢度,唔係佢哋喺第 80 關等於零(建塔成本跟關數行,佢哋唔跟)。
-## 怪物掉落**唔經**呢度 —— creature_stats 已經乘咗同一個指數。
+## 一個「絕對數」金額換算成呢一關嘅金。鍊金塔、點金術呢類寫死咗數字嘅來源
+## 要經呢度,咁佢哋先會跟住金幣掉落曲線(GameData.gold_scale)一齊行。
+## 怪物掉落**唔經**呢度 —— creature_stats 已經乘咗 kill_gold_unit。
 func scale_gold(amount: float) -> int:
 	return int(round(amount * gold_scale))
 
-## 呢一關起一座 `id` 塔要幾多金。所有問價嘅地方都應該問呢個,唔好直接讀
-## def.place_cost —— 嗰個係第 1 關嘅價。
+## 起一座 `id` 塔要幾多金。固定價(第十七輪):唔隨關卡、唔隨場上塔數。
+## 所有問價嘅地方都照舊問呢個,一個入口。
 func place_cost(id: int) -> int:
-	return GameData.place_cost(id, level, towers.size())
+	return GameData.place_cost(id)
 
 func spend_gold(amount: int) -> bool:
 	if gold < amount:

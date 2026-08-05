@@ -166,7 +166,7 @@ func _cycle_contract_cards() -> void:
 	var base := -1
 	var last := 0
 	for i in CYCLES:
-		b.hud.show_contract(GameData.contract_draw([]))
+		b.hud.show_contract(GameData.contract_draw())
 		await get_tree().process_frame
 		b.hud.hide_contract()
 		await get_tree().process_frame

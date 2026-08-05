@@ -2,10 +2,10 @@ extends Node
 ## 「畫面上寫嘅銀碼 == 實際過數嘅銀碼」+ 數值顯示格式規則 —— 顯示修正輪嘅回歸。
 ##   godot --headless --path . test/TradeDisplayTest.tscn
 ##
-## 點解要有呢條測試:第十五輪之後建塔成本按場上塔數 x BUILD_COST_STEP 遞增,
-## 而 BattleHUD 起卡嗰陣將個價 cache 咗落 dict + label —— 由第二座塔起,
-## 「卡上寫嘅」同「Battle.place_tower 實際扣嘅」每座差開 3%,而且冇任何測試
-## 會發現,因為冇一條斷言將 label.text 同扣賬額擺埋一齊對。呢度逐項對:
+## 點解要有呢條測試:第十五輪建塔成本曾按場上塔數遞增,而 BattleHUD 將個價
+## cache 咗落 dict + label,「卡上寫嘅」同「實際扣嘅」每座差開 3% 冇人發現。
+## 第十七輪建塔改返固定價,呢啲斷言變成恆等式 —— 但佢哋照留低:佢哋守嘅係
+## 「顯示側同扣賬側問同一個入口」,唔係守價錢點計。呢度逐項對:
 ##
 ##   A. 建塔 x10:逐座「卡面 label == 實價 == 扣賬額」,而且起完即刻刷新
 ##   B. 賣塔:面板寫嘅退款 == 實際入賬
@@ -93,7 +93,7 @@ func _test_build_x10() -> void:
 			_check(g0 - battle.gold == shown,
 				"第 %d 座:扣咗 %d == 卡面 %d" % [placed + 1, g0 - battle.gold, shown])
 			placed += 1
-			# 起完之後下一幀,卡面要即時跳上新價(+BUILD_COST_STEP)
+			# 起完之後下一幀,卡面仍然要同 live 價一致(固定價之下即係冇變)
 			await get_tree().process_frame
 			_check(int(String(card.cost_label.text)) == battle.place_cost(id),
 				"第 %d 座之後卡面刷新做 %d(而家寫 %s)"

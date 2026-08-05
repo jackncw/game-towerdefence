@@ -32,6 +32,12 @@ var alive: bool = false
 var revived: bool = false
 ## 史萊姆分裂出嚟嘅數量(見 FAMILY_LORE:分裂成兩隻)
 const SPLIT_COUNT := 2
+## 呢隻怪係咪分裂出嚟嘅子體。子體**唔會再分裂**(第十七輪):圖鑑承諾嘅係
+## 「陣亡時分裂成兩隻較小的史萊姆」,遞歸級聯係冇人設計過嘅副產品 —— 一隻
+## lv5 史萊姆變 30 具屍體,係普通怪 6.5 倍嘅血量包,又派 20 倍金,兩個
+## 隱藏修正器互相掩護。一代分裂之下佢仲係「殺咗會爆開」嘅怪,但唔再係炸彈。
+## Battle._spawn_monster 每次 spawn 都會重設(pool 重用,唔清會黐住)。
+var split_child: bool = false
 
 # status timers (seconds)
 var slow_factor: float = 0.0
@@ -636,9 +642,10 @@ func _die(force: bool) -> void:
 	# split. FAMILY_LORE says 「陣亡時分裂成兩隻較小的史萊姆」 but the code split
 	# into 2 + lvl/2, i.e. FOUR at lv5 — and every child splits again, so one lv5
 	# slime cascaded into 4 + 16 + 48 + 144 = 212 bodies. The simulated 20th level
-	# drowned in them (1500+ kills, boss untouched). Two, as documented, still
-	# cascades to 30 but stays a mechanic instead of a bomb.
-	if mech == "split" and lvl > 1:
+	# drowned in them (1500+ kills, boss untouched). Round 15 cut it to two per
+	# generation (30 bodies); round 17 cuts the RECURSION — children don't split
+	# again, so one lv5 slime is 3 bodies, as the bestiary actually promises.
+	if mech == "split" and lvl > 1 and not split_child:
 		battle.spawn_split(fam, lvl - 1, SPLIT_COUNT, dist)
 	battle.on_monster_killed(self)
 

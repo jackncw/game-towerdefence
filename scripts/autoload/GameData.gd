@@ -63,8 +63,19 @@ const WAVE_BANDS := [
 	{"to": 46, "g": 1.300},    # 坡:入「逼你進化一次」
 	{"to": 56, "g": 1.115},    # 逼你進化一次
 	{"to": 62, "g": 1.450},    # 坡(急):入「逼你雙階段 3」
-	{"to": 70, "g": 1.130},    # 坡(收):接返落平段,唔好一步踩落去
-	{"to": 99, "g": 1.046},    # 逼你雙階段 3
+	## 1.130 -> 1.190(第十七輪,兩步):拆走 path 長度同史萊姆級聯兩個隱藏
+	## 修正器之後,A2 喺 71-80 嘅勝率衝上 48%(Gate 5a 重釘後上限都係 18%)
+	## —— 71-99 段嘅**入口**唔夠高。1.160(x1.24)嘅 20-seed 實測 A2 仲坐
+	## 喺 20.7%,贏嘅全部係 71-84 嘅慢 boss 關。A2 秒殺慢 boss(勝場 boss
+	## 戰 1-6 秒),所以呢啲關對佢嘅唯一約束係 wave 牆,而佢嘅 wave 上限
+	## 喺 ~87 —— 入口要拉到令 wave 喺 78-84 已經頂住佢。1.21(x1.66)實測
+	## 18.1%;1.24 實測 17.2% —— 就係呢個數。(1.27 配「41-70 加薪」試過,
+	## 加薪本身害咗 A3 嘅段內曲線,兩樣一齊回退。)
+	{"to": 70, "g": 1.240},    # 坡(收):接返落平段,唔好一步踩落去
+	## 1.046 -> 1.054(第十七輪,兩步):拆走隱藏修正器之後 A2 喺呢段坐喺
+	## 19% 邊緣(gate 上限 18%)。1.050 嘅 20-seed 實測係 19.3%,再加 0.4
+	## 點(第 85 關累積 x1.15)令 A2 前沿收返入 71-75。
+	{"to": 99, "g": 1.054},    # 逼你雙階段 3
 ]
 ## 第 100 關嘅**難度指數**倍率(相對第 99 關)。
 ##
@@ -76,7 +87,17 @@ const WAVE_BANDS := [
 ##
 ## 副作用係第 100 關嘅雜兵比第 99 關軟。呢個係有意留低嘅:嗰一場要玩家睇得
 ## 清楚十條血條,而唔係俾雜兵蓋住。
-const FINAL_SCALE := 0.26
+## 0.26 -> 0.23(第十七輪):第 100 關嘅**絕對**難度要比第十五輪高返一截
+## —— boss 歸一化令十 boss 車輪戰入面最毒嗰幾隻(群療/俯衝/相位)軟咗,
+## 而固定塔價又令 A4 喺呢關起到 24 座塔,兩件事夾埋 A4 勝率由 10% 衝上
+## 45%(Gate 6b 上限 30%)。0.19(絕對難度同十五輪持平)實測 45%;0.164
+## 加埋 63-70/71-99 兩段斜率嘅提升,絕對難度 ≈ 十五輪 x1.9(63-70 段每次
+## 加斜率,呢度就要除返,唔係 Gate 6 個窄窗口會陪其他段亂郁 —— 0.20 之下
+## A4 final 實測 15%,呢個 0.164 就係 0.20 ÷ 1.24^8/1.21^8,保持嗰個數)。
+## 實測 lv100 嘅單場結果對初始條件極敏感(同一絕對難度,20 seed 之間可以
+## 由 15% 跳到 40%)—— 呢個 gate 要用 48 seed 先讀得準。0.175 係將 48-seed
+## 均值擺喺 10-30 窗口中間嘅擬合值。
+const FINAL_SCALE := 0.21
 
 var _diff_cache: Array = []
 
@@ -127,15 +148,82 @@ func density(n: int) -> float:
 const LVL_BAND_EVERY := 12
 const DENSITY_GAIN := 0.30
 
-## 雜兵嘅血量倍率 = 難度 ÷(等級帶 x 密度)。
+## 路線長度歸一化(第十七輪)。六條 path 模板係 3/4/5 條橫掃,總長差成
+## ±17% —— 路越長,怪喺塔火力下面行得越耐,同一份血量嘅**實際壓力**就
+## 越細。呢個係同「等級帶樓梯」一模一樣嘅隱藏難度修正器:第十五輪已經
+## 定咗「difficulty() 先係權威,等級/密度係自由變數」,path 長度冇理由
+## 例外。唔歸一嘅後果喺 71-99 段最誇張:嗰段每關先 +4.6%,±17% 嘅路長
+## 擺動等於 ±4 關 —— 實測 A2 喺自己前沿之後仲可以專贏長路關(75/78/81/84
+## 全勝、隔籬短路關全敗),Gate 5a 同 Gate 7 嘅超標一大截係呢度嚟。
+## 長路 -> 怪物血量按比例加硬,六款路嘅實際壓力先至一樣。
+var _path_factor_cache: Array = []
+
+func path_factor(n: int) -> float:
+	if _path_factor_cache.is_empty():
+		var tot: Array = []
+		var s := 0.0
+		for i in 6:
+			var l: float = PathRoute.template(i).total
+			tot.append(l)
+			s += l
+		for i in 6:
+			_path_factor_cache.append(float(tot[i]) * 6.0 / s)
+	return float(_path_factor_cache[(n - 1) % 6])
+
+## 家族組合歸一化(第十七輪)。第三個隱藏難度修正器,同「等級帶樓梯」「path
+## 長度」同類:每關嘅家族組合由 (n-1)%10 輪轉,而一個 spawn slot 嘅實際壓力
+## ≈ 血 x 速度(「要幾多 DPS 先殺得切」:血係要打掉嘅量,速度係剩返幾多時間)
+## —— 哥布林 slot 2,184、樹妖 4,180、史萊姆連分裂包 ~5,280,擺動成 1.8 倍。
+## 樹妖+史萊姆做組合嗰啲關(17/27/...)實測係**每一個原型**都齊齊跌一截嘅
+## 異常關(連 A3 都由 100% 跌落 60%),亦即係 Gate 3a 同 Gate 7 嘅唯一破口。
+## 歸一之後家族組合變返「風味」:硬嘅家族出少啲血,快嘅家族一樣計埋速度。
+##
+## 分裂包 = 史萊姆一代分裂(子體 lvl-1、唔再分裂)嘅有效血量倍率,約 2.0
+## (lv2 係 2.25、lv5 係 2.24,lv1 唔分裂 —— 用常數係一個接受咗嘅近似)。
+const SLIME_SPLIT_PACK := 2.0
+var _fam_press_mean := 0.0
+
+func _fam_pressure(fam: String) -> float:
+	var f: Dictionary = FAMILIES[fam]
+	var p: float = float(f.hp) * float(f.speed)
+	if String(f.mech) == "split":
+		p *= SLIME_SPLIT_PACK
+	return p
+
+func fam_mix_norm(n: int) -> float:
+	## 第 100 關嘅家族係另外指定(全部十族),平均壓力自動係 1 —— 直接返。
+	if is_final_level(n):
+		return 1.0
+	if _fam_press_mean <= 0.0:
+		var s := 0.0
+		for k in FAMILY_ORDER:
+			s += _fam_pressure(String(k))
+		_fam_press_mean = s / float(FAMILY_ORDER.size())
+	var fams: Array = level_families(n)
+	var s2 := 0.0
+	for k in fams:
+		s2 += _fam_pressure(String(k))
+	return (s2 / float(fams.size())) / _fam_press_mean
+
+## 第 n 關出邊幾多個家族(2-3 個輪轉)。level_config 同 fam_mix_norm 都問呢度
+## —— 兩邊各自寫一次嘅話,選族公式一改,歸一化就靜靜咁對唔上。
+func level_families(n: int) -> Array:
+	var base_i := (n - 1) % 10
+	var fams := [FAMILY_ORDER[base_i], FAMILY_ORDER[(base_i + 3) % 10]]
+	if n % 2 == 0:
+		fams.append(FAMILY_ORDER[(base_i + 6) % 10])
+	return fams
+
+## 雜兵嘅血量倍率 = 難度 x 路長因子 ÷(等級帶 x 密度 x 家族組合)。
 func wave_scale(n: int) -> float:
-	return difficulty(n) / (_lvl_hp_norm(n) * density(n))
+	return difficulty(n) * path_factor(n) \
+		/ (_lvl_hp_norm(n) * density(n) * fam_mix_norm(n))
 
 ## boss 冇「怪物等級帶」呢回事(佢永遠係 boss),而且佢係一隻,唔受密度影響
 ## —— 所以佢直接跟難度指數,唔跟雜兵嗰條。冇呢個分別嘅話,怪物等級一跳
-## boss 就會靜靜咁變弱三成。
+## boss 就會靜靜咁變弱三成。boss 行同一條路,所以路長因子一樣食。
 func boss_scale(n: int) -> float:
-	return difficulty(n)
+	return difficulty(n) * path_factor(n)
 
 func is_final_level(n: int) -> bool:
 	return n == FINAL_LEVEL
@@ -207,16 +295,23 @@ var FAMILY_LORE := {
 #   burst        periodic squad: {first, interval, count_min, count_max, fam}.
 # ---------------------------------------------------------------------------
 const BOSS_SPAWN_BASE_RATE := 0.4
+## 第十七輪:goblin/golem/beetle 三個**慢 boss** 族嘅 rate 由 0.15/0.25/0.30
+## 拉上 0.55/0.65/0.70。理由:慢 boss 行唔到基地,「拖幾耐都得」令佢哋嘅關
+## 喺前沿變成零風險磨血位 —— A2 喺 71-99 剩低嘅贏**全部**係呢三族 boss 嘅
+## 關(78/81/84 全勝,難度差成倍都照贏),boss 血加幾多都冇用(時間無限)。
+## 慢 boss 嘅威脅唔係佢本人,係攻城:圍城部隊要迫玩家喺「殺 boss」同
+## 「守線」之間分火力,拖得越耐漏怪風險越高。快 boss 族照舊 —— 佢哋本人
+## 已經係倒數計時器。
 var BOSS_SPAWN := {
-	"goblin":  {"rate":0.15},                                     # 哥布林王自己召喚增援
+	"goblin":  {"rate":0.55},                                     # 哥布林王:召喚大軍圍城
 	"wolf":    {"rate":0.0,                                       # 狼王:平時無,狼群突襲
 	            "burst":{"first":5.0, "interval":12.0, "count_min":3, "count_max":5, "fam":"wolf"}},
 	"skeleton":{"rate":0.4},                                      # 骷髏君主:標準+復活光環
-	"golem":   {"rate":0.25, "lvl_bonus":1},                      # 岩石巨像:少而精,單隻值錢
+	"golem":   {"rate":0.65, "lvl_bonus":1},                      # 岩石巨像:精兵圍城
 	"ghost":   {"rate":0.4, "pool":["ghost"]},                    # 幽靈女王:全幽靈族
 	"bat":     {"rate":0.4, "pool":["bat"]},                      # 蝠魔霸主:只出飛行
 	"treant":  {"rate":0.3, "minion_regen":0.01},                 # 遠古樹妖:小怪輕微再生
-	"beetle":  {"rate":0.3, "pool":["beetle"]},                   # 甲蟲皇:少量硬殼甲蟲
+	"beetle":  {"rate":0.7, "pool":["beetle"]},                   # 甲蟲皇:硬殼甲蟲圍城
 	"cultist": {"rate":0.4, "pool":["cultist"]},                  # 大祭司:信徒受全場群療
 	"slime":   {"rate":0.10},                                     # 史萊姆之母自己分裂產怪
 }
@@ -283,38 +378,57 @@ const LVL_SIZE := [0, 32, 35, 37, 40, 44] # px, matches art
 func family_ids() -> Array:
 	return FAMILY_ORDER
 
-## 賞金跟 wave_scale 縮放 (GOLD_WAVE_EXP)。
-## 舊版:hp 乘 wave_scale,gold 完全唔乘 —— 第 20 關嘅怪 17 倍血,但掉落同第 1
-## 關一模一樣。打死一隻要 17 倍時間,收入卻一樣,所以場內經濟由第 7 關開始就
-## 追唔上,模擬玩家由第 10 關起連雜兵都清唔切(100 秒得 6-15 殺)。
-## 用 0.45 次方而唔係線性:賞金要跟得上怪物變硬,但唔可以令後期變成金礦
-## (0.6 試過會令第 14/17/20 關滿場塔仲剩兩萬幾金)。
-const GOLD_WAVE_EXP := 0.45
-
 # ---------------------------------------------------------------------------
-# 場內金幣 vs 建塔成本 (第十五輪)
+# 場內金幣 vs 建塔成本 (第十七輪改向)
 #
-# 問題("30 關後殺幾隻怪就無限建塔")嘅根本唔係「金太多」,係**兩條曲線
-# 唔係同一條**:金收入跟 wave_scale^0.45 走,而建塔成本係一個常數。兩者
-# 嘅比率就係 wave_scale^0.45,喺第 100 關係 600 幾倍 —— 即係話「再起一座
-# 塔」呢個決定喺第 30 關之後就唔再係一個決定。
+# 第十五輪嘅答案係「兩條曲線同一個指數」:建塔價同金收入一齊跟
+# difficulty^0.45 行。比率唔發散,但有兩個代價:(1) 建塔嘅「鬆緊」變成一個
+# 100 關都唔變嘅常數,冇任何演進;(2) 同一座塔嘅標價隨關卡同場上塔數郁,
+# 玩家睇唔明點解箭塔一時 60 一時 74。
 #
-# 答案唔係調數字,係將建塔成本擺返落**同一條**曲線:
+# 第十七輪反轉槓桿:**建塔價完全固定**(def.place_cost,唔隨關卡、唔隨
+# 已建數量),鬆緊全部交俾金幣掉落曲線:
 #
-#     place_cost(id, n) = base_cost x wave_scale(n)^GOLD_WAVE_EXP
+#   收入(n) ≈ R0 x gold_scale(n),R0 = 第 1 關「一關總收入買到幾多座塔」
+#   (實測 ~8)。gold_scale 唔再跟難度指數(difficulty(99)^0.45 ≈ 177,
+#   fix 價之下即刻係 177 倍發散),係一條設計出嚟嘅慢曲線:第 1 關 1.0,
+#   前 15 關幾乎唔郁(早期建塔要諗過先起),之後慢慢爬到第 100 關嘅
+#   GOLD_CURVE_MAX。收入/塔價比率全程封死喺 R0 x GOLD_CURVE_MAX(~16),
+#   結構上返唔到改版前嗰種 95 倍發散。
 #
-# 呢個令「全場金收入 ÷ 一座主力塔」變成一個同關數**無關**嘅常數 —— 唔係
-# 「調到唔發散」,係結構上發散唔到。剩返嗰個常數(目標 3-8)由基礎金掉落
-# 同基礎造價定,而佢係一個數,唔係一條曲線,所以調得郁亦都調得準。
+# 中後期金有剩係設計**容許**嘅:固定價之下「再起一座」始終係一個位置決定,
+# 錢剩唔係問題,發散先係。tools/gate_report.py 有一條 ≤16 嘅斷言守住佢。
 #
 # 場內每一個金來源都要行同一條曲線,唔係鍊金塔同點金術會隨關數變成零。
-# Battle.scale_gold() 係嗰個單一入口(怪物掉落已經喺 creature_stats 度乘咗
-# 同一個指數,所以佢唔使再經)。
+# Battle.scale_gold() 係嗰個單一入口(怪物掉落已經喺 kill_gold_unit 度乘咗,
+# 所以佢唔使再經)。
 # ---------------------------------------------------------------------------
-## 一關嘅「金單位」。所有金額(建塔價、起手金、鍊金塔產出、怪物掉落)都以
-## 佢做單位,所以任何兩個金額之間嘅比例喺 100 關入面都係同一個數。
+## 1.6 -> 1.40(第十七輪後段):41-70 段派彩加咗之後 A2 喺 71-99 反彈,
+## 收佢用後期金幣(佢嘅後期強度食塔數,塔數食金)而唔係再加難度 ——
+## 呢個掣喺 1-40 關幾乎冇感覺(第 41 關先差 3%),所以 A0/A1/Gate 2/3/4
+## 全部唔受牽連。「中後期金有剩」嘅設計仍然成立(71+ 比率仍然爬到 ~10-12)。
+const GOLD_CURVE_MAX := 1.40
+## 指數 > 1 = 前段平後段先爬:第 15 關先 +1%,第 41 關 +6%,第 71 關 +22%。
+const GOLD_CURVE_EXP := 1.6
+
+## 一關嘅「金單位」。所有金額(起手金、鍊金塔產出、怪物掉落)都以佢做單位。
+## 建塔價**唔喺入面** —— 佢係固定價,而呢條曲線同固定價嘅比就係設計鬆緊。
 func gold_scale(n: int) -> float:
-	return pow(difficulty(n), GOLD_WAVE_EXP)
+	var t: float = clampf(float(n - 1) / float(FINAL_LEVEL - 1), 0.0, 1.0)
+	return 1.0 + (GOLD_CURVE_MAX - 1.0) * pow(t, GOLD_CURVE_EXP)
+
+## 殺敵掉金嘅全域縮減(第十七輪)。兩個作用:
+##
+## 1. 固定塔價拆走咗「每多一座貴 3%」嘅遞增之後,同一份收入買到嘅塔多咗
+##    三成 —— 五個原型一齊變強,A1/A2 嘅勝率帶整條右移,Gate 4a/5a 齊齊
+##    貼界(x0.6 實測 A2 71-99 去到 24%,gate 上限 18%)。呢個折扣將
+##    塔數壓返落第十五輪嘅量級,難度 gate 先企得返原位。
+##
+## 2. 早期(1-15 關)嘅建塔張力:x0.5 之下一關收入 + 起手金合共鋪 ~7 座,
+##    「起唔起呢座」先係一個決定。
+##
+## 起手金**唔食**呢個折扣(佢行 gold_scale),所以開局買到幾多座冇變。
+const KILL_GOLD_TUNE := 0.5
 
 ## 怪物掉落要除返「等級帶 x 密度」,理由同 wave_scale 一模一樣。
 ##
@@ -332,34 +446,26 @@ func _lvl_gold_norm(n: int) -> float:
 	return (s / float(hi - lo + 1)) / ((LVL_GOLD[1] + LVL_GOLD[2]) * 0.5)
 
 func kill_gold_unit(n: int) -> float:
-	return gold_scale(n) / (_lvl_gold_norm(n) * density(n))
+	return KILL_GOLD_TUNE * gold_scale(n) / (_lvl_gold_norm(n) * density(n))
 
 # ---------------------------------------------------------------------------
-# 遞增建塔成本 (第十五輪)
+# 建塔成本:固定價 (第十七輪)
 #
-# 條 brief 要「建塔數量喺全程都係一個有張力嘅決定」。單靠「成本同收入同一條
-# 曲線」做唔到呢件事:佢保證嘅係**第一座**塔嘅相對價錢唔變,但一關入面起到
-# 第二十座嘅時候,第二十一座仍然係同一個價 —— 所以「再起一座」永遠係一個
-# 冇代價嘅決定,只不過要等錢。
-#
-# 而且有一條正回饋喺度:多塔 -> 殺快 -> 撐得耐 -> 多殺 -> 多金 -> 多塔。實測
-# 到第 51-70 關嘅模擬玩家可以起到成張圖(比率 95),即係話後期根本冇「起唔起」
-# 呢個問題存在。
-#
-# 每多一座就貴 BUILD_COST_STEP:第 5 座 1.16 倍、第 15 座 1.56、第 30 座 2.43、
-# 第 45 座 3.78。錢多幾倍都只係多起幾座,而唔係多起幾倍座 —— 亦即係嗰條
-# 正回饋由指數變成對數。
-const BUILD_COST_STEP := 1.030
-## 起手金。以「第一座塔嘅價」做單位嚟睇:280 / 60 = 4.7 座箭塔。
+# 第十五輪嘅「每多一座貴 3%」同「跟關卡縮放」兩個機制都拆咗。理由:標價
+# 唔透明(同一座塔一時 60 一時 74),而佢哋想做嘅嘢(唔准無限建塔)而家
+# 由金幣掉落曲線一個掣做晒 —— 收入封頂咗,塔數自然封頂,唔使喺價錢度
+# 落第二重手。TradeDisplayTest 嘅「顯示價 == 扣賬價」斷言喺固定價之下
+# 係恆等式。
+# ---------------------------------------------------------------------------
+## 起手金。以「第一座塔嘅價」做單位嚟睇:200 / 60 = 3.3 座箭塔。
 const START_GOLD_BASE := 200.0
 
-## 第 n 關,場上已經有 `placed` 座塔,再起一座 `id` 要幾多金。
-func place_cost(id: int, n: int, placed := 0) -> int:
+## 起一座 `id` 要幾多金。固定價:唔隨關卡,唔隨場上已建數量。
+func place_cost(id: int) -> int:
 	var def := tower_by_id(id)
 	if def.is_empty():
 		return 0
-	return int(round(float(def.place_cost) * gold_scale(n)
-		* pow(BUILD_COST_STEP, maxi(0, placed))))
+	return int(def.place_cost)
 
 # ---------------------------------------------------------------------------
 # ELITE AFFIX (第十五輪)
@@ -415,10 +521,49 @@ func creature_stats(fam: String, lvl: int, wave_scale: float, gold_unit := 1.0) 
 		"is_boss": false,
 	}
 
+## boss 家族壓力歸一化(第十七輪)。第四個隱藏難度修正器:boss 血 = 家族血
+## x14,而家族血同速度差幾倍,機制強度(群療/復活光環/相位/俯衝)again 差
+## 幾倍 —— 實測 A2/A3 喺自己前沿嘅輸贏**完全**跟 boss 家族走:全勝
+## goblin/golem/beetle(慢重甲、機制溫和),全敗 wolf/skeleton/ghost/bat/
+## cultist(快/復活/相位/群療),擺動係 0% <-> 100%,Gate 7 嘅段內孤島全部
+## 係佢。歸一:boss 有效壓力 = 血 x 速度 x 機制係數,釘喺全家族**平均**
+## (即係平均難度唔郁,得擺動冇咗)。家族風味保留喺速度/護甲/機制本身 ——
+## 狼 boss 仲係快而脆,樹妖 boss 仲係慢而厚,但唔再係「撞正邊隻就輸」。
+##
+## 機制係數係實測導出嘅相對強度估值,唔係擬合精確值 —— 佢要做嘅只係將
+## 0%<->100% 嘅擺動壓落 gate 容忍帶以內。第一版用 1.2-1.35 嘅溫和係數,
+## 實測前沿嘅輸贏照舊完全跟 boss 家族走:A2 喺第 84 關贏 golem boss
+## (難度係第 71 關 1.8 倍)但喺第 72 關輸 wolf boss —— 即係機制強度嘅
+## 真實差距係 ~2 倍級,唔係三成。呢版嘅係數就係按嗰個實測 spread 校。
+## 第二步(0.75/0.8 -> 0.65/0.7):20-seed 實測 A2 喺 71-99 剩低嘅贏
+## **全部**集中喺 summon/stoneskin/reflect boss 嘅關(71/74/78/81/84),
+## 即係呢三個「溫和機制」嘅係數仲係高估咗佢哋 —— 再落一格,佢哋嘅 boss
+## 血再高 15%,前沿嘅慢 boss 孤島先剷得平。
+const BOSS_MECH_TOUGH := {
+	"summon": 0.65, "enrage": 1.7, "revive_aura": 1.7, "stoneskin": 0.7,
+	"phase_fast": 1.9, "dive": 2.0, "root_heal": 1.1, "reflect": 0.7,
+	"mass_heal": 2.1, "split_birth": 0.9,
+}
+var _boss_pressure_mean := 0.0
+
+func _boss_tough(f: Dictionary) -> float:
+	return float(BOSS_MECH_TOUGH.get(String(f.boss), 1.0))
+
+## 呢個家族嘅 boss 基礎血量(乘 boss_scale 之前)。
+func boss_hp_coeff(fam: String) -> float:
+	if _boss_pressure_mean <= 0.0:
+		var s := 0.0
+		for k in FAMILY_ORDER:
+			var f: Dictionary = FAMILIES[k]
+			s += float(f.hp) * 14.0 * float(f.speed) * _boss_tough(f)
+		_boss_pressure_mean = s / float(FAMILY_ORDER.size())
+	var f2: Dictionary = FAMILIES[fam]
+	return _boss_pressure_mean / (float(f2.speed) * _boss_tough(f2))
+
 func boss_stats(fam: String, wave_scale: float) -> Dictionary:
 	var f: Dictionary = FAMILIES[fam]
 	return {
-		"hp": f.hp * 14.0 * wave_scale,
+		"hp": boss_hp_coeff(fam) * wave_scale,
 		"speed": f.speed * 0.72,
 		"armor": f.armor + 6,
 		"mres": f.mres + 5,
@@ -678,7 +823,9 @@ static func def_is_tower(def: Dictionary) -> bool:
 	return String(def.get("kind", "tower")) == "tower"
 
 ## 進化費。塔貴過魔法(六軸 vs 三軸,而且塔係場上嘅實體),第三階貴過第二階
-## 四倍 —— 進化本身要係一個「儲一排」嘅決定,唔係順手撳嘅。
+## 明顯 —— 進化本身要係一個「儲一排」嘅決定,唔係順手撳嘅。
+## (第十七輪試過將魔法 T3 減到 9000 去催 A3 早完成雙 tier-3 —— 實測完成
+## 時點紋絲不動:樽頸係進化前置嘅三條軸要課滿,唔係呢舊費用。回退。)
 const EVOLVE_COST_TOWER := [0, 0, 6000, 24000]
 const EVOLVE_COST_SPELL := [0, 0, 3600, 14400]
 
@@ -1364,64 +1511,70 @@ func wall_hint_key(n: int) -> String:
 	return String(wall_def(n).get("hint", ""))
 
 # ===========================================================================
-# 風險合約關 (第十五輪 Part A)
+# 風險合約關 (第十七輪 v2:一關一卡)
 #
-# 「賭出嚟嘅晶石」。逢 7 嘅倍數關,每一波開波前三選一,每張卡係一個
-# 「怪物增益 <-> 獎勵倍率」嘅交易,揀咗嘅效果疊落之後每一波。
+# 「賭出嚟嘅晶石」。逢 7 嘅倍數關,**入關時**三選一,揀嘅嗰張合約
+# (怪物增益 + 獎勵倍率)生效**成關**。v1 嘅逐段抽卡 + 疊加規則作廢。
 #
-# 三個結構性決定,同埋點解:
+# v2 嘅三個結構性決定,同埋點解:
 #
-#  1. **增益加法疊,倍率乘法疊(有封頂)。** 加法嘅增益永遠算得出(血量
-#     +10% 揀五次就係 +50%),乘法嘅倍率先會令「連續貪心」有雪球感 ——
-#     而雪球一定要有牆,唔係第五張卡就變成無限。CONTRACT_MULT_CAP 就係嗰
-#     幅牆,而佢**真係會咬**:全程揀最高倍率係 1.45^5 = 6.4,封到 3.0。
+#  1. **一關只揀一次。** v1 逐段五抽令玩家喺一場入面被打斷五次,而「背住
+#     乜」要靠一個疊加面板先講得清。一關一卡之下,卡面 = 成關嘅全部規則,
+#     冇疊加、冇「簽下後總倍率」呢種二階數。
 #
-#  2. **每一次抽卡都保證有一張 risk 0**,而 risk 0 **唔係「無增益 x1」**。
-#     一張 x1 嘅卡會令「穩陣策略」嘅合約關收入同普通關一模一樣,而 Gate 8
-#     要求佢係 1.1-1.3 倍 —— 即係話「唔賭」都應該有得賺少少,賭先係賺多。
-#     所以最安全嗰檔係「細增益 x1.05」,而唔係「乜都唔揀」。
+#  2. **三張卡保證低/中/高風險各一張。** v1 只保證「起碼一張 risk 0」,
+#     所以有機會出「三張都係中高風險」嘅局。而家每一級各出一張,「唔賭 /
+#     細賭 / 全押」三個選項每一次都齊 —— 三級嘅幅度定義見 CONTRACTS 表頭。
 #
-#  3. **抽過嘅卡唔會再抽到。** 同一張卡揀五次係一條冇決策嘅路;唔重複逼
-#     玩家喺唔同軸之間揀,而每一軸都有唔同嘅反制。
+#  3. **倍率封頂改為單卡上限。** 冇疊加就冇雪球,封頂由「疊加牆」(2.5)
+#     變成「單卡設計上限」CONTRACT_MULT_CAP = 2.0:任何一張卡嘅晶石/金幣
+#     倍率都唔准超過佢,dread_pact 就釘喺頂。contract_accumulate() 照 min
+#     一次做防呆,GateSim 嘅 gate1(入咗 run_tests)有 GATE1B 斷言守住張表。
 #
-# 增益欄位(全部加法疊):
+# 通關先兌現倍率、輸場照派普通輸場晶石 —— 呢兩條 v1 規則保留。
+#
+# 三級風險嘅定義(幅度都係「成關背住」嘅新結構,v1 嘅單卡數字係疊加件,
+# 唔可以直接比較):
+#   低 risk 0  單軸細增益,等效通關壓力 +8-12%    晶石 x1.22-1.30 金 <=x1.15
+#   中 risk 1  單軸中度或功能性增益,+20-35%       晶石 x1.45-1.55 金 <=x1.30
+#   高 risk 2  深軸或多軸,+50-80%                 晶石 x1.75-2.00 金 <=x1.25
+#
+# 低風險唔係 x1:Gate 8 要求「唔賭」嘅合約關收入都係普通關 1.1-1.3 倍,
+# 而倍率只喺通關兌現、輸場冇份,所以卡面倍率要高過目標比率先追得到
+# (實測 x1.2x 嘅卡面落袋大約係 1.1x)。
+#
+# 增益欄位:
 #   hp / speed  血量、速度嘅**額外**比例        armor / mres  加多少點
 #   regen       每秒回復 max_hp 嘅幾多          dense  出怪密度額外比例
-#   elite       精英出現率(加落關卡本身嗰個)   noslow 免疫減速(布林,或)
+#   elite       精英出現率(加落關卡本身嗰個)   noslow 免疫減速(布林)
 # ===========================================================================
 const CONTRACT_EVERY := 7
-## 一場合約關要揀幾多次。5 = 四段波次 + boss 段,即係「貪心落去雪球越滾越大」
-## 有五級可以滾,而唔會滾到玩家記唔住自己背住乜。
-const CONTRACT_PICKS := 5
 const CONTRACT_CHOICES := 3
-## 總獎勵倍率硬封頂。晶石同金幣各自封。
-##
-## 3.0 -> 2.5:實測貪心策略喺 3.0 之下嘅期望收入係普通關嘅 1.61 倍(Gate 8
-## 上限 1.5),即使倍率已經改成「贏咗先兌現」。2.5 之下係 1.4 倍左右。
-## 封頂仍然**真係會咬**:全程揀最高倍率係 1.45^5 = 6.4。
-const CONTRACT_MULT_CAP := 2.5
+## 單卡倍率上限(晶石同金幣各自計)。設計上限,唔係疊加牆 —— 表入面唔准有
+## 卡超過佢,最高嗰張(dread_pact)就係釘喺呢個數。
+const CONTRACT_MULT_CAP := 2.0
 
 var CONTRACTS := [
-	# --- risk 0:細增益細倍率。每次抽卡保證有一張。--------------------------
-	{"id":"tithe_flesh", "risk":0, "name":"CONTRACT_TITHE_FLESH", "buff":{"hp":0.10},                "crystal":1.05, "gold":1.00},
-	{"id":"tithe_haste", "risk":0, "name":"CONTRACT_TITHE_HASTE", "buff":{"speed":0.07},             "crystal":1.05, "gold":1.10},
-	{"id":"tithe_plate", "risk":0, "name":"CONTRACT_TITHE_PLATE", "buff":{"armor":4.0},              "crystal":1.05, "gold":1.00},
-	{"id":"tithe_ward",  "risk":0, "name":"CONTRACT_TITHE_WARD",  "buff":{"mres":10.0},              "crystal":1.05, "gold":1.00},
-	{"id":"tithe_swarm", "risk":0, "name":"CONTRACT_TITHE_SWARM", "buff":{"dense":0.10},             "crystal":1.04, "gold":1.12},
-	# --- risk 1:中度。一條軸,一個明確反制。-------------------------------
-	{"id":"iron_pact",   "risk":1, "name":"CONTRACT_IRON",   "buff":{"hp":0.30},                     "crystal":1.22, "gold":1.00},
-	{"id":"swift_pact",  "risk":1, "name":"CONTRACT_SWIFT",  "buff":{"speed":0.18},                  "crystal":1.20, "gold":1.00},
-	{"id":"ward_pact",   "risk":1, "name":"CONTRACT_WARD",   "buff":{"mres":20.0},                   "crystal":1.18, "gold":1.00},
-	{"id":"plate_pact",  "risk":1, "name":"CONTRACT_PLATE",  "buff":{"armor":11.0},                  "crystal":1.18, "gold":1.00},
-	{"id":"regen_pact",  "risk":1, "name":"CONTRACT_REGEN",  "buff":{"regen":0.012},                 "crystal":1.16, "gold":1.16},
-	{"id":"swarm_pact",  "risk":1, "name":"CONTRACT_SWARM",  "buff":{"dense":0.26},                  "crystal":1.10, "gold":1.35},
-	{"id":"unbound_pact","risk":1, "name":"CONTRACT_UNBOUND","buff":{"noslow":true},                 "crystal":1.26, "gold":1.00},
-	# --- risk 2:高倍率。多過一條軸,或者一條好深嘅軸。---------------------
-	{"id":"titan_pact",  "risk":2, "name":"CONTRACT_TITAN",  "buff":{"hp":0.65},                     "crystal":1.38, "gold":1.00},
-	{"id":"elite_pact",  "risk":2, "name":"CONTRACT_ELITE",  "buff":{"elite":0.18},                  "crystal":1.34, "gold":1.12},
-	{"id":"hunt_pact",   "risk":2, "name":"CONTRACT_HUNT",   "buff":{"speed":0.32,"noslow":true},    "crystal":1.42, "gold":1.00},
-	{"id":"abyss_pact",  "risk":2, "name":"CONTRACT_ABYSS",  "buff":{"hp":0.45,"regen":0.010,"armor":8.0}, "crystal":1.30, "gold":1.30},
-	{"id":"dread_pact",  "risk":2, "name":"CONTRACT_DREAD",  "buff":{"elite":0.30,"dense":0.15},     "crystal":1.45, "gold":1.00},
+	# --- risk 0(低):單軸細增益。每次抽卡固定出一張。----------------------
+	{"id":"tithe_flesh", "risk":0, "name":"CONTRACT_TITHE_FLESH", "buff":{"hp":0.12},                "crystal":1.28, "gold":1.00},
+	{"id":"tithe_haste", "risk":0, "name":"CONTRACT_TITHE_HASTE", "buff":{"speed":0.08},             "crystal":1.25, "gold":1.10},
+	{"id":"tithe_plate", "risk":0, "name":"CONTRACT_TITHE_PLATE", "buff":{"armor":5.0},              "crystal":1.26, "gold":1.00},
+	{"id":"tithe_ward",  "risk":0, "name":"CONTRACT_TITHE_WARD",  "buff":{"mres":12.0},              "crystal":1.26, "gold":1.00},
+	{"id":"tithe_swarm", "risk":0, "name":"CONTRACT_TITHE_SWARM", "buff":{"dense":0.12},             "crystal":1.22, "gold":1.15},
+	# --- risk 1(中):一條軸,一個明確反制。每次抽卡固定出一張。------------
+	{"id":"iron_pact",   "risk":1, "name":"CONTRACT_IRON",   "buff":{"hp":0.35},                     "crystal":1.52, "gold":1.00},
+	{"id":"swift_pact",  "risk":1, "name":"CONTRACT_SWIFT",  "buff":{"speed":0.20},                  "crystal":1.50, "gold":1.00},
+	{"id":"ward_pact",   "risk":1, "name":"CONTRACT_WARD",   "buff":{"mres":25.0},                   "crystal":1.45, "gold":1.00},
+	{"id":"plate_pact",  "risk":1, "name":"CONTRACT_PLATE",  "buff":{"armor":13.0},                  "crystal":1.45, "gold":1.00},
+	{"id":"regen_pact",  "risk":1, "name":"CONTRACT_REGEN",  "buff":{"regen":0.015},                 "crystal":1.48, "gold":1.15},
+	{"id":"swarm_pact",  "risk":1, "name":"CONTRACT_SWARM",  "buff":{"dense":0.30},                  "crystal":1.45, "gold":1.30},
+	{"id":"unbound_pact","risk":1, "name":"CONTRACT_UNBOUND","buff":{"noslow":true},                 "crystal":1.50, "gold":1.00},
+	# --- risk 2(高):深軸或多軸。每次抽卡固定出一張。----------------------
+	{"id":"titan_pact",  "risk":2, "name":"CONTRACT_TITAN",  "buff":{"hp":0.80},                     "crystal":1.85, "gold":1.00},
+	{"id":"elite_pact",  "risk":2, "name":"CONTRACT_ELITE",  "buff":{"elite":0.25},                  "crystal":1.80, "gold":1.15},
+	{"id":"hunt_pact",   "risk":2, "name":"CONTRACT_HUNT",   "buff":{"speed":0.35,"noslow":true},    "crystal":1.90, "gold":1.00},
+	{"id":"abyss_pact",  "risk":2, "name":"CONTRACT_ABYSS",  "buff":{"hp":0.50,"regen":0.012,"armor":9.0}, "crystal":1.85, "gold":1.25},
+	{"id":"dread_pact",  "risk":2, "name":"CONTRACT_DREAD",  "buff":{"elite":0.30,"dense":0.20},     "crystal":2.00, "gold":1.00},
 ]
 
 func is_contract_level(n: int) -> bool:
@@ -1434,34 +1587,23 @@ func contract_by_id(cid: String) -> int:
 			return i
 	return -1
 
-## 抽 CONTRACT_CHOICES 張唔重複、而且唔喺 `taken` 入面嘅卡,保證起碼一張 risk 0。
+## 抽三張卡:低/中/高風險**各一張**,順序固定 [低, 中, 高] —— 卡面嘅風險
+## 色帶由上到下永遠係綠/琥珀/紅,玩家唔使逐張讀完先知邊張深邊張淺。
 ## 用 `randi()`,所以 harness `seed()` 之後結果係可重複嘅。
-func contract_draw(taken: Array) -> Array:
-	var low: Array = []
-	var pool: Array = []
-	for i in CONTRACTS.size():
-		if i in taken:
-			continue
-		if int(CONTRACTS[i]["risk"]) == 0:
-			low.append(i)
-		else:
-			pool.append(i)
+func contract_draw() -> Array:
 	var out: Array = []
-	if not low.is_empty():
-		out.append(low[randi() % low.size()])
-	var rest: Array = []
-	for i in low:
-		if not (i in out):
-			rest.append(i)
-	rest += pool
-	while out.size() < CONTRACT_CHOICES and not rest.is_empty():
-		var k: int = randi() % rest.size()
-		out.append(rest[k])
-		rest.remove_at(k)
+	for risk in CONTRACT_CHOICES:
+		var tier: Array = []
+		for i in CONTRACTS.size():
+			if int(CONTRACTS[i]["risk"]) == risk:
+				tier.append(i)
+		if not tier.is_empty():
+			out.append(tier[randi() % tier.size()])
 	return out
 
-## 把一疊已揀合約結算成「怪物增益 + 兩個倍率」。UI、戰鬥同模擬全部問呢一個,
-## 所以「卡片顯示嘅總狀態」同「怪物實際食到嘅增益」冇可能講唔埋。
+## 把已揀合約(v2 之下最多一張)結算成「怪物增益 + 兩個倍率」。UI、戰鬥同
+## 模擬全部問呢一個,所以「卡片顯示嘅狀態」同「怪物實際食到嘅增益」冇可能
+## 講唔埋。空 array = 未簽約,全部返中性值。
 func contract_accumulate(taken: Array) -> Dictionary:
 	var buff := {"hp": 0.0, "speed": 0.0, "armor": 0.0, "mres": 0.0,
 		"regen": 0.0, "dense": 0.0, "elite": 0.0, "noslow": false}
@@ -1556,13 +1698,10 @@ func level_config(n: int) -> Dictionary:
 	# reaches 9.9x, which the (now wave-scaled) economy can actually track.
 	# 第 21 關起轉第二段斜率 —— 見 WAVE_GROWTH_LATE。
 	var wave_scale := self.wave_scale(n)
-	# which families appear this level (2-3 families rotating)
+	# which families appear this level (2-3 families rotating) — the shared
+	# helper, because fam_mix_norm() must see exactly the same list
 	var base_i := (n - 1) % 10
-	var fams := []
-	fams.append(FAMILY_ORDER[base_i])
-	fams.append(FAMILY_ORDER[(base_i + 3) % 10])
-	if n % 2 == 0:
-		fams.append(FAMILY_ORDER[(base_i + 6) % 10])
+	var fams: Array = level_families(n)
 	# creature level band by game level
 	## 第十五輪由 /9 拉到 /12:曲線由 40 關變 100 關,而 /9 之下第 37 關已經
 	## 全部係 5 級怪,即係最後六十幾關嘅怪物等級係一條平線。/12 之下要去到
@@ -1658,14 +1797,21 @@ const CRYSTAL_REWARD_MULT := 1.0
 const REWARD_BANDS := [
 	{"to": 10, "g": 1.100},
 	{"to": 40, "g": 1.115},
-	{"to": 70, "g": 1.030},
+	## 1.030 -> 1.038(第十七輪):A3 嘅雙 tier-3 完成點本來落喺 85-95,
+	## 令 71-99 段內出現「S2 深谷 -> S3 返生」嘅 U 形(Gate 7 判倒掛)。
+	## 呢段加薪令佢嘅段內曲線拍返平(實測 blocks 78/75/75)。A2 食同一份
+	## 糧會變強 —— 嗰邊由後期金幣曲線(GOLD_CURVE_MAX)收返,唔再鬥難度。
+	{"to": 70, "g": 1.038},
 	# 第 71 關之後**唔再加**。呢個唔係「懶得調」:實測到 A3 喺第 91-99 關
 	# 嘅勝率比第 81-90 關**高咗 26 點**(56% -> 82%),而嗰個倒掛嘅來源就係
 	# 呢一段嘅收入 —— 佢喺升級軸已經飽和嘅時候繼續派錢,錢就會流去「鋪闊」
 	# (多解鎖幾個魔法、多課幾座塔),而鋪闊嘅戰力增長快過難度曲線。
 	# 派平咗之後,呢一段嘅意思變成「元進度基本上行完,剩返嘅係操作」——
 	# 而嗰個先係「雙階段 3 之後仲有 29 關」應該講嘅嘢。
-	{"to": 99, "g": 1.010},
+	# 1.010 -> 1.000(第十七輪):71-99 段加硬咗之後,A3 嘅前沿入咗段內,
+	# 而佢喺段內嘅收入增長令 91-99 嘅勝率(73%)反高過 81-90(60%)——
+	# 十五輪嗰個倒掛喺新斜率下翻返出嚟。段內派彩完全揸平,倒掛先斷根。
+	{"to": 99, "g": 1.000},
 ]
 const REWARD_BASE_CLEAR := 55.0
 const REWARD_BASE_FIRST := 62.0

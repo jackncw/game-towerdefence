@@ -399,12 +399,14 @@ TradeDisplay 三套顯示斷言全部係**恆等式**(顯示 == 實際扣賬 / �
 - A 段(第 1 關,fresh 存檔):開場 200 金 = 3 座箭塔,打到中段手上有 601 金
   —— 早期張力成立(要諗起邊座,唔係鋪滿)
 - B 段(注入「已通 59 關 + 箭塔 T3 滿課」存檔,入第 60 關):分四批落塔,
-  手上金去到 3,320(= 55 座箭塔嘅錢),塔位夠、卡面價 60/110/90/90 全程不變
+  第二批完手上仲有 3,570 金(= 59 座箭塔嘅錢),塔位夠、卡面價 60/110/90/90
+  全程不變 —— 第 60 關嘅 G1 目標係 35 座參考塔,實測手感對得上
 - 真瀏覽器幀時間兩段都係 **16.67 ms**(60fps vsync 鎖住),塔多咗冇跌
 - **console 零 error**;截圖 `qa/screenshots/round-18-web/`
 
-**Web export**:`docs/index.pck` **7.27 MB**(上輪 6.93 MB,+0.34 MB)、
-`index.wasm` 39.5 MB(引擎)。`pck_report` 冇 QA / test / tools 漏入去。
+**Web export**:`docs/index.pck` **7,268,708 bytes = 6.93 MB**(上輪 6.93 MB,
++2.9 KB)、`index.wasm` 39.5 MB(引擎,無變)。`pck_report`:723 個檔,
+`scripts` 342 KB,冇 QA / test / tools 漏入去。
 
 ### 誠實交代:seed 數同未收窄嘅嘢
 

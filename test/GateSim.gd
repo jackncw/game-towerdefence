@@ -57,13 +57,22 @@ const A4_SPELLS := [1, 11, 13]               # 隕石 / 地震 / 天雷誅殺
 var arch := "A1"
 var seeds := 4
 var seed0 := 0
-## 策略質素(第十八輪 Part 0)。`--strat=` 收一串字母,每個字母開一個
-## 「熟手真人」嘅打法元件;`base` = 第十五輪嗰個原版,`strong` = PUC 全開。
+## 策略質素(第十八輪)。`--strat=` 收一串字母,每個字母開一個「熟手真人」
+## 嘅打法元件;`base` = 第十五輪嗰個原版,`strong` = PUC 全開。
 ##   P  擺塔位按**路程覆蓋**排,唔係按沿路先後排
 ##   U  升級軸按**邊際 DPS/魔晶**買,唔係按最平嗰條買
 ##   C  魔法按威脅施放(boss 優先、雜兵夠密先落 AoE、留一手應急)
 ## 五個原型共用同一個 strat —— 佢係「把尺」,唔係原型嘅一部分。
-var strat := "base"
+##
+## **預設由 base 轉咗做 strong(第十八輪嘅決定)**。理由:Gate 3-6 嘅勝率
+## 目標講嘅係「一個玩家喺嗰一段應該有幾大機會過關」,而如果把尺量嘅係一個
+## 冇人咁樣打嘅弱策略,咁調完之後真人玩落仲係易 —— 而嗰個正正就係 Jack
+## 實試報返嚟嗰句「隨便起幾座塔就輕鬆一次過完前 50 關」。base 策略嘅擺位
+## 按「最近路點喺條路嘅幾多%」排,即係由出怪口一路鋪落去,唔避低覆蓋位;
+## test/StratDiag.tscn 量到第 20 關頭 14 座嘅總路程覆蓋差咗 1.34 倍。金幣 v3
+## 之後一關擺 20-40 座塔,擺位質素嘅槓桿仲大過以前。
+## `--strat=base` 保留做對照(報告有兩把尺嘅對照數)。
+var strat := "strong"
 var s_place := false
 var s_upgrade := false
 var s_cast := false
@@ -76,6 +85,9 @@ var lv_from := 1
 ## 打到第幾關為止。診斷用(Part 0 只需要 11-40,唔使行埋後面六十關);
 ## 定版 gate 一律留返 0 = 打足 CAMPAIGN_LEVELS。
 var lv_to := 0
+## 一關最多重試幾多次(第十八輪)。3 = 「一個唔會無限磨嘅玩家」。
+## 佢**唔影響 gate 讀數**(勝率永遠讀第一次嘗試),只影響魔晶收入嘅真實度。
+var max_tries := 3
 var _save_bytes := PackedByteArray()
 var _had_save := false
 
@@ -99,6 +111,8 @@ func _ready() -> void:
 			strat = a.substr(8)
 		elif a.begins_with("--to="):
 			lv_to = int(a.substr(5))
+		elif a.begins_with("--tries="):
+			max_tries = maxi(1, int(a.substr(8)))
 	if strat == "strong":
 		strat = "PUC"
 	elif strat == "base":
@@ -145,17 +159,35 @@ func _sweep() -> void:
 		if arch == "A4":
 			_grant_a4()
 		var start: int = lv_from if arch == "A4" else 1
-		for lv in range(start, CAMPAIGN_LEVELS + 1):
-			if arch != "A4":
-				_spend(lv)
+		var stop: int = CAMPAIGN_LEVELS if lv_to <= 0 else mini(lv_to, CAMPAIGN_LEVELS)
+		for lv in range(start, stop + 1):
 			var c0: int = Meta.crystals
 			var cheap: int = _median_core_cost()
-			var r: Dictionary = await _play(lv)
-			print("GATE ROW %s %d %d %d %.4f %d %d %d %d %d %d %d %d %.1f"
+			# 重試循環(第十八輪)。舊版一關只打一次就過下一關,而嗰個模型喺
+			# gate 減半之後就唔啱用:輸一場係派晶石嘅(Gate 1 釘死「輸一場 =
+			# 起碼升到一級」),所以一個真人喺前沿係**重試 + 升級 + 再試**,
+			# 而唔係輸咗就當冇發生過。實測後果:A3 到第 100 關個主力魔法仲
+			# 停喺 tier 2 —— 即係「逼你雙階段 3」呢個段目標喺模擬入面根本
+			# 達成唔到,而佢達成唔到嘅原因係一個 harness 假設,唔係遊戲。
+			#
+			# **gate 讀數用第一次嘗試**(= 「一個玩家入呢一關,一次過嘅機會
+			# 有幾大」,同舊版嘅定義一模一樣),重試只係令魔晶收入貼返真實。
+			var r: Dictionary = {}
+			var tries := 0
+			while tries < max_tries:
+				if arch != "A4":
+					_spend(lv)
+				var one: Dictionary = await _play(lv)
+				tries += 1
+				if tries == 1:
+					r = one
+				if one.win:
+					break
+			print("GATE ROW %s %d %d %d %.4f %d %d %d %d %d %d %d %d %.1f %d"
 				% [arch, sd, lv, 1 if r.win else 0, r.frac, r.kills, r.towers,
 				r.income, r.gold_left, GameData.place_cost(_main_field_tower()),
 				Meta.crystals, cheap, int(GameData.level_config(lv).start_gold),
-				float(r.time)])
+				float(r.time), tries])
 			if lv % 10 == 0:
 				# 每十關報一次 build 狀態,pacing 曲線由呢啲行砌返出嚟
 				print("GATE BUILD %s %d %d T%d S%d axes=%d/%d crystals=%d cum=%d"
@@ -408,8 +440,12 @@ func _frozen_test() -> void:
 func _contract_test() -> void:
 	print("GATE MODE=contract seeds=%d" % seeds)
 	print("GATE HDR seed lv kind strat win crystals frac")
+	## 只量第 40 關之前嘅合約關(第十八輪改)。呢個 mode 用 A1 build,而
+	## 難度重校之後 A1 喺第 41 關就打唔郁 —— 41 關之後嘅合約關兩臂**都係**
+	## 敗仗,而合約倍率只喺通關兌現,所以嗰啲關嘅比率恆等於 1.0。照計落去
+	## 量到嘅唔係「合約值唔值」,係「A1 去到幾遠」。
 	var levels: Array = []
-	for n in range(7, CAMPAIGN_LEVELS):
+	for n in range(7, 41):
 		if GameData.is_contract_level(n):
 			levels.append(n)
 	for si in seeds:
@@ -418,7 +454,7 @@ func _contract_test() -> void:
 			seed(0xC047 + sd * 7919)
 			Meta.reset_save()
 			_contract_strategy = strat
-			for lv in range(1, CAMPAIGN_LEVELS + 1):
+			for lv in range(1, 42):
 				_spend_a1(lv)
 				var is_c: bool = GameData.is_contract_level(lv)
 				var neighbour: bool = GameData.is_contract_level(lv - 1) \

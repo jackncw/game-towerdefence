@@ -53,7 +53,8 @@ if live:
                ('%.1f%%' % (100.0 * sum(f15) / len(f15))) if f15 else '-', len(fw)))
     g = [x for lv in range(16, 41) for x in frozen15.get(lv, [])]
     r15 = 100.0 * sum(g) / max(1, len(g))
-    print('Gate3b 凍結 N-15 於 16-40 <= 25%%: %s (%.1f%%)' % ('PASS' if r15 <= 25 else 'FAIL', r15))
+    # 第十八輪重釘:25% -> 12%(Gate 3-5 一律減半)
+    print('Gate3b 凍結 N-15 於 16-40 <= 12%%: %s (%.1f%%)' % ('PASS' if r15 <= 12 else 'FAIL', r15))
     fw = [x for lv in range(16, 41) for x in frozen.get(lv, [])]
     if fw:
         print('(診斷)凍結 N-5 於 16-40: %.1f%%(v1 窗口,唔係 gate)'

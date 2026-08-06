@@ -56,26 +56,53 @@ const FINAL_LEVEL := 100
 ##
 ## 41-46 同 65-70 兩段坡對應「逼你進化一次」同「逼你雙階段 3」嘅入口,
 ## 道理一模一樣。
+## ==== 第十八輪:全條曲線重校 ====
+## 金幣 v3 令一關嘅塔數由「平均 7 座」變成 20(1-10)→ 33(11-20)→ 42
+## (21-40)→ 48(41-50),而舊曲線每一段嘅斜率都係喺「7 座」上面倒推嘅。
+## 唔跟住加難度嘅話,量出嚟就係 A1(永不進化嘅原型)喺 41-50 關贏 90%
+## —— 亦即係 Jack 實試講嗰句「隨便起幾座塔就輕鬆一次過完前 50 關」嘅
+## 模擬版證據。
+##
+## 補償倍率 M(n) = 新難度 ÷ 第十七輪同一關嘅難度:
+##   M(10) 1.76   M(16) 3.83   M(40) 5.75   M(46) 8.45   M(70) 8.66   M(99) 11.5
+## 1-10 段特登**唔**補足(塔數 ×2.9 但難度只 ×1.76)—— Gate 2 要求白板玩家
+## 贏得到體驗關,而金幣 v3 之下佢哋鋪得起 20 座塔。
+##
+## 每一段點解係呢個數(調嘅次序就係下面嘅次序,每一步都係一個實測):
 const WAVE_BANDS := [
-	{"to": 10, "g": 1.080},    # 體驗關
-	{"to": 16, "g": 1.230},    # 坡:入「逼你升級」
-	{"to": 40, "g": 1.105},    # 逼你升級
-	{"to": 46, "g": 1.300},    # 坡:入「逼你進化一次」
-	{"to": 56, "g": 1.115},    # 逼你進化一次
-	{"to": 62, "g": 1.450},    # 坡(急):入「逼你雙階段 3」
-	## 1.130 -> 1.190(第十七輪,兩步):拆走 path 長度同史萊姆級聯兩個隱藏
-	## 修正器之後,A2 喺 71-80 嘅勝率衝上 48%(Gate 5a 重釘後上限都係 18%)
-	## —— 71-99 段嘅**入口**唔夠高。1.160(x1.24)嘅 20-seed 實測 A2 仲坐
-	## 喺 20.7%,贏嘅全部係 71-84 嘅慢 boss 關。A2 秒殺慢 boss(勝場 boss
-	## 戰 1-6 秒),所以呢啲關對佢嘅唯一約束係 wave 牆,而佢嘅 wave 上限
-	## 喺 ~87 —— 入口要拉到令 wave 喺 78-84 已經頂住佢。1.21(x1.66)實測
-	## 18.1%;1.24 實測 17.2% —— 就係呢個數。(1.27 配「41-70 加薪」試過,
-	## 加薪本身害咗 A3 嘅段內曲線,兩樣一齊回退。)
-	{"to": 70, "g": 1.240},    # 坡(收):接返落平段,唔好一步踩落去
-	## 1.046 -> 1.054(第十七輪,兩步):拆走隱藏修正器之後 A2 喺呢段坐喺
-	## 19% 邊緣(gate 上限 18%)。1.050 嘅 20-seed 實測係 19.3%,再加 0.4
-	## 點(第 85 關累積 x1.15)令 A2 前沿收返入 71-75。
-	{"to": 99, "g": 1.054},    # 逼你雙階段 3
+	{"to": 10, "g": 1.150},    # 體驗關
+	{"to": 16, "g": 1.400},    # 坡:入「逼你升級」
+	## 1.105 → 1.140 → 1.115 → **1.125**。1.140 之下 A1 喺第 37-40 關實測 0%,
+	## 即係「逼你進化」嗰堵牆企咗喺 37 而唔係設計講嘅 41(Gate 3a 要第 40 關
+	## 都仲有 ≥30%);平返落 1.115 之後 A1 11-40 坐喺 95%,而 Gate 3a 由 60%
+	## 減到 30% 嘅**意思**就係容許呢一段真係難 —— 唔用返嗰個空間等於呢條 gate
+	## 冇改過。1.125 係「用得着但唔踩爆逐關下限」嘅折衷。
+	## 呢一段每加一分,41-46 個坡就除返一分,所以難度(46) 由頭到尾冇郁過。
+	{"to": 40, "g": 1.125},    # 逼你升級
+	{"to": 46, "g": 1.386},    # 坡:入「逼你進化一次」
+	{"to": 56, "g": 1.125},    # 逼你進化一次
+	## 1.450 → **1.360**(唯一一段**減**咗嘅)。難度補償只補咗**金幣**(場內
+	## 塔數),冇補**魔晶**(元進度)—— 而魔晶收入係跟住勝率行嘅,所以成條
+	## 曲線 ×13 之後,A3 喺 57-70 嗰個雙坡度輸到冇錢課:實測佢去到第 100 關
+	## 個主力魔法仲停喺 tier 2(即係「逼你雙階段 3」呢個段目標喺模擬入面
+	## 從來冇達成過),71-99 勝率 8% 反而**低過** A2 嘅 25%,兩個原型倒掛。
+	## 對策唔係再加難度,係換形狀:呢個坡拍平,令 A3 有錢行完進化。
+	{"to": 62, "g": 1.360},    # 坡(急):入「逼你雙階段 3」
+	## 1.240 → 1.200 → 1.245 → 1.290 → **1.365**。呢個坡就係 71-99 段嘅
+	## **入口**,而 Gate 5a 由 ≤18% 減半到 ≤9% 嘅意思就係 A2 一入 71 段就要死。
+	## 逐步實測(A2 71-99 / A3 71-99):
+	##   1.200 → A2 喺 71-72 仲係 100%
+	##   1.245 → A2 21.3%
+	##   1.290 → A2 22.6% / A3 62.1%  ← A2 啲勝場全部堆喺 71-84
+	##   1.365 → 呢個數(相對 1.240 係 ×1.60)
+	## 每次都係 A3 有大截餘裕(gate 只要 ≥28%)先至再加 —— 呢個坡係唯一
+	## 一個「淨係打 A2 唔打 A3」嘅位,因為 TIER_JUMP 1.70→1.95 令 A3 嘅
+	## tier-3 火力同步 ×1.32,而 A2 只 ×1.15。
+	{"to": 70, "g": 1.365},    # 坡(收):接返落平段,唔好一步踩落去
+	## 1.054 → 1.0605 → 1.075 → 1.0637 → **1.0466**。入口每抬高一分,段內
+	## 斜率就除返同一分 —— 難度(99) 由頭到尾冇郁過(所以 FINAL_SCALE 亦都
+	## 唔使跟住改),郁嘅淨係「段入口 vs 段尾」嘅分佈。
+	{"to": 99, "g": 1.0466},   # 逼你雙階段 3
 ]
 ## 第 100 關嘅**難度指數**倍率(相對第 99 關)。
 ##
@@ -97,7 +124,17 @@ const WAVE_BANDS := [
 ## 實測 lv100 嘅單場結果對初始條件極敏感(同一絕對難度,20 seed 之間可以
 ## 由 15% 跳到 40%)—— 呢個 gate 要用 48 seed 先讀得準。0.175 係將 48-seed
 ## 均值擺喺 10-30 窗口中間嘅擬合值。
-const FINAL_SCALE := 0.21
+## 0.21 -> 0.055(第十八輪)。難度指數整條 ×13 之後,第 100 關嘅絕對難度
+## (= 指數 × FINAL_SCALE)如果照舊就係 668,853 —— A4 實測 **0/16**。A4 係
+## 一個**授予**嘅 build,佢唔食金幣 v3 帶嚟嘅塔數增長全部(佢喺呢關起 ~45 座,
+## 十七輪係 24 座),所以佢嘅力量只升咗 ~2.5 倍,唔係 13 倍。呢個掣就係
+## 「除返嗰個差」:0.055 之下第 100 關嘅絕對難度 ≈ 十七輪 ×2.5。
+## 副作用(第 100 關雜兵比第 99 關軟)照舊,而且更明顯 —— 見上面嘅設計理由。
+## (0.055 -> 0.073:TIER_JUMP 1.70 -> 1.95 令 A4 嘅滿級 tier-3 陣容強咗
+## 三成二,呢度乘返同一個數,第 100 關嘅**相對**難度先至冇被順手改掉。
+## 之後 63-70 個坡再 ×1.40 令難度(99) 一齊升,而第 100 關嘅絕對難度唔應該
+## 順手跟住升 —— 0.073 ÷ 1.40 = 0.052。)
+const FINAL_SCALE := 0.052
 
 var _diff_cache: Array = []
 
@@ -181,15 +218,61 @@ func path_factor(n: int) -> float:
 ## 分裂包 = 史萊姆一代分裂(子體 lvl-1、唔再分裂)嘅有效血量倍率,約 2.0
 ## (lv2 係 2.25、lv5 係 2.24,lv1 唔分裂 —— 用常數係一個接受咗嘅近似)。
 const SLIME_SPLIT_PACK := 2.0
+## 第十八輪:壓力公式加返**護甲同魔抗**。第十七輪嘅 hp x speed 漏咗佢哋,而
+## 兩者喺 Monster.take_hit 都係一個乾淨嘅百分比減傷(phys: 1 - a/(a+50);
+## magic: 1 - m/(m+60))—— 即係話佢哋係一個**純粹嘅有效血量倍率**,同 hp
+## 一模一樣咁乘埋落去,冇任何理由唔入數。
+##
+## 症狀:第十八輪嘅 A1 喺 11-40 平均 87%,但第 18(甲蟲+哥布林+岩石巨像,
+## 三族齊齊有甲)、第 24(岩石巨像 12 甲 + 樹妖回復)兩關實測 0% —— Gate 3a
+## 要求逐關 ≥30%。呢個唔係「難度曲線太斜」,係一個冇入曲線嘅家族修正器。
+##
+## 玩家傷害嘅物理/魔法比例用 0.7 / 0.3(主力塔 = 箭塔物理,主力魔法 = 隕石)。
+## 呢個係一個近似 —— 一個全魔法 build 睇到嘅有效血量會唔同,但曲線係為
+## 「一個合理玩家」設計嘅,而合理玩家嘅輸出七成喺塔度。
+const PHYS_SHARE := 0.7
+const ARMOR_K := 50.0
+const MRES_K := 60.0
 var _fam_press_mean := 0.0
+
+## 護甲/魔抗換算成有效血量倍率。
+func _resist_mult(armor: float, mres: float) -> float:
+	return PHYS_SHARE * (armor + ARMOR_K) / ARMOR_K \
+		+ (1.0 - PHYS_SHARE) * (mres + MRES_K) / MRES_K
+
+## 雜兵機制嘅有效血量係數(第十八輪)。同 BOSS_MECH_TOUGH 完全同一個道理,
+## 只不過嗰個係 boss 嗰邊,呢個一直冇人做過 —— 而十關輪轉入面家族係**成組**
+## 出現嘅,所以佢哋唔會互相抵銷,係堆埋一齊。
+##   revive    骷髏:AURA_REVIVE_MAX 之下有效血量 1 + 0.30 + 0.15(碼度寫住)
+##   regen     樹妖:回復咬走一截 DPS
+##   aura      巫教:佢哋 buff 成波怪,即係一隻嘅存在令其他隻更硬
+##   hardshell 甲蟲:每下傷害封頂 12% 血 —— 對大單體傷害係一堵牆
+##   phase     幽靈:相位期間食唔到嘢
+##   flying    蝙蝠:地面效果(火場/荊棘/緩速力場)全部落唔到佢身上
+## split 唔喺呢度 —— 佢有自己嗰個 SLIME_SPLIT_PACK(數量,唔係硬度)。
+const FAM_MECH_TOUGH := {
+	"basic": 1.0, "revive": 1.45, "armored": 1.0, "phase": 1.10,
+	"flying": 1.05, "regen": 1.15, "hardshell": 1.10, "aura": 2.00,
+	"split": 1.0,
+}
+## aura 由 1.25 加到 2.00(第十八輪,第二步):巫教嘅光環唔係一個「自己硬啲」
+## 嘅效果 —— 佢每 0.6 秒幫**周圍每一隻**回自己血量嘅 3%(= 5%/秒),而大祭司
+## 嘅 boss 期 pool 係**全巫教**,即係一舊互相回血嘅怪。N 隻埋堆嘅有效血量係
+## 超線性,一個 1.25 嘅係數量緊「一隻巫教」,唔係量緊嗰舊嘢。實測第 39 關
+## (巫教 + 妖狼,大祭司 boss)係 Gate 3a 最後一個唔達標嘅關,A1 勝率 0%,
+## 而同段平均 92%。
 
 func _fam_pressure(fam: String) -> float:
 	var f: Dictionary = FAMILIES[fam]
-	var p: float = float(f.hp) * float(f.speed)
+	var p: float = float(f.hp) * float(f.speed) \
+		* _resist_mult(float(f.armor), float(f.mres)) \
+		* float(FAM_MECH_TOUGH.get(String(f.mech), 1.0))
 	if String(f.mech) == "split":
 		p *= SLIME_SPLIT_PACK
 	return p
 
+## 家族組合歸一化(第十七輪版本,只計雜兵期)。第十八輪之後**唔再直接用**
+## —— 佢已經被 `level_wave_norm()` 包住(雜兵期 + boss 期)。留住做診斷同對照。
 func fam_mix_norm(n: int) -> float:
 	## 第 100 關嘅家族係另外指定(全部十族),平均壓力自動係 1 —— 直接返。
 	if is_final_level(n):
@@ -205,6 +288,96 @@ func fam_mix_norm(n: int) -> float:
 		s2 += _fam_pressure(String(k))
 	return (s2 / float(fams.size())) / _fam_press_mean
 
+# ---------------------------------------------------------------------------
+# 關卡壓力歸一化 level_wave_norm()(第十八輪)。第八個隱藏修正器。
+#
+# 第十七輪嘅 fam_mix_norm 只計**雜兵期**嘅家族組合。但 boss 一出場,雜兵嘅
+# 出怪頻率同怪種**兩樣都會變**(`BOSS_SPAWN`:rate 0.10↔0.70 差七倍、`pool`
+# 換晒怪種、`lvl_bonus` 加一級、`burst` 突襲隊),而 boss 期佔一關三分一時間。
+# 換句話講:一關嘅總壓力有三分一冇入過任何一條歸一化。
+#
+# 症狀:Gate 3a(A1 11-40 逐關 ≥30%)喺 1.125 之下淨係三關唔達標 —— 第 18
+# (甲蟲皇,rate 0.70 + pool 全甲蟲)、第 24(岩石巨像,rate 0.65 + lvl_bonus)、
+# 第 39(大祭司,pool 全巫教 —— 而巫教係 aura,佢哋互相 buff)。而同段其餘
+# 二十七關全部 90-100%。三隻都係「boss 期出怪最毒」嗰批。
+#
+# 做法同 level_gold_norm 完全對稱,只不過權重用 _fam_pressure 而唔係掉金:
+#   Y(n) = 雜兵期出怪數 × 該關家族平均壓力
+#        + boss 期出怪數 × boss 期怪種平均壓力(連 lvl_bonus 嘅血量帶)
+#        + 突襲隊數 × 突襲怪種壓力
+# 再除返同一個等級帶入面二十關(家族輪轉 10 × 單雙數 2)嘅平均 Y。
+# 平均難度一個字都冇郁 —— 郁嘅只係「邊幾關特別毒」嗰個擺動。
+# ---------------------------------------------------------------------------
+## boss 期嘅壓力**唔全額**入歸一化(掉金嗰邊就照全額)。
+##
+## 點解兩邊唔同:掉金量嘅係一個固定 90 秒窗,boss 期實實在在有 30 秒;但
+## 壓力唔係 —— boss 期幾長由**玩家幾快殺得死 boss** 決定,而一關係喺 boss
+## 死嗰刻完結嘅。一個爆發型 build(A2 = tier 2 課滿)喺慢 boss 關 1-6 秒
+## 就秒殺咗隻 boss,所以嗰段圍城根本冇發生過 —— 全額補償等於幫佢哋將
+## 「圍城很兇」呢件事換成「雜兵軟啲」,而佢哋食唔到圍城只食到雜兵。
+##
+## 實測:全額(1.0)之下 A2 喺 71-84 坐喺 35%(Gate 5a 上限 9%),而佢
+## 全部勝場都係 goblin / golem / beetle 三隻慢 boss 嘅關(71/74/78/81/84)
+## —— 同第十七輪記錄嘅一模一樣嗰個 pattern。0.5 係「圍城平均只發生一半」
+## 嘅折衷:弱 build 照食全套(佢哋殺唔快),爆發 build 唔再攞到折扣。
+const BOSS_PHASE_WEIGHT := 0.5
+var _lwn_cache: Dictionary = {}
+
+## 等級帶 band 之下,怪物等級 +bonus 之後嘅平均血量倍率變化。
+func _lvl_bonus_hp(band: int, bonus: int) -> float:
+	var lo: int = clampi(1 + band, 1, 5)
+	var hi: int = clampi(2 + band, 1, 5)
+	var a := 0.0
+	var c := 0.0
+	for l in range(lo, hi + 1):
+		a += LVL_HP[clampi(l + bonus, 1, 5)]
+		c += LVL_HP[l]
+	return a / maxf(0.001, c)
+
+func _wave_yield(band: int, r: int) -> float:
+	var base_i: int = r % 10
+	var fams: Array = [FAMILY_ORDER[base_i], FAMILY_ORDER[(base_i + 3) % 10]]
+	if r % 2 == 1:                     # r = (n-1)%20,所以 r 單數 = n 雙數
+		fams.append(FAMILY_ORDER[(base_i + 6) % 10])
+	var a := 0.0
+	for f in fams:
+		a += _fam_pressure(String(f))
+	a /= float(fams.size())
+	var y: float = WAVE_PHASE_SPAWNS * a
+	var boss_fam: String = FAMILY_ORDER[base_i]
+	var p: Dictionary = boss_spawn_profile(boss_fam)
+	var pool: Array = p.get("pool", fams)
+	var ab := 0.0
+	for f in pool:
+		ab += _fam_pressure(String(f))
+	ab = ab / float(pool.size()) * _lvl_bonus_hp(band, int(p.get("lvl_bonus", 0)))
+	y += BOSS_PHASE_WEIGHT * BOSS_PHASE_SECONDS \
+		* float(p.get("rate", BOSS_SPAWN_BASE_RATE)) / 0.45 * ab
+	var bu: Dictionary = p.get("burst", {})
+	if not bu.is_empty():
+		y += BOSS_PHASE_WEIGHT * BOSS_PHASE_SECONDS / maxf(1.0, float(bu["interval"])) \
+			* (float(bu["count_min"]) + float(bu["count_max"])) * 0.5 \
+			* _fam_pressure(String(bu.get("fam", boss_fam)))
+	return y
+
+func level_wave_norm(n: int) -> float:
+	if is_final_level(n):
+		return 1.0
+	var band: int = _band_of(n)
+	if not _lwn_cache.has(band):
+		var tbl: Array = []
+		var s := 0.0
+		for r in GOLD_ROT:
+			var y: float = _wave_yield(band, r)
+			tbl.append(y)
+			s += y
+		var mean: float = maxf(0.001, s / float(GOLD_ROT))
+		var out: Array = []
+		for r in GOLD_ROT:
+			out.append(float(tbl[r]) / mean)
+		_lwn_cache[band] = out
+	return float((_lwn_cache[band] as Array)[(maxi(1, n) - 1) % GOLD_ROT])
+
 ## 第 n 關出邊幾多個家族(2-3 個輪轉)。level_config 同 fam_mix_norm 都問呢度
 ## —— 兩邊各自寫一次嘅話,選族公式一改,歸一化就靜靜咁對唔上。
 func level_families(n: int) -> Array:
@@ -214,10 +387,10 @@ func level_families(n: int) -> Array:
 		fams.append(FAMILY_ORDER[(base_i + 6) % 10])
 	return fams
 
-## 雜兵嘅血量倍率 = 難度 x 路長因子 ÷(等級帶 x 密度 x 家族組合)。
+## 雜兵嘅血量倍率 = 難度 x 路長因子 ÷(等級帶 x 密度 x 關卡壓力)。
 func wave_scale(n: int) -> float:
 	return difficulty(n) * path_factor(n) \
-		/ (_lvl_hp_norm(n) * density(n) * fam_mix_norm(n))
+		/ (_lvl_hp_norm(n) * density(n) * level_wave_norm(n))
 
 ## boss 冇「怪物等級帶」呢回事(佢永遠係 boss),而且佢係一隻,唔受密度影響
 ## —— 所以佢直接跟難度指數,唔跟雜兵嗰條。冇呢個分別嘅話,怪物等級一跳
@@ -379,56 +552,100 @@ func family_ids() -> Array:
 	return FAMILY_ORDER
 
 # ---------------------------------------------------------------------------
-# 場內金幣 vs 建塔成本 (第十七輪改向)
+# 場內金幣 vs 建塔成本 (第十八輪:金幣 v3)
 #
 # 第十五輪嘅答案係「兩條曲線同一個指數」:建塔價同金收入一齊跟
 # difficulty^0.45 行。比率唔發散,但有兩個代價:(1) 建塔嘅「鬆緊」變成一個
 # 100 關都唔變嘅常數,冇任何演進;(2) 同一座塔嘅標價隨關卡同場上塔數郁,
 # 玩家睇唔明點解箭塔一時 60 一時 74。
 #
-# 第十七輪反轉槓桿:**建塔價完全固定**(def.place_cost,唔隨關卡、唔隨
-# 已建數量),鬆緊全部交俾金幣掉落曲線:
+# 第十七輪反轉槓桿:**建塔價完全固定**(def.place_cost),鬆緊全部交俾金幣
+# 掉落曲線。呢個結構保留,但第十八輪換咗曲線本身同佢嘅**單位**:
 #
-#   收入(n) ≈ R0 x gold_scale(n),R0 = 第 1 關「一關總收入買到幾多座塔」
-#   (實測 ~8)。gold_scale 唔再跟難度指數(difficulty(99)^0.45 ≈ 177,
-#   fix 價之下即刻係 177 倍發散),係一條設計出嚟嘅慢曲線:第 1 關 1.0,
-#   前 15 關幾乎唔郁(早期建塔要諗過先起),之後慢慢爬到第 100 關嘅
-#   GOLD_CURVE_MAX。收入/塔價比率全程封死喺 R0 x GOLD_CURVE_MAX(~16),
-#   結構上返唔到改版前嗰種 95 倍發散。
+#   舊(十七輪):曲線係一條「唔准發散」嘅安全繩 —— 1.0 爬到 1.40,而
+#   KILL_GOLD_TUNE = 0.5 將絕對值壓到一關夠鋪 ~7 座塔。玩落嘅結果係 Jack
+#   實試嘅嗰句「隨便起幾座塔就過到前 50 關」:塔少,所以每座塔嘅擺位同
+#   升級都唔使諗,一條 build 由頭行到尾。
 #
-# 中後期金有剩係設計**容許**嘅:固定價之下「再起一座」始終係一個位置決定,
-# 錢剩唔係問題,發散先係。tools/gate_report.py 有一條 ≤16 嘅斷言守住佢。
+#   新(十八輪):曲線係一條**設計目標曲線**,單位係「呢一關淨靠打怪掉幣
+#   起得到幾多座參考塔」(= G1)。G1 由第 1 關嘅 10 座爬到第 100 關嘅 40 座,
+#   而爬嘅形狀跟返難度嘅分段:1-10 體驗、11-16 入門坡、17-40、41-70、71-100。
+#   塔多咗三四倍,所以怪物曲線亦都同步重校(見 WAVE_BANDS)—— 兩件事係
+#   同一個決定嘅兩面,唔可以淨做一邊。
+#
+# 「參考塔價」= 120 金,20 座塔基礎價嘅中位數(亦等於平均價 119 取整)。
+# 用中位數而唔係箭塔嘅 60:G1 係一條經濟曲線,唔應該跟住某一座塔嘅平衡改動
+# 一齊郁。tools/goldcurve.gd 就係量呢條曲線嘅工具(90 秒當量、雜兵即殺、
+# boss 釘死,所以佢量嘅係**關卡派幾多錢**,同玩家打得好唔好無關)。
 #
 # 場內每一個金來源都要行同一條曲線,唔係鍊金塔同點金術會隨關數變成零。
 # Battle.scale_gold() 係嗰個單一入口(怪物掉落已經喺 kill_gold_unit 度乘咗,
-# 所以佢唔使再經)。
+# 所以佢唔使再經)。因為所有來源同一條曲線,G2(經濟技能上限)嘅比率
+# **結構上同關卡無關** —— 量一關等於量一百關。
 # ---------------------------------------------------------------------------
-## 1.6 -> 1.40(第十七輪後段):41-70 段派彩加咗之後 A2 喺 71-99 反彈,
-## 收佢用後期金幣(佢嘅後期強度食塔數,塔數食金)而唔係再加難度 ——
-## 呢個掣喺 1-40 關幾乎冇感覺(第 41 關先差 3%),所以 A0/A1/Gate 2/3/4
-## 全部唔受牽連。「中後期金有剩」嘅設計仍然成立(71+ 比率仍然爬到 ~10-12)。
-const GOLD_CURVE_MAX := 1.40
-## 指數 > 1 = 前段平後段先爬:第 15 關先 +1%,第 41 關 +6%,第 71 關 +22%。
-const GOLD_CURVE_EXP := 1.6
+## G1 目標曲線嘅分母。改呢個數等於重定義成條曲線,唔好順手郁。
+const REF_TOWER_COST := 120.0
+## 金幣倍率嘅分段成長率,結構同 WAVE_BANDS 一模一樣(`to` = 呢段最後嗰關,
+## `g` = 段內每關嘅成長率)。每一段嘅終點就係 G1 嘅設計目標:
+##
+##   關     倍率    G1(可建塔數)   對應難度段
+##   1      1.000   10             體驗關
+##   10     1.450   14.5           體驗關尾
+##   16     2.050   20.5           入門坡尾(≥20 喺呢度達成)
+##   40     2.700   27             逼你升級
+##   70     2.957   33(連精英)    逼你進化一次
+##   100    3.390   40(連精英)    逼你雙階段 3 / 最終關
+##
+## 點解入門坡(11-16)係全條曲線最斜嗰段:難度喺嗰六關本身就係一個坡
+## (WAVE_BANDS g=1.230),而「逼你升級」呢個設計目標要求玩家企喺邊緣 ——
+## 邊緣嘅意思係塔夠多但唔夠強,所以塔數要喺呢六關一次過鋪夠,之後嘅
+## 八十四關先慢慢加。反過嚟講:1-10 關 G1 由 10 爬到 15,係要體驗關真係
+## 有「起唔起呢座」嘅決定,而唔係開場就鋪滿。
+## 註:41 關之後嘅兩段**特登比前面平**,唔係手民之誤 —— 精英怪由第 41 關起
+## 出場,而佢哋掉 ELITE_GOLD_MULT(1.9)倍金。精英率由 6% 爬到 20%,即係
+## 一條「唔喺呢張表入面」嘅 +5% → +18% 收入曲線。呢兩段除返佢,實際 G1
+## 先至係設計嗰條線(實測驗證:第 60 關量到 31.4 座,表面倍率只計到 30.9)。
+const GOLD_BANDS := [
+	{"to": 10,  "g": 1.04222},
+	{"to": 16,  "g": 1.05930},
+	{"to": 40,  "g": 1.01155},
+	{"to": 70,  "g": 1.00304},
+	{"to": 100, "g": 1.00456},
+]
+var _gold_cache: Array = []
+
+func _build_gold_cache() -> void:
+	_gold_cache = [0.0, 1.0]
+	var cur := 1.0
+	var n := 2
+	for band in GOLD_BANDS:
+		while n <= int(band["to"]):
+			cur *= float(band["g"])
+			_gold_cache.append(cur)
+			n += 1
 
 ## 一關嘅「金單位」。所有金額(起手金、鍊金塔產出、怪物掉落)都以佢做單位。
-## 建塔價**唔喺入面** —— 佢係固定價,而呢條曲線同固定價嘅比就係設計鬆緊。
+## 建塔價**唔喺入面** —— 佢係固定價,而呢條曲線同固定價嘅比就係 G1。
 func gold_scale(n: int) -> float:
-	var t: float = clampf(float(n - 1) / float(FINAL_LEVEL - 1), 0.0, 1.0)
-	return 1.0 + (GOLD_CURVE_MAX - 1.0) * pow(t, GOLD_CURVE_EXP)
+	if _gold_cache.is_empty():
+		_build_gold_cache()
+	if n <= 1:
+		return 1.0
+	if n < _gold_cache.size():
+		return float(_gold_cache[n])
+	return float(_gold_cache[_gold_cache.size() - 1])
 
-## 殺敵掉金嘅全域縮減(第十七輪)。兩個作用:
+## 殺敵掉金嘅全域係數。佢淨係做一件事:將 G1 嘅**絕對值**釘喺第 1 關 = 10 座。
+## 形狀由 GOLD_BANDS 話事,呢度只係搬高條線。
 ##
-## 1. 固定塔價拆走咗「每多一座貴 3%」嘅遞增之後,同一份收入買到嘅塔多咗
-##    三成 —— 五個原型一齊變強,A1/A2 嘅勝率帶整條右移,Gate 4a/5a 齊齊
-##    貼界(x0.6 實測 A2 71-99 去到 24%,gate 上限 18%)。呢個折扣將
-##    塔數壓返落第十五輪嘅量級,難度 gate 先企得返原位。
+## 0.5 -> 1.83(第十八輪):十七輪嗰個 0.5 係為咗抵銷「拆走遞增塔價」帶嚟
+## 嘅塔數上升,而嗰個抵銷本身就係「隨便起幾座就完到前 50 關」嘅來源。
+## 而家反方向:塔數要係設計目標,難度跟塔數走。
 ##
-## 2. 早期(1-15 關)嘅建塔張力:x0.5 之下一關收入 + 起手金合共鋪 ~7 座,
-##    「起唔起呢座」先係一個決定。
-##
-## 起手金**唔食**呢個折扣(佢行 gold_scale),所以開局買到幾多座冇變。
-const KILL_GOLD_TUNE := 0.5
+## 起手金**唔食**呢個係數(佢行 gold_scale),所以開局買到幾多座係另一條掣。
+## (1.83 -> 1.92 係最後一步微調:1.83 之下實測第 1 關 9.78 座、第 99 關 36.8 座,
+## 兩頭都爭少少;+5% 之後係 10.3 / 38.6,兩頭都入返 G1 嘅窗。)
+const KILL_GOLD_TUNE := 1.92
 
 ## 怪物掉落要除返「等級帶 x 密度」,理由同 wave_scale 一模一樣。
 ##
@@ -445,8 +662,123 @@ func _lvl_gold_norm(n: int) -> float:
 		s += LVL_GOLD[l]
 	return (s / float(hi - lo + 1)) / ((LVL_GOLD[1] + LVL_GOLD[2]) * 0.5)
 
+## 史萊姆掉金包 = 一隻史萊姆連兩隻子體嘅掉金倍率。**跟怪物等級帶行**,唔係
+## 一個常數:lv1 史萊姆唔分裂(包 = 1.0),而頭十二關嘅等級帶係 1-2,即係
+## 一半史萊姆冇子體。用常數 2.45 嘅話,頭十二關嘅史萊姆關會被高估四成幾,
+## 而 G1 曲線就會喺嗰幾關凹一忽 —— 實測第 10 關量到 8.7 座(第 1 關 10.4)。
+## (血量嗰邊嘅 SLIME_SPLIT_PACK 照舊用常數 2.0:佢餵嘅係難度曲線,而難度
+## 曲線本來就有 ±5% 嘅容差;G1 係一條要逐關對得上嘅設計曲線,冇同一份容差。)
+func _slime_gold_pack(n: int) -> float:
+	var band: int = _band_of(n)
+	var lo: int = clampi(1 + band, 1, 5)
+	var hi: int = clampi(2 + band, 1, 5)
+	var s := 0.0
+	for l in range(lo, hi + 1):
+		s += 1.0 if l <= 1 else (1.0 + float(SPLIT_COUNT) * SPLIT_GOLD_FRAC
+			* LVL_GOLD[l - 1] / LVL_GOLD[l])
+	return s / float(hi - lo + 1)
+
+## 史萊姆一代分裂幾多隻 / 子體掉金折扣 —— Monster.SPLIT_COUNT 同
+## Battle.SPLIT_GOLD_FRAC 嘅數據層鏡像。歸一化要知道實際派幾多,而唔係
+## 圖鑑講幾多:漏咗 0.25 折嗰陣,史萊姆關被高估四成,量出嚟就係第 20 關
+## 明明應該多過第 16 關但實測少 13%。
+const SPLIT_COUNT := 2
+const SPLIT_GOLD_FRAC := 0.25
+
+func _fam_gold(fam: String, band: int) -> float:
+	var f: Dictionary = FAMILIES[fam]
+	var g: float = float(f.gold)
+	if String(f.mech) == "split":
+		g *= _slime_gold_pack(band * LVL_BAND_EVERY + 1)
+	return g
+
+# ---------------------------------------------------------------------------
+# 關卡掉金歸一化 level_gold_norm()(第十八輪)。第五、第六個隱藏修正器,
+# 兩個都**只影響收入**,合併成一條:
+#
+#   5. 家族組合。十族嘅基礎掉金由 4 到 7,而史萊姆仲要連分裂體一齊計 ——
+#      「呢一關派幾多錢」本來係跟家族輪轉擺 ±20%(實測第 10 關 233 金、
+#      第 15 關 330 金,相鄰十關差四成)。
+#   6. boss 期嘅出怪。boss 一出場,雜兵頻率就改跟 BOSS_SPAWN[boss 族].rate,
+#      而十族之間由 0.10(史萊姆之母)去到 0.70(甲蟲皇)—— 差七倍;有啲
+#      boss 仲要換晒怪種(`pool`)或者加一級(`lvl_bonus`)。90 秒當量入面
+#      boss 期佔三分一。boss **血量**嘅家族差異第十七輪已經歸一
+#      (boss_hp_coeff),收入嗰邊當時冇人量過。
+#
+# 做法:計一關嘅「掉金產量權重」Y(n) = 雜兵期出怪數 x 該關家族平均掉金
+#      + boss 期出怪數 x boss 期怪種平均掉金 + 突襲隊數 x 突襲怪種掉金,
+# 再除返**同一個等級帶入面二十關(= 家族輪轉 10 x 單雙數 2 嘅最小公倍數)
+# 嘅平均 Y**。即係話輪轉照轉、風味照有,但一關派幾多錢只由 GOLD_BANDS 話事。
+# ---------------------------------------------------------------------------
+const BOSS_PHASE_SECONDS := 30.0
+## 雜兵期(60 秒,間隔由 1.6 lerp 落 0.45)出到嘅怪數,以 density 做單位:
+## ∫dt/interval = (60/1.15)·ln(1.6/0.45) = 66.2。density 兩期都食,所以喺
+## 呢個比率入面消掉,唔使出現。
+const WAVE_PHASE_SPAWNS := 66.2
+const GOLD_ROT := 20
+var _lgn_cache: Dictionary = {}
+
+func _band_of(n: int) -> int:
+	return int(maxi(1, n) - 1) / LVL_BAND_EVERY
+
+## 等級帶 band 之下,怪物等級 +bonus 之後嘅平均掉金倍率變化。
+func _lvl_bonus_gold(band: int, bonus: int) -> float:
+	var lo: int = clampi(1 + band, 1, 5)
+	var hi: int = clampi(2 + band, 1, 5)
+	var a := 0.0
+	var c := 0.0
+	for l in range(lo, hi + 1):
+		a += LVL_GOLD[clampi(l + bonus, 1, 5)]
+		c += LVL_GOLD[l]
+	return a / maxf(0.001, c)
+
+## 第 r 個輪轉位(r = (n-1) % 20)喺等級帶 band 之下嘅掉金產量權重。
+func _gold_yield(band: int, r: int) -> float:
+	var base_i: int = r % 10
+	var fams: Array = [FAMILY_ORDER[base_i], FAMILY_ORDER[(base_i + 3) % 10]]
+	if r % 2 == 1:                     # r = (n-1)%20,所以 r 單數 = n 雙數
+		fams.append(FAMILY_ORDER[(base_i + 6) % 10])
+	var a := 0.0
+	for f in fams:
+		a += _fam_gold(String(f), band)
+	a /= float(fams.size())
+	var y: float = WAVE_PHASE_SPAWNS * a
+	var boss_fam: String = FAMILY_ORDER[base_i]
+	var p: Dictionary = boss_spawn_profile(boss_fam)
+	var pool: Array = p.get("pool", fams)
+	var ab := 0.0
+	for f in pool:
+		ab += _fam_gold(String(f), band)
+	ab = ab / float(pool.size()) * _lvl_bonus_gold(band, int(p.get("lvl_bonus", 0)))
+	y += BOSS_PHASE_SECONDS * float(p.get("rate", BOSS_SPAWN_BASE_RATE)) / 0.45 * ab
+	var bu: Dictionary = p.get("burst", {})
+	if not bu.is_empty():
+		y += BOSS_PHASE_SECONDS / maxf(1.0, float(bu["interval"])) \
+			* (float(bu["count_min"]) + float(bu["count_max"])) * 0.5 \
+			* _fam_gold(String(bu.get("fam", boss_fam)), band)
+	return y
+
+func level_gold_norm(n: int) -> float:
+	if is_final_level(n):
+		return 1.0
+	var band: int = _band_of(n)
+	if not _lgn_cache.has(band):
+		var tbl: Array = []
+		var s := 0.0
+		for r in GOLD_ROT:
+			var y: float = _gold_yield(band, r)
+			tbl.append(y)
+			s += y
+		var mean: float = maxf(0.001, s / float(GOLD_ROT))
+		var out: Array = []
+		for r in GOLD_ROT:
+			out.append(float(tbl[r]) / mean)
+		_lgn_cache[band] = out
+	return float((_lgn_cache[band] as Array)[(maxi(1, n) - 1) % GOLD_ROT])
+
 func kill_gold_unit(n: int) -> float:
-	return KILL_GOLD_TUNE * gold_scale(n) / (_lvl_gold_norm(n) * density(n))
+	return KILL_GOLD_TUNE * gold_scale(n) \
+		/ (_lvl_gold_norm(n) * density(n) * level_gold_norm(n))
 
 # ---------------------------------------------------------------------------
 # 建塔成本:固定價 (第十七輪)
@@ -550,15 +882,21 @@ func _boss_tough(f: Dictionary) -> float:
 	return float(BOSS_MECH_TOUGH.get(String(f.boss), 1.0))
 
 ## 呢個家族嘅 boss 基礎血量(乘 boss_scale 之前)。
+## boss 嘅護甲/魔抗(`boss_stats`:家族值 +6 / +5)第十七輪冇入呢條歸一化,
+## 而佢同雜兵嗰邊一樣係一個純粹嘅有效血量倍率 —— 岩石巨像 boss 18 甲 = ×1.36,
+## 甲蟲皇 12 甲 = ×1.24,哥布林王 8 甲 = ×1.16。實測第 18(甲蟲皇)同第 24
+## (岩石巨像)兩關嘅 A1 勝率係 0%,而同段平均 90%。
 func boss_hp_coeff(fam: String) -> float:
 	if _boss_pressure_mean <= 0.0:
 		var s := 0.0
 		for k in FAMILY_ORDER:
 			var f: Dictionary = FAMILIES[k]
-			s += float(f.hp) * 14.0 * float(f.speed) * _boss_tough(f)
+			s += float(f.hp) * 14.0 * float(f.speed) * _boss_tough(f) \
+				* _resist_mult(float(f.armor) + 6.0, float(f.mres) + 5.0)
 		_boss_pressure_mean = s / float(FAMILY_ORDER.size())
 	var f2: Dictionary = FAMILIES[fam]
-	return _boss_pressure_mean / (float(f2.speed) * _boss_tough(f2))
+	return _boss_pressure_mean / (float(f2.speed) * _boss_tough(f2)
+		* _resist_mult(float(f2.armor) + 6.0, float(f2.mres) + 5.0))
 
 func boss_stats(fam: String, wave_scale: float) -> Dictionary:
 	var f: Dictionary = FAMILIES[fam]
@@ -585,9 +923,14 @@ var TOWERS := []
 
 func _build_towers() -> void:
 	# helper
-	var t := func(id,name,desc,mech,place,unlock,stats,ups):
-		TOWERS.append({"id":id,"kind":"tower","name":name,"desc":desc,"mech":mech,
-			"place_cost":place,"unlock":unlock,"stats":stats,"ups":ups})
+	## `extra` 收 curve 呢類唔係「一個數」嘅嘢,同 _build_spells 一樣嘅寫法。
+	## 放最後而且有預設值,所以冇 curve 嘅十九座塔一個字都唔使改。
+	var t := func(id,name,desc,mech,place,unlock,stats,ups,extra={}):
+		var d := {"id":id,"kind":"tower","name":name,"desc":desc,"mech":mech,
+			"place_cost":place,"unlock":unlock,"stats":stats,"ups":ups}
+		for k in extra:
+			d[k] = extra[k]
+		TOWERS.append(d)
 
 	t.call(1,"TOWER_ARROW_NAME","TOWER_ARROW_DESC","arrow",60,0,
 		{"dmg":10.0,"rate":2.2,"range":260.0,"crit":0.05,"critmult":1.8,"double":0.0},
@@ -637,10 +980,29 @@ func _build_towers() -> void:
 		{"dmg":0.0,"rate":1.0,"range":170.0,"slow":0.3,"vuln":0.0,"pulse":0.0,"pulserate":1.0,"bosseff":0.5},
 		[U("UP_AREA","range",12.0,45,"add"),U("UP_SLOWAMT","slow",0.03,55,"add"),U("UP_VULN","vuln",0.03,60,"add"),
 		 U("UP_PULSEDMG","pulse",6.0,60,"add"),U("UP_PULSERATE","pulserate",0.15,55,"add"),U("UP_BOSSEFF","bosseff",0.04,70,"prob")])
+	# ==== 第十八輪:鍊金塔全面重校(G2)====
+	# 舊數值係一個冇人量過嘅發散源:gold 8 x rate 0.4 已經係 3.2 金/秒(當時
+	# 一關雜兵掉落總共先得 ~320 金,即係一座零升級嘅鍊金塔差唔多等於成關嘅
+	# 掉落),而 `gold` 同 `startgold` 兩個 stat 仲要喺 TIER_SCALED_STATS 入面
+    # —— 塔嘅 tier 倍率係 14.66,第三階就係 215 倍。一座滿課 T3 鍊金塔量出嚟
+	# 係成千金/秒。之所以一直冇人見到,係因為 GateSim 只升級**輸出塔**,鍊金塔
+	# 永遠停喺第一階第零級。
+	#
+	# 而家四條金軸全部改行 `curve`(逐階終點),即係話佢哋完全唔食 tier 幾何
+	# 倍率,每一階去到幾多係寫出嚟嘅。G2 嘅目標:三座 T3 滿課鍊金塔 = 當關總金
+	# x1.22 左右。
+	#   gold       每次產出(未乘 gold_scale)
+	#   rate       每秒產出次數
+	#   killbonus  射程內擊殺嘅額外掉金(唔跨塔疊加,Battle 撞到第一座就 break)
+	#   critgold   產出暴擊機率(x2)—— 舊版呢條軸**完全冇實作**,見 Tower._fire_alchemy
+	#   startgold  落塔嗰刻一次過入賬
 	t.call(12,"TOWER_ALCHEMY_NAME","TOWER_ALCHEMY_DESC","alchemy",100,160,
-		{"dmg":0.0,"rate":0.4,"range":180.0,"gold":8.0,"killbonus":0.0,"critgold":0.0,"startgold":0.0},
-		[U("UP_GOLDAMT","gold",3.0,55,"add"),U("UP_GOLDRATE","rate",0.05,60,"add"),U("UP_KILLRANGE","range",14.0,45,"add"),
-		 U("UP_KILLBONUS","killbonus",0.05,60,"add"),U("UP_CRITGOLD","critgold",0.04,65,"prob"),U("UP_STARTGOLD","startgold",25.0,55,"add")])
+		{"dmg":0.0,"rate":0.35,"range":180.0,"gold":1.2,"killbonus":0.0,"critgold":0.0,"startgold":0.0},
+		[U("UP_GOLDAMT","gold",0.0,55,"add"),U("UP_GOLDRATE","rate",0.0,60,"add"),U("UP_KILLRANGE","range",14.0,45,"add"),
+		 U("UP_KILLBONUS","killbonus",0.0,60,"add"),U("UP_CRITGOLD","critgold",0.0,65,"prob"),U("UP_STARTGOLD","startgold",0.0,55,"add")],
+		{"curve":{"gold":[1.10,1.16,1.20],"rate":[0.50,0.56,0.60],
+			"killbonus":[0.042,0.054,0.066],"critgold":[0.10,0.14,0.18],
+			"startgold":[6.0,8.0,10.0]}})
 	t.call(13,"TOWER_BARRACKS_NAME","TOWER_BARRACKS_DESC","barracks",90,0,
 		{"dmg":6.0,"rate":1.2,"range":200.0,"soldierhp":40.0,"count":2.0,"respawn":5.0,"armor":0.0},
 		[U("UP_SOLDIERDMG","dmg",2.0,50,"add"),U("UP_SOLDIERHP","soldierhp",10.0,50,"add"),U("UP_SOLDIERCOUNT","count",1.0,90,"add"),
@@ -678,11 +1040,15 @@ func _build_towers() -> void:
 	# 基礎 25% 掉金:模擬中期一個光環大約覆蓋全場三成擊殺,即約 0.7 金/秒,
 	# 遠低過鍊金塔嘅 3.2 金/秒純產出,唔會搶佢個位。
 	t.call(17,"TOWER_CURSE_NAME","TOWER_CURSE_DESC","curse",120,180,
-		{"dmg":0.0,"rate":0.0,"range":200.0,"curse":0.50,"goldbonus":0.25,
-		 "linger":2.0,"slow":0.0,"bosseff":0.6},
+		{"dmg":0.0,"rate":0.0,"range":200.0,"curse":0.50,"goldbonus":0.15,
+		 "linger":2.0,"slow":0.0,"bosseff":0.6},   # goldbonus 0.25 -> 0.15:見下面 curve
 		[U("UP_CURSE","curse",0.025,70,"add"),U("UP_AURARANGE","range",14.0,50,"add"),
-		 U("UP_GOLDBONUS","goldbonus",0.025,60,"add"),U("UP_LINGER","linger",0.25,50,"add"),
-		 U("UP_CURSESLOW","slow",0.02,60,"add"),U("UP_BOSSEFF","bosseff",0.025,65,"add")])
+		 U("UP_GOLDBONUS","goldbonus",0.0,60,"add"),U("UP_LINGER","linger",0.25,50,"add"),
+		 U("UP_CURSESLOW","slow",0.02,60,"add"),U("UP_BOSSEFF","bosseff",0.025,65,"add")],
+		## 第十八輪:掉金軸改行 curve(G2)。舊版 0.25 + 0.025x15 = 0.625,再連
+		## 跨階 carry 去到 T3 大約 +76% —— 一座塔就食走 G2 全部預算。curve 之下
+		## T3 滿課 = +35%,而佢只喺光環覆蓋到嘅擊殺度數,所以實際落袋約 +15%。
+		{"curve":{"goldbonus":[0.20, 0.25, 0.31]}})
 	# ==== 第十輪:聖光塔由「局部攻速光環」改造成「全圖光環」====
 	# 舊「光環範圍」軸係一條純粹買覆蓋率嘅軸 —— 入面冇任何決策,只有
 	# 「買多啲一定好啲」。改成全圖之後,決策由「買唔買半徑」變成「擺唔擺
@@ -800,7 +1166,15 @@ const MAX_TIER := 3
 ##
 ## 躍升幅度打落 tier 3 係**平方**(tier 3 = STEP^2),所以呢個掣對「A2 vs A3」
 ## 呢個距離嘅槓桿最大:1.15 -> 1.45 令 tier 2 強 26%,但 tier 3 強 59%。
-const TIER_JUMP := 1.70
+## 1.70 -> 1.95(第十八輪):Gate 5a 由 ≤18% 減半到 ≤9%,即係 A2 要喺 71-99
+## 段入口就死;但 Gate 5b 同時要 A3 喺同一段有 ≥28%。實測 1.70 之下兩者太貼:
+## A2 喺 71-72 仲係 100%,而 A3 喺 73-77 已經跌到 50%——「加難度殺 A2」同
+## 「A3 要撐得住」係同一個掣嘅兩個方向,所以要嘅唔係難度,係**距離**。
+## 呢個掣打落 tier 3 係平方,所以 1.70 -> 1.95 令 tier 2 強 15% 但 tier 3
+## 強 32% —— 淨係擴闊咗 A2 同 A3 之間嗰段,而 71 段入口同步抬高 ×1.365
+## (WAVE_BANDS 63-70)就啱啱好淨係 A2 死。(第十五輪由 1.15 調到 1.45
+## 用嘅係同一條推理,同一個 gate。)
+const TIER_JUMP := 1.95
 ## tools/tier_curve.gd 量到嘅 R 中位數。改咗 ups 表就要重跑佢再改呢兩個數,
 ## 唔係嘅話上面條 1.15 就變成一句冇兌現嘅說話。
 const TOWER_AXIS_GAIN := 6.0
@@ -1027,9 +1401,18 @@ const CORROSIVE_ARMOR := 6.0
 ## 召喚 T3 英靈殿軍
 const EINHERJAR_BLAST := 4.0
 ## 點金 T2 黃金洪流 / T3 邁達斯權柄
-const GOLDEN_TIDE_BONUS := 0.50
+## 點金術 T2「黃金洪流」嘅掉金加成**下限**。佢同 killbonus 軸係 maxf 關係
+## (Spells.gd),唔係疊加 —— 所以佢真正嘅作用係「啱啱進化、一條軸都未課」
+## 嗰刻都即刻有感覺。0.50 -> 0.06:0.50 之下 T2 未課軸都已經超出 G2 全部預算。
+const GOLDEN_TIDE_BONUS := 0.06
 const GOLDEN_TIDE_DUR := 10.0
+## T3「邁達斯權柄」:期間敵人每中一下掉一金。
 const MIDAS_HIT_GOLD := 1
+## …但**每炮封頂**呢麼多金(第十八輪加)。冇呢個上限嘅話呢條收入同場上塔數
+## 成正比而且冇邊界 —— 20 座塔一秒打中 30 下,即係一炮 300 金,而經濟曲線
+## 越後期塔越多,佢就越發散。呢個係同 path 長度 / 家族組合同一類嘅隱藏修正器,
+## 只不過佢喺經濟嗰邊。封頂之下佢係一個「開場一輪金雨」嘅演出,唔係一條收入。
+const MIDAS_HIT_CAP := 10
 ## 時間扭曲 T2 時之枷鎖 / T3 時光倒流
 const CHRONO_ABILITY_SLOW := 0.50
 const REWIND_SECONDS := 2.0
@@ -1153,10 +1536,23 @@ func _build_spells() -> void:
 		{"hp":80.0,"dmg":10.0,"count":3.0},
 		[U("UP_SOLDIERHP","hp",20.0,55,"add"),U("UP_SOLDIERDMG","dmg",3.0,55,"add"),U("UP_COUNT","count",0.0,80,"add")],
 		{"curve":{"count":[8.0,11.0,14.0]}})
+	# ==== 第十八輪:點金術重校(G2)====
+	# 舊數值有三重放大疊喺一齊:(1) `gold` 喺 TIER_SCALED_STATS 入面,魔法
+	# tier 倍率 5.64,第三階 31.8 倍 —— T3 滿課一炮 18,126 金;(2) killbonus
+	# 曲線去到 +110% 掉金,而 dur 10 秒配 6.6 秒冷卻即係**全程覆蓋**,等於
+	# 成關掉金翻倍;(3) T3 每中一下掉一金,而場上塔越多呢個數越大,冇上限。
+	# 三樣夾埋就係 Jack 講嗰句「用咗比唔用多幾倍」。
+	#
+	# 機制身份唔改:佢仍然係「一撳跳一舊錢」。改嘅係三樣嘢全部行 curve /
+	# 封頂,而三者嘅預算加埋 = 當關總金 x1.30(G2 中位)。
+	#   gold       一炮嘅即時金(未乘 gold_scale)。佔預算 ~60%,佢係身份。
+	#   cd         13 秒(舊 6.6)—— 一炮大過兩炮細,「跳錢」先睇得見。
+	#   killbonus  期間掉金加成,由 +110% 收到 +8%。
 	s.call(6,"SPELL_MIDAS_NAME","SPELL_MIDAS_DESC","midas",18.0,false,
-		{"gold":120.0,"cd":18.0,"killbonus":0.0},
-		[U("UP_GOLDAMOUNT","gold",30.0,55,"add"),U("UP_CD","cd",0.0,60,"add"),U("UP_KILLGOLD","killbonus",0.0,60,"add")],
-		{"curve":{"cd":[9.0,7.6,6.6],"killbonus":[0.60,0.85,1.10]}})
+		{"gold":20.0,"cd":18.0,"killbonus":0.0},
+		[U("UP_GOLDAMOUNT","gold",0.0,55,"add"),U("UP_CD","cd",0.0,60,"add"),U("UP_KILLGOLD","killbonus",0.0,60,"add")],
+		{"curve":{"gold":[24.0,26.0,28.0],"cd":[15.0,14.0,13.0],
+			"killbonus":[0.035,0.05,0.065]}})
 	# 時間扭曲 —— 減速封頂 0.65。舊版滿級 slow = 0.4 + 0.04*15 = **1.00**,
 	# 即係全場完全停低,而佢自稱係一個「拖慢」魔法。封頂喺 SLOW_IS_CONTROL
 	# (0.80)以下,所以佢由頭到尾都係一個減速,唔會偷偷變成一個定身。
@@ -1800,7 +2196,8 @@ const REWARD_BANDS := [
 	## 1.030 -> 1.038(第十七輪):A3 嘅雙 tier-3 完成點本來落喺 85-95,
 	## 令 71-99 段內出現「S2 深谷 -> S3 返生」嘅 U 形(Gate 7 判倒掛)。
 	## 呢段加薪令佢嘅段內曲線拍返平(實測 blocks 78/75/75)。A2 食同一份
-	## 糧會變強 —— 嗰邊由後期金幣曲線(GOLD_CURVE_MAX)收返,唔再鬥難度。
+	## 糧會變強 —— 嗰邊由後期金幣曲線(第十八輪之後係 GOLD_BANDS 最後兩段)
+	## 收返,唔再鬥難度。
 	{"to": 70, "g": 1.038},
 	# 第 71 關之後**唔再加**。呢個唔係「懶得調」:實測到 A3 喺第 91-99 關
 	# 嘅勝率比第 81-90 關**高咗 26 點**(56% -> 82%),而嗰個倒掛嘅來源就係
@@ -2038,6 +2435,7 @@ func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float,
 
 func _ready() -> void:
 	_build_wave_cache()
+	_build_gold_cache()
 	_build_reward_cache()
 	_build_towers()
 	_build_spells()

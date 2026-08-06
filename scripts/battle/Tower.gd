@@ -615,9 +615,16 @@ func _fire_alchemy() -> void:
 		for i in others:
 			bonus += GameData.FOUNDRY_STEP * pow(GameData.FOUNDRY_FALLOFF, i)
 		g *= (1.0 + bonus)
+	# 產出暴擊。呢條軸(UP_CRITGOLD)由第十輪定義到第十七輪為止**完全冇實作**
+	# —— stat 讀得到、升級買得到、魔晶照收,但冇一行碼問過佢。第十八輪盤點
+	# 金幣來源嗰陣捉到,喺度接返:一炮有 critgold 機率派雙倍。
+	var crit: bool = _roll(float(s.get("critgold", 0.0)))
+	if crit:
+		g *= 2.0
 	var paid: int = battle.scale_gold(g)
 	battle.add_gold(paid)
-	battle.spawn_damage(global_position + Vector2(0, -20), paid, Color(1, 0.85, 0.2))
+	battle.spawn_damage(global_position + Vector2(0, -20), paid,
+		Color(1, 0.95, 0.45) if crit else Color(1, 0.85, 0.2), crit)
 
 func _fire_thorn() -> void:
 	# T3 世界樹根:覆蓋範圍由一個圓變成沿住路面嘅一段路。

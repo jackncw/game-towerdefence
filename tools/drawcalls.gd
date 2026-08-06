@@ -23,6 +23,10 @@ var tag := ""
 ## 拆解用:收起一組 node 再量一次,兩次之差就係嗰組嘅 draw call。
 ## 例:--hide=hud  /  --hide=monsters,towers
 var hide_list: PackedStringArray = PackedStringArray()
+## peak 場景擺幾多座塔。0 = 鋪滿(第十八輪 TOWER_SPACING 72 之下大約 90 座)。
+## 第十四輪嘅 peak 基線係「鋪滿 = 40 座」(嗰陣間距 78 > 格距 74,棋盤格),
+## 所以要同嗰條基線對數就要 --towers=40。
+var tower_cap := 0
 var battle = null
 
 var _draw: Array[float] = []
@@ -44,6 +48,8 @@ func _ready() -> void:
 			tag = a.substr(6)
 		elif a.begins_with("--hide="):
 			hide_list = a.substr(7).split(",")
+		elif a.begins_with("--towers="):
+			tower_cap = int(a.substr(9))
 	# 量度要睇真正嘅 render 成本,所以解封頂 —— 60fps cap 之下每一幀都會等,
 	# frame time 就淨係反映個 cap。draw call 唔受影響,但 ms 會。
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
@@ -57,7 +63,7 @@ func _ready() -> void:
 	get_tree().create_timer(90.0, true, false, true).timeout.connect(_report)
 	match mode:
 		"menu": await _setup_menu()
-		"battle": await _setup_battle(12, 30, 1.0)
+		"battle": await _setup_battle(12 if tower_cap <= 0 else tower_cap, 30, 1.0)
 		_: await _setup_peak()
 
 func _setup_menu() -> void:
@@ -72,10 +78,11 @@ func _setup_battle(n_towers: int, n_mon: int, ts: float) -> void:
 
 ## 高峰戰鬥:同 perf3x 一模一樣嘅合成負載,所以兩把尺量緊同一個場景。
 func _setup_peak() -> void:
-	await _make_battle(999, 46)
+	await _make_battle(999 if tower_cap <= 0 else tower_cap, 46)
 	Engine.time_scale = 3.0
 
-func _make_battle(tower_cap: int, n_mon: int) -> void:
+func _make_battle(cap: int, n_mon: int) -> void:
+	var tower_cap := cap
 	Flow.selected_level = 5
 	battle = load(Flow.BATTLE).instantiate()
 	add_child(battle)

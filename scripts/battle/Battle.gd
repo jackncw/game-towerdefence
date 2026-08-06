@@ -57,6 +57,9 @@ var midas_bonus: float = 0.0
 var midas_time: float = 0.0
 ## 邁達斯權柄 (點金 T3):敵人每被打中一次掉幾多金。
 var midas_hit_gold: int = 0
+## …同埋今炮仲剩返幾多可以派(GameData.MIDAS_HIT_CAP)。呢條收入本來同場上
+## 塔數成正比而且冇邊界 —— 塔越多派得越多,而經濟曲線後期塔就係越多。
+var midas_hit_left: int = 0
 ## 時之枷鎖 (時間扭曲 T2):敵人技能節拍嘅拖慢比例。Monster._tick_boss /
 ## _tick_family 嘅計時器乘呢個 —— 「拖慢」對一個 boss 嚟講唔應該淨係腳步。
 var ability_slow: float = 0.0
@@ -188,7 +191,18 @@ var _dbg_overlay
 const BUILD_MIN := Vector2(70, 250)
 const BUILD_MAX := Vector2(1010, 1450)
 const ROAD_CLEAR := 62.0
-const TOWER_SPACING := 78.0
+## 第十八輪:78 -> 72。
+##
+## snap 格距係 74px,而 78 > 74 —— 即係話兩個**正交相鄰**嘅格互相排斥,實際
+## 塔位係一個棋盤格填充:合法格 88-128 個,真正擺得落只有 45-65 座(見
+## tools/slotcap.gd)。金幣 v3 之後後期一關要擺得落 40 座,而 45 嘅餘裕係
+## 假嘅 —— 貪心填充嘅次序同玩家嘅次序唔同,玩家實際擺到 30 幾座就會開始
+## 撞位,而嗰個「擺唔到」唔係一個設計決定,係一個格網同間距差 4px 嘅意外。
+##
+## 72 < 74 之下每一個合法格都用得着,容量變 88-128(最窄嗰款 path 88 座)。
+## 代價係兩座相鄰嘅塔 sprite(88px 寬)會貼埋 —— 塔陣睇落密咗,而嗰個正正
+## 係本輪想要嘅畫面。ROAD_CLEAR 冇郁,所以「遮唔遮路」完全冇變。
+const TOWER_SPACING := 72.0
 
 # camera + gesture input (B2). Screen->world always via camera transform so
 # placement/aim stay correct under any zoom/pan.
@@ -475,6 +489,7 @@ func _process(delta: float) -> void:
 		if midas_time <= 0.0:
 			midas_bonus = 0.0
 			midas_hit_gold = 0
+			midas_hit_left = 0
 	if ability_slow_time > 0.0:
 		ability_slow_time -= delta
 		if ability_slow_time <= 0.0:

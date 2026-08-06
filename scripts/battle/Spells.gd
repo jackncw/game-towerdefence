@@ -165,6 +165,9 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 			# T3 邁達斯權柄:期間敵人每被打中一次就掉一點金
 			if t3:
 				battle.midas_hit_gold = GameData.MIDAS_HIT_GOLD
+				# 額度逐炮重置(唔累積)—— 佢係「一炮之後嘅一輪金雨」,唔係
+				# 一條隨住場上塔數滾大嘅收入。見 GameData.MIDAS_HIT_CAP。
+				battle.midas_hit_left = GameData.MIDAS_HIT_CAP
 				battle.midas_time = maxf(battle.midas_time, GameData.GOLDEN_TIDE_DUR)
 			if s.killbonus > 0.0:
 				battle.midas_bonus = maxf(battle.midas_bonus, float(s.killbonus))

@@ -565,9 +565,13 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 		for o in battle.monsters_in_radius(global_position, 70.0, true):
 			if o != self and o.alive:
 				o._deal_dot(d * battle.warcry_splash, Color(1, 0.85, 0.4))
-	# 邁達斯權柄 (點金 T3):敵人每被打中一次就掉一點金
-	if battle.midas_hit_gold > 0:
-		battle.gold += battle.scale_gold(battle.midas_hit_gold)
+	# 邁達斯權柄 (點金 T3):敵人每被打中一次就掉一點金,派滿今炮嘅額度為止
+	# (GameData.MIDAS_HIT_CAP —— 冇上限嘅話呢條收入同場上塔數成正比,而
+	# 第十八輪嘅經濟曲線後期正正就係塔多)。
+	if battle.midas_hit_gold > 0 and battle.midas_hit_left > 0:
+		var pay: int = mini(battle.midas_hit_gold, battle.midas_hit_left)
+		battle.midas_hit_left -= pay
+		battle.gold += battle.scale_gold(pay)
 	_flash()
 	Audio.play_hit(armor, mres)
 	var big := d >= max_hp * 0.18 and d >= 40.0

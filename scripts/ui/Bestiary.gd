@@ -420,11 +420,14 @@ func _portrait_cell(fam: String, slot: int, seen: bool) -> Control:
 
 	var tex: Texture2D = Assets.monster_boss(fam) if boss else Assets.monster(fam, lvl)
 	var base: Vector2 = tex.get_size()
-	# integer scale only — a fractional fit made every portrait a different
-	# pixel size inside the same grid
-	var scale: float = maxf(1.0, floorf(110.0 / maxf(base.x, base.y)))
+	# 舊圖係 32-96px 嘅程序像素圖,所以呢度硬性整數放大(分數縮放會令同一格
+	# 入面每個頭像嘅像素大細唔同)。2026-08-06 之後係 66-189px 嘅手繪圖 ——
+	# 整數規則喺度會全部變成 ×1,boss 一張 189px 直接爆出個 140px 高嘅掣。
+	# 手繪圖唔怕分數縮放,所以改為「塞入 110px 框」。
+	var scale: float = 110.0 / maxf(base.x, base.y)
 	var tr := UI.tex_rect(tex, base * scale)
-	tr.position = Vector2(20, 15)
+	tr.position = Vector2(20 + (110.0 - base.x * scale) * 0.5,
+		15 + (110.0 - base.y * scale) * 0.5)
 	if not seen:
 		tr.modulate = Color(0, 0, 0, 1)   # silhouette
 	btn.add_child(tr)
@@ -453,7 +456,13 @@ func _detail_panel(fam: String, slot: int) -> Control:
 
 	# big portrait (integer 4x render, detail visible)
 	var tex: Texture2D = Assets.monster_boss(fam) if boss else Assets.monster(fam, lvl)
-	var big := UI.tex_rect(tex, tex.get_size() * (2.0 if boss else 4.0))
+	# 舊圖細,所以硬乘 4x / 2x 就啱。新圖大好多,同一條式會由 176px 變到 750px,
+	# 撞穿右邊 x=360 嗰段文字。改為對返舊嗰個渲染尺寸(等級遞進照舊睇得出)。
+	var _tsz: Vector2 = tex.get_size()
+	# 上限 280:文字由 x=360 開始,頭像由 x=70 起,所以 290 之前都撞唔到。
+	# 新圖細節多咗,舊嗰個 176px 睇唔到裝備差異。
+	var _target: float = 270.0 if boss else float(GameData.LVL_SIZE[lvl]) * 5.5
+	var big := UI.tex_rect(tex, _tsz * (_target / maxf(_tsz.x, _tsz.y)))
 	big.position = Vector2(70, 70)
 	if not seen:
 		big.modulate = Color(0, 0, 0, 1)

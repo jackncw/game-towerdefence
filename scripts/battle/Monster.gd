@@ -108,7 +108,13 @@ var _sim_deep: bool = false
 
 func _ready() -> void:
 	sprite = Sprite2D.new()
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# 怪物美術輪(2026-08-06)之後,怪物唔再係 32-44px 嘅程序像素圖,而係由
+	# sprite sheet 摳出嚟嘅手繪圖,顯示尺寸唔再係源圖嘅整數倍(見
+	# GameData.MON_ART_SCALE)。NEAREST 喺非整數縮放下會出鋸齒同閃爍,所以
+	# 呢一個 sprite 改用 LINEAR。塔 / 地面 / 裝飾照舊 NEAREST —— texture_filter
+	# 係逐 CanvasItem 嘅,唔會互相影響;atlas 每格四邊嘅 2px extrude 本來就係
+	# 為咗線性取樣唔會食到隔籬格。
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	add_child(sprite)
 	z_index = 20
 
@@ -173,7 +179,8 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	boss_mech = st.get("boss_mech", "")
 	heavy = is_boss or fam_id in ["golem", "treant", "beetle"]
 	sprite.texture = Assets.monster_boss(fam_id) if boss else Assets.monster(fam_id, level)
-	sprite.scale = Vector2(GameData.RENDER_SCALE, GameData.RENDER_SCALE)
+	var art: float = GameData.MON_ART_SCALE_BOSS if boss else GameData.MON_ART_SCALE
+	sprite.scale = Vector2(art, art)
 	sprite.modulate = Color.WHITE
 	# reset state
 	dist = start_dist

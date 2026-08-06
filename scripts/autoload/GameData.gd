@@ -414,7 +414,19 @@ const BASE_DANGER_ROUTE_FRAC := 0.85
 # The old mixed 1.75 / 1.25 / 1.4 / 1.6 scales gave monsters, towers, the base
 # and soldiers four different texel sizes (and non-integer scales smeared the
 # grid). Sprite sources were resized instead: tower 64->44, base 112->96.
-const RENDER_SCALE := 2.0     # monster sprite world scale -> lv1 64px, boss 192px
+const RENDER_SCALE := 2.0     # monster LOGICAL size scale -> lv1 64px, boss 192px
+## 怪物 sprite 嘅世界縮放。
+##
+## 2026-08-06 怪物美術輪之前,怪物圖係 32-44px 嘅程序像素圖,啱啱好可以用
+## RENDER_SCALE(2.0)整數放大。而家 60 張圖係由 sprite sheet 摳出嚟嘅手繪圖
+## (tools/monster_cutout.py),源檔本身已經係接近顯示尺寸:
+##   lv1-5  PNG = 顯示尺寸 × 1.25  ->  縮放 1 / 1.25 = 0.8
+##   boss   PNG = 顯示尺寸 × 0.75  ->  縮放 1 / 0.75 = 4/3
+## 兩個數同源圖尺寸係一對一綁死嘅 —— 改一邊冇改另一邊,全場怪物即刻大細錯。
+## **顯示尺寸本身冇變**(lv1 仍然 64px、boss 仍然 192px 高度級數),`size`
+## (血條 / 特效半徑 / 傷害數字位置)仍然行 RENDER_SCALE,一步都冇郁。
+const MON_ART_SCALE := 0.8
+const MON_ART_SCALE_BOSS := 4.0 / 3.0
 const TOWER_RENDER := 2.0     # tower sprite world scale (44px source -> 88px)
 const BASE_RENDER := 2.0      # base marker world scale (96px source -> 192px)
 const SOLDIER_RENDER := 2.0   # militia token world scale (20px source -> 40px)

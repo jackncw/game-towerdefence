@@ -68,9 +68,13 @@ func _cell(tex: Texture2D, label: String) -> Control:
 	var hb := HBoxContainer.new()
 	hb.alignment = BoxContainer.ALIGNMENT_CENTER
 	hb.add_theme_constant_override("separation", 8)
+	# 「原檔 1x + 2x」呢個擺法喺舊嘅 32-96px 程序圖啱用。新怪物圖 66-189px,
+	# 2x 就係 378px,一格 160px 直接爆晒。改為「戰鬥入面嘅真實顯示尺寸」——
+	# 本來 debug gallery 想睇嘅就係呢個 —— 再加一張半尺寸做細位辨識度參考。
 	var sz := tex.get_size()
-	hb.add_child(UI.tex_rect(tex, sz))          # 1x
-	hb.add_child(UI.tex_rect(tex, sz * 2.0))    # 2x
+	var k: float = minf(1.0, 120.0 / maxf(sz.x, sz.y))
+	hb.add_child(UI.tex_rect(tex, sz * k * 0.5))
+	hb.add_child(UI.tex_rect(tex, sz * k))
 	vb.add_child(hb)
 	# English tower/spell names are ~2x the width of the 繁中 ones and overran the
 	# 160px cell, so the caption wraps inside the cell instead of bleeding into

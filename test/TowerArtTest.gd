@@ -22,9 +22,12 @@ const CANVAS_H := 128
 const GROUND_Y := 125
 const NEW_SPELL := 64
 const OLD_SPELL := 44
-## 待補清單 —— 呢四格喺源圖度根本冇,仲行緊 gen_art.py 嘅程序畫法。
-## 同 tools/magic_cutout.py 嘅 MISSING、gen_art.py 嘅 PROCEDURAL_SPELLS 一致。
-const STILL_PROCEDURAL := [[10, 3], [11, 1], [11, 2], [12, 3]]
+## 待補清單 —— 2026-08-07 收官輪清零(四張補圖由 magic_cutout.py 嘅 SINGLES
+## 摳入遊戲)。同 tools/magic_cutout.py 嘅 MISSING、gen_art.py 嘅
+## PROCEDURAL_SPELLS 一致,三處要一齊改。留住個常數係為咗
+## (a) 將來再有格對唔到號嗰陣有位寫,(b) 下面 _case_spell_all_new() 會斷言
+## 佢係空 —— 即係「唔准偷偷退返去程序圖」呢條規則有人守。
+const STILL_PROCEDURAL: Array = []
 
 var fails: Array[String] = []
 var checked := 0
@@ -34,6 +37,7 @@ func _ready() -> void:
 	_case_ground_line()
 	_case_anchor()
 	_case_spell_size()
+	_case_spell_all_new()
 	if fails.is_empty():
 		print("TowerArtTest: PASS (%d 項)" % checked)
 		get_tree().quit(0)
@@ -115,3 +119,15 @@ func _case_spell_size() -> void:
 			_ok("魔法 %d t%d 要 %dpx,而家 %dpx%s" % [id, tier, want, img.get_width(),
 				"" if want == NEW_SPELL else "(呢格喺待補清單,應該仲係舊圖)"],
 				img.get_width() == want)
+			# 手繪 icon 一定有透明角(圓角 badge)。程序圖係四四方方填滿,
+			# 所以呢一項就係「有冇被 gen_art 冚返轉頭」嘅獨立證據 —— 唔靠
+			# 尺寸,因為將來有人改咗 44 -> 64 再畫程序圖就呃得過上面嗰項。
+			if want == NEW_SPELL:
+				_ok("魔法 %d t%d 四隻角應該透明(手繪 badge 圓角)" % [id, tier],
+					img.get_pixel(0, 0).a < 0.5
+					and img.get_pixel(img.get_width() - 1, 0).a < 0.5)
+
+## 待補清單清零之後,「唔准退返程序圖」變成一條可以斷言嘅規則。
+func _case_spell_all_new() -> void:
+	_ok("待補清單應該係空,而家仲有 %d 格" % STILL_PROCEDURAL.size(),
+		STILL_PROCEDURAL.is_empty())

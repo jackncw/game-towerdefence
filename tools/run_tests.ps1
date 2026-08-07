@@ -8,6 +8,10 @@
 param(
   [string]$Only = "",
   [int]$SoakRounds = 30,
+  # 5400 唔係求其揀:SoakTest 30 轉單獨跑 1949 秒,而實測 8-way CPU 壓力之下
+  # 一個測試會慢 1.8 倍(見 tools/race_probe.ps1 量到嘅 89.6s -> 161s),
+  # 即係最壞 ~3500 秒。5400 留返一半餘裕。
+  [int]$TimeoutSec = 5400,
   [string]$Godot = "C:\Users\User\Desktop\Jack\AI\Godot_v4.7.1-stable_win64.exe"
 )
 
@@ -31,19 +35,46 @@ foreach ($s in $scenes) {
   $cmdArgs = @('--headless', '--path', '.', ("res://test/" + $s.Name))
   if ($name -eq "SoakTest") { $cmdArgs = $cmdArgs + @('--', ("--rounds=" + $SoakRounds)) }
   $sw = [Diagnostics.Stopwatch]::StartNew()
-  $p = Start-Process -FilePath $Godot -ArgumentList $cmdArgs -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+  $p = Start-Process -FilePath $Godot -ArgumentList $cmdArgs -NoNewWindow -PassThru `
+       -RedirectStandardOutput $out -RedirectStandardError $err
+  # **呢一句唔可以刪。** `Start-Process -PassThru` 冇 `-Wait` 嘅時候,
+  # PowerShell 唔會保住個 process handle,於是 process 一收工 `$p.ExitCode`
+  # 就係 $null。而 `$null -ne 0` 係 $true —— 即係「全部測試都當肥佬」。
+  # 讀一次 `.Handle` 會迫佢 cache 住個 handle,之後 ExitCode 先讀得返。
+  $null = $p.Handle
+  # 掛住等,但有上限。一個掛死咗嘅測試以前會令成套跑停喺度冇聲冇息,而
+  # 「跑咗成晚都未完」同「跪低咗」喺輸出上面分唔出。
+  $timedOut = $false
+  if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+    $timedOut = $true
+    try { $p.Kill() } catch { }
+    $p.WaitForExit(10000) | Out-Null
+  }
   $sw.Stop()
   # 每個測試自己嗰行 PASS/FAIL 先係真信號;exit code 係「有冇死喺半路」。
-  $hit = Select-String -Path $out -Pattern 'PASS|FAIL|ALL DONE|passed|COMPLETE' | Select-Object -Last 1
+  #
+  # **第 21 輪:「冇 verdict」而家係一個失敗,唔再係一格空白。**
+  # 之前 InputProbe / SpellFlowTest / WinTest / Shots / BalanceSim / StratDiag
+  # 六個場景由頭到尾都唔會印一行對得上呢個 pattern 嘅嘢,所以佢哋喺報告入面
+  # 永遠係一格空白 —— 而一個**真係**冇出到 verdict 嘅測試(例如 TimeScaleTest
+  # 喺整套跑嘅時候)睇落一模一樣。分唔出,即係嗰個症狀永遠查唔到。
+  # 而家六個場景全部會印一行明確結論(有斷言嘅印 PASS/FAIL 兼且真係 set
+  # exit code,純 bench 嘅印 REPORT-ONLY),而呢度一格空白就係一單失敗。
+  $hit = Select-String -Path $out -Pattern 'PASS|FAIL|ALL DONE|passed|COMPLETE|REPORT-ONLY' | Select-Object -Last 1
   $verdict = ""
   if ($hit) { $verdict = $hit.Line }
+  if ($timedOut) { $verdict = ("**TIMEOUT >" + $TimeoutSec + "s** " + $verdict) }
   $row = New-Object psobject
   $row | Add-Member NoteProperty Test $name
   $row | Add-Member NoteProperty Exit $p.ExitCode
   $row | Add-Member NoteProperty Sec ([math]::Round($sw.Elapsed.TotalSeconds, 1))
   $row | Add-Member NoteProperty Verdict $verdict
+  $row | Add-Member NoteProperty NoVerdict ([bool](-not $hit))
+  $row | Add-Member NoteProperty TimedOut $timedOut
   $results += $row
-  Write-Host ("{0,-18} exit={1} {2,7}s  {3}" -f $name, $p.ExitCode, $sw.Elapsed.TotalSeconds.ToString("0.0"), $verdict)
+  $tag = ""
+  if (-not $hit) { $tag = "  << 冇 verdict" }
+  Write-Host ("{0,-18} exit={1} {2,7}s  {3}{4}" -f $name, $p.ExitCode, $sw.Elapsed.TotalSeconds.ToString("0.0"), $verdict, $tag)
 }
 
 Pop-Location
@@ -56,7 +87,13 @@ Pop-Location
 # 而佢嘅後果係成條驗證防線靜靜雞失效:2026-08-03 效能輪嗰次 I18nTest 真係
 # fail 咗,而套件報全綠。
 $bad = @($results | Where-Object { $_.Exit -ne 0 })
+$noverdict = @($results | Where-Object { $_.NoVerdict })
 Write-Host ""
-Write-Host ("TESTS: {0} run, {1} non-zero exit" -f @($results).Count, $bad.Count)
-if ($bad.Count -gt 0) { $bad | Format-Table -AutoSize | Out-String -Width 200 | Write-Host; exit 1 }
+Write-Host ("TESTS: {0} run, {1} non-zero exit, {2} 冇 verdict" -f @($results).Count, $bad.Count, $noverdict.Count)
+if ($bad.Count -gt 0) { $bad | Format-Table -AutoSize | Out-String -Width 200 | Write-Host }
+if ($noverdict.Count -gt 0) {
+  Write-Host "冇 verdict(即係個測試冇講過自己過唔過到,同肥佬一樣要查):"
+  $noverdict | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+}
+if ($bad.Count -gt 0 -or $noverdict.Count -gt 0) { exit 1 }
 exit 0

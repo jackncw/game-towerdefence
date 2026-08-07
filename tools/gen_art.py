@@ -552,15 +552,17 @@ def _spell_tier_frame(c, tier):
         c.circle(px_, 0.910, 0.026, mix(rim, WHITE, 0.55))
 
 
-# 2026-08-07 收官輪:45 格魔法 icon 入面有 41 格改咗由 `tools/magic_cutout.py`
-# 喺 `art_reference/magic/magic.jfif` 度切出嚟。淨返呢四格喺源圖度**根本冇**
-# (龍捲風冇第三階、地震術冇頭兩階、烈焰之牆冇第三階),寧缺莫濫,所以繼續行
-# 舊嗰套程序畫法,直到 Jack 補返嗰四張圖為止。
+# 2026-08-07 第二十輪:45 格魔法 icon 入面有 41 格改咗由 `tools/magic_cutout.py`
+# 喺 `art_reference/magic/magic.jfif` 度切出嚟,淨返四格喺源圖度**根本冇**
+# (龍捲風冇第三階、地震術冇頭兩階、烈焰之牆冇第三階),暫時留返程序畫法。
 #
-# 呢個名單就係「新舊混用」嘅唯一真相來源 —— gen_spells() **只准**寫呢四格,
-# 一寫多就會靜靜雞冚走 41 張新 icon。補到圖之後:magic_cutout.py 嘅 GRID 加
-# 返嗰格、MISSING 剔走,然後呢度同步剔走。守門嘅係 `test/SpellArtTest`。
-PROCEDURAL_SPELLS = {(10, 3), (11, 1), (11, 2), (12, 3)}
+# **2026-08-07 收官輪:四張補圖到齊(`art_reference/magic/地震術 T1.jfif` 等),
+# 由 `magic_cutout.py` 嘅 SINGLES 摳出嚟,呢個名單清空 —— gen_spells() 而家
+# 一格都唔寫。** 下面啲魔法畫法留住只係做記錄同對照,**唔好將呢個 set 加返
+# 任何一格**:加返一格就會用一張 44px 程序像素圖冚走一張 64px 手繪 icon,
+# 而唯一嘅症狀係「嗰個魔法喺升級介面突然變糊」。守門嘅係 `test/TowerArtTest`
+# (`STILL_PROCEDURAL` 亦已經清空)。
+PROCEDURAL_SPELLS = frozenset()
 
 
 def gen_spells():

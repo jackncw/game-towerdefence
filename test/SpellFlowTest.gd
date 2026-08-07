@@ -16,19 +16,23 @@ func _ready() -> void:
 
 	# instant: warcry (id 8, target=false) -> casts now, no aim, cd set, buff on
 	battle.request_spell(8)
+	var bad := 0
 	var instant_ok: bool = battle.aiming_spell == 0 and battle.spell_cd.get(8, 0.0) > 0.0 and battle.warcry_haste > 0.0
 	print("SFLOW instant(warcry): aim=%d cd=%.1f haste=%.2f -> %s" % [
 		battle.aiming_spell, battle.spell_cd.get(8, 0.0), battle.warcry_haste,
 		"OK" if instant_ok else "FAIL"])
+	bad += 0 if instant_ok else 1
 
 	# targeted: smite (id 13) -> enters aim
 	battle.request_spell(13)
 	print("SFLOW targeted enter-aim: aim=%d -> %s" % [
 		battle.aiming_spell, "OK" if battle.aiming_spell == 13 else "FAIL"])
+	bad += 0 if battle.aiming_spell == 13 else 1
 	# re-press cancels aim
 	battle.request_spell(13)
 	print("SFLOW targeted re-press cancels: aim=%d -> %s" % [
 		battle.aiming_spell, "OK" if battle.aiming_spell == 0 else "FAIL"])
+	bad += 0 if battle.aiming_spell == 0 else 1
 
 	# targeted tap with a monster in range -> casts + damages
 	battle.request_spell(13)
@@ -43,6 +47,10 @@ func _ready() -> void:
 	print("SFLOW targeted cast on tap: dmg=%.0f aim=%d cd=%.1f -> %s" % [
 		dmg, battle.aiming_spell, battle.spell_cd.get(13, 0.0),
 		"OK" if dmg > 0.0 and battle.aiming_spell == 0 else "FAIL"])
+	bad += 0 if (dmg > 0.0 and battle.aiming_spell == 0) else 1
 
 	# restore default unlocks (leave save untouched: this test never saved spells)
-	get_tree().quit()
+	# 第 21 輪:以前四項全部肥佬都照 quit(0),而套裝只睇 exit code —— 即係
+	# 呢個測試由寫出嚟嗰日起就冇守過任何嘢。
+	print("SFLOW %s fails=%d (4 項)" % ["PASS" if bad == 0 else "FAIL", bad])
+	get_tree().quit(0 if bad == 0 else 1)

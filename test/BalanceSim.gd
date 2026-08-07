@@ -69,6 +69,7 @@ func _ready() -> void:
 	get_tree().paused = false
 	Flow.nav_enabled = true
 	_restore_save()
+	print("BALANCESIM REPORT-ONLY(平衡 bench,冇斷言 —— 讀數靠報告)")
 	get_tree().quit(0)
 
 # ===========================================================================

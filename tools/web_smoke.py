@@ -28,7 +28,8 @@ import time
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHOTS = os.path.join(ROOT, "qa", "screenshots", "round-20-tower-magic-art", "web")
+SHOTS = os.path.join(ROOT, "qa", "screenshots",
+                     os.environ.get("WEB_SMOKE_OUT", "round-20-tower-magic-art"), "web")
 sys.stdout.reconfigure(encoding="utf-8")
 
 # 種落去嘅存檔。**由真存檔導出**(tools/web_smoke_seed.json)而唔係手寫 —— 個

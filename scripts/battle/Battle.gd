@@ -338,6 +338,11 @@ func _build_world() -> void:
 	_placer.battle = self
 	_placer.z_index = 30
 	_placer.process_mode = Node.PROCESS_MODE_ALWAYS
+	# 建塔 ghost 用 draw_texture_rect 畫手繪塔圖,而 TOWER_RENDER 係 0.6875
+	# (128 -> 88),唔係整數倍。project.godot 嘅 default_texture_filter 係
+	# Nearest,所以唔寫呢句個 ghost 就會起格 —— 同 Tower.gd:51 一樣嘅道理,
+	# 只不過 ghost 唔係 Sprite2D 所以第二十輪嗰次改漏咗佢。
+	_placer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	add_child(_placer)
 
 	# full-screen flash overlay (freeze/holy/meteor). Own CanvasLayer above the

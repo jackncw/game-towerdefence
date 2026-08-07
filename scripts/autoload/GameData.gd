@@ -544,6 +544,49 @@ const BOSS_HEAL_QUEUE_SECONDS := 8.0
 func boss_heal_cap_per_sec(max_hp: float) -> float:
 	return max_hp * BOSS_HEAL_CAP_FRAC
 
+# ---------------------------------------------------------------------------
+# BOSS 開場傷害上限(第 21 輪)—— 上面嗰個回復上限嘅**鏡像**
+#
+# 要修嘅嘢:A2 喺 71/75/78/81/84 五關可以喺 boss 出場嗰一刻直接秒咗佢,
+# 「一場仗」變咗「一個時間點」。後果唔止係手感:嗰五關就係 Gate 5a
+# (A2 71-99 勝率)卡喺 14.9% 嘅出處,而佢哋全部係「慢 boss」關 —— boss 血
+# 加幾多都冇用,因為秒殺唔理血量,只理一炮夠唔夠大。
+#
+# 點解係結構鎖唔係調數:同 BOSS_HEAL_CAP 一樣,所有傷害都經一道門
+# (`Monster._boss_absorb`),所以將來新加嘅塔 / 魔法 / 進化機制自動受制,
+# 唔使有人記得。逐個機制去砍(天雷誅殺 bosspct、龍捲風 GALE_TRUE_FRAC、
+# 地震術 bosspct、黑洞……)係打地鼠,而且會連正常火力一齊砍。
+#
+# **唔可以變成拖時間懲罰正常火力**,所以個鎖係「漏桶」唔係「乘數」:
+#   * 速率 = 期望 DPS 嘅 BOSS_OPEN_DPS_SHARE 倍。期望 DPS = 1/16s(見上面
+#     BOSS_FIGHT_REF_SECONDS,量出嚟嘅無回復 boss 戰中位數),所以上限係
+#     2/16 = **12.5% max_hp/s**。一個 on-curve 玩家嘅 DPS 係 6.25%/s,
+#     打得好一倍嘅玩家都仲喺上限之下 —— 佢哋一滴傷害都唔會俾食走。
+#   * 桶入面可以先儲 BOSS_OPEN_BANK_SECONDS 秒嘅額度(25% max_hp),而且
+#     boss 一出場就係滿桶。所以第一炮照樣可以打甩四分一血條,爆發嘅**手感**
+#     留返;之後先至逐秒計。呢個同 BOSS_HEAL_QUEUE_SECONDS 係同一個做法
+#     (嗰邊限「最多儲得幾多治療」,呢邊限「最多儲得幾多可受傷害」)。
+#
+# 結果:任何 build 打死一隻 boss 最少要 (1 − 0.25) / 0.125 = **6 秒**,
+# 而中位數 16 秒嗰種正常節奏完全唔受影響。桶滿封頂,所以「唔開火儲一大舊
+# 再一次過爆」呢條路都封死 —— 儲極都係 25%。
+# ---------------------------------------------------------------------------
+const BOSS_OPEN_DPS_SHARE := 2.0
+const BOSS_OPEN_BANK_SECONDS := 2.0
+
+## A/B 量度開關。`--nobossfloor` 之後個鎖完全唔生效 —— 平衡 harness 要量
+## 「加咗呢個鎖之後 Gate 5a 郁咗幾多」,而唯一誠實嘅對照組就係同一個 build
+## 關咗個鎖再跑一次。**唔係遊戲設定**,冇任何 UI 掂得到佢。
+var boss_floor_enabled: bool = true
+
+func boss_open_dmg_cap_per_sec(max_hp: float) -> float:
+	return max_hp * BOSS_OPEN_DPS_SHARE / BOSS_FIGHT_REF_SECONDS
+
+## 理論最短 boss 戰(秒)。測試同報告用,亦都係呢個機制唯一嘅承諾。
+func boss_min_fight_seconds() -> float:
+	var rate: float = BOSS_OPEN_DPS_SHARE / BOSS_FIGHT_REF_SECONDS
+	return maxf(0.0, (1.0 - BOSS_OPEN_BANK_SECONDS * rate) / rate)
+
 # --- 遠古樹妖: 低血自療 -> 有反制窗口嘅詠唱 ---------------------------------
 ## Cast time. Long enough to see, react and answer; short enough that it is a
 ## moment rather than a lull.
@@ -2481,6 +2524,9 @@ func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float,
 	return maxi(1, int(round(amount)))
 
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a == "--nobossfloor":
+			boss_floor_enabled = false
 	_build_wave_cache()
 	_build_gold_cache()
 	_build_reward_cache()

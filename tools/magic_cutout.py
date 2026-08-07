@@ -92,12 +92,34 @@ UNUSED = {
 }
 
 # 對唔到 icon、要留返舊圖嘅格(魔法 id, tier) -> 要 Jack 補乜
-MISSING = {
-    (10, 3): "龍捲風 第三階：一條吞掉整條路嘅巨型風暴柱，帶飛起嘅怪物剪影與雷光",
-    (11, 1): "地震術 第一階：地面裂開一道細縫，幾粒碎石彈起，褐色土色調",
-    (11, 2): "地震術 第二階：交錯的地裂網 + 隆起的岩板，塵霧揚起",
-    (12, 3): "烈焰之牆 第三階：藍白色核心的地獄火牆，火舌沖天並帶火星漩渦",
+# 2026-08-07:四格全部補齊(見下面 SINGLES),清單清零。
+MISSING = {}
+
+# ---------------------------------------------------------------------------
+# 單張 badge(第 21 輪補嘅四格)
+# ---------------------------------------------------------------------------
+# 同上面 15x3 嗰張 sheet **唔同管線**:呢四張係 1024x1024、一張一個完整 badge、
+# 綠幕底。所以要摳綠(sheet 嗰邊唔使),但唔使切格、唔使剷 label,亦**唔可以
+# 再疊 gen_art 嗰個程序階級框** —— 底板同銀 / 金框已經畫咗喺圖入面。
+#
+# 疊唔疊框呢個決定試過兩邊(qa/magic_cutout/frame_ab.png):疊上去會將畫好嘅
+# 金色捲草角完全冚住,而且程序框係硬邊像素框,喺手繪 badge 上面好突兀;而
+# 「階級讀得出」呢個功能painted 框本身已經做到(T1 淨色、T2 銀、T3 金,同其餘
+# 41 張同一套色碼)。淨低嘅差異係底邊嗰排階級點 —— 由 `tier_pips()` 補返,
+# 咁「數點」呢個 affordance 45 張都仲在。
+SINGLES = {
+    (10, 3): "龍捲風 T3.jfif",
+    (11, 1): "地震術 T1.jfif",
+    (11, 2): "地震術 T2.jfif",
+    (12, 3): "烈焰之牆 T3.jfif",
 }
+
+# 綠幕 -> alpha 嘅兩條界(距離「t·bg 射線」嘅色距,見 round-19 嗰個陷阱 3)。
+# 量出嚟:背景 d<6、badge 內部 d>200、過渡帶 8-12px(1024 尺度,縮到 64 之後
+# 係 0.75px)。用射線唔用 RGB 距離,所以 badge 嘅投影(暗綠,t<1)會同底一齊
+# 消失,唔會變一圈黑邊。
+KEY_LO = 12.0
+KEY_HI = 64.0
 
 
 # ============================================================================
@@ -200,6 +222,213 @@ def tier_frame(img, tier):
     return Image.alpha_composite(img, lay)
 
 
+# ============================================================================
+# 單張 badge 摳綠(第 21 輪)
+# ============================================================================
+def chroma_alpha(rgb):
+    """綠幕 -> alpha。回傳 (alpha 0..1, 背景色)。
+
+    唔用 RGB 距離,用「到 t·bg 射線嘅距離」—— badge 底下嗰浸投影係暗綠
+    (同一條射線、t<1),RGB 距離會當佢係前景,留低一圈黑邊;射線距離會連佢
+    一齊當背景。呢個係 round-19 摳怪物嗰陣執出嚟嘅同一條式。
+    """
+    corners = np.concatenate([rgb[:40, :40].reshape(-1, 3), rgb[:40, -40:].reshape(-1, 3),
+                              rgb[-40:, :40].reshape(-1, 3), rgb[-40:, -40:].reshape(-1, 3)])
+    bg = np.median(corners, axis=0)
+    u = bg / np.linalg.norm(bg)
+    n = np.linalg.norm(bg)
+    t = np.clip(rgb @ u, 0.40 * n, 1.45 * n)
+    d = np.linalg.norm(rgb - t[..., None] * u, axis=2)
+    return np.clip((d - KEY_LO) / (KEY_HI - KEY_LO), 0.0, 1.0), bg
+
+
+def drop_islands(a):
+    """只留最大嗰嚿,其餘 alpha 清零。回傳 (alpha, 剷走咗嘅嚿 [(px, bbox)])。
+
+    **呢步唔係潔癖,係四張圖都中招嗰個坑。** 右下角嗰粒 ✦ 浮水印係半透明**白**
+    疊喺綠底上面 —— 佢仍然「好綠」(G−max(R,B) 有 160),所以用「夠唔夠綠」去
+    摳係摳唔走佢嘅;但佢離開咗 t·bg 條射線(d≈102 > KEY_HI 64),所以 matting
+    嗰條式反而俾佢 alpha=1.0。結果係:摳完 ✦ 唔單止仲喺度,仲會撐大 crop
+    bbox,四張 icon 右下角全部有一粒螢光綠星。
+    量過:✦ 同 badge 之間有 40px 以上嘅純背景,四張都係,所以「淨係留最大
+    一嚿」就乾乾淨淨解決 —— 唔使用 round-20 嗰套「反解一個已知疊加層」
+    (嗰套係因為浮水印貼實塔身,剷唔到;呢度剷得到)。
+    """
+    from scipy import ndimage as ndi
+    lab, n = ndi.label(a > 0.5)
+    if n <= 1:
+        return a, []
+    sizes = ndi.sum(np.ones_like(lab), lab, range(1, n + 1))
+    main = ndi.binary_fill_holes(lab == int(np.argmax(sizes)) + 1)
+    # **唔可以逐嚿 island 各自 dilate 完清零。** JPEG 喺「黑描邊 vs 螢光綠」呢種
+    # 高反差邊界會出色度 ringing,ringing 離開咗綠射線,所以會變成一堆貼住
+    # badge 邊嘅 1-2px 幼絲 island。逐嚿 dilate 落去會連 badge 自己條邊一齊剷。
+    # 改為「main 向外放 3px = near,near 以外一律清零」—— ✦ 離 badge 40px 以上,
+    # 一定喺 near 以外;ringing 幼絲喺 near 以內,原樣保留(佢哋摳完之後由
+    # decontaminate 補返 badge 色,而且 alpha 好細,睇唔到)。
+    near = ndi.binary_dilation(main, np.ones((3, 3), bool), iterations=3)
+    kill = (~near) & (a > 0.02)
+    dropped = []
+    klab, kn = ndi.label(a * (~near) > 0.5)
+    for k in range(1, kn + 1):
+        ys, xs = np.nonzero(klab == k)
+        dropped.append((int(len(xs)),
+                        [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]))
+    out = a.copy()
+    out[kill] = 0.0
+    return out, dropped
+
+
+def decontaminate(rgb, a, shrink=3):
+    """剷走邊緣嘅綠色溢色。
+
+    唔用教科書 matting 反解 —— round-19 量過,alpha 估唔準嗰陣細 alpha 一除
+    就將綠爆大。改用「主體向內縮 shrink px 做 core,core 以外由最近嘅 core
+    像素補色」。呢度 badge 邊緣係一條硬描邊,所以 core 收窄 3px 已經完全乾淨。
+    """
+    from scipy import ndimage as ndi
+    core = a > 0.92
+    core = ndi.binary_erosion(core, np.ones((3, 3), bool), iterations=shrink)
+    idx = ndi.distance_transform_edt(~core, return_distances=False, return_indices=True)
+    return rgb[idx[0], idx[1]]
+
+
+def resize_rgba(rgb, a, size):
+    """縮圖。**一定要 premultiply** —— PIL 對 straight-alpha RGBA 做 LANCZOS
+    會將透明像素嘅底色溝返入邊緣(round-19 陷阱 1,60 張中 58 張中招)。"""
+    pm = Image.fromarray(np.clip(rgb * a[..., None], 0, 255).astype(np.uint8), "RGB")
+    pm = pm.resize((size, size), Image.LANCZOS)
+    am = Image.fromarray((a * 255).astype(np.uint8), "L").resize((size, size), Image.LANCZOS)
+    p = np.asarray(pm).astype(float)
+    av = np.asarray(am).astype(float) / 255.0
+    out = np.zeros((size, size, 4), np.uint8)
+    nz = av > 1.0 / 255.0
+    rgbo = np.zeros_like(p)
+    rgbo[nz] = np.clip(p[nz] / av[nz][:, None], 0, 255)
+    out[..., :3] = rgbo.astype(np.uint8)
+    out[..., 3] = (av * 255).astype(np.uint8)
+    return out
+
+
+def alpha_bleed(px):
+    """把顏色填滿**成張圖**嘅透明區域(唔止一圈)。
+
+    GPU 嘅 LINEAR filter 會照樣採樣到 alpha=0 嘅像素,佢哋帶乜色就會混乜色入
+    邊緣。填滿而唔係「擴散兩圈」係因為呢啲 icon 出街之後最外圈仲會俾
+    `magic_cutout` 自己個殘留檢查用 `.convert("RGB")` 讀 —— 留低原本嗰浸綠
+    喺 alpha=0 底下,個檢查會報「最外兩圈有坑綠」,而嗰個報告係啱嘅:
+    佢真係一浸綠,只不過而家睇唔到。
+    """
+    from scipy import ndimage as ndi
+    rgb = px[..., :3].astype(float)
+    a = px[..., 3].astype(float) / 255.0
+    m = a > 0.02
+    if not m.all() and m.any():
+        idx = ndi.distance_transform_edt(~m, return_distances=False, return_indices=True)
+        rgb = np.where(m[..., None], rgb, rgb[idx[0], idx[1]])
+    out = px.copy()
+    out[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    return out
+
+
+def tier_pips(img, tier):
+    """底邊嗰排階級點。
+
+    Painted 框已經有 T1 淨色 / T2 銀 / T3 金,所以階級**讀得出**;但其餘 41 張
+    仲有一排「數得到」嘅點,少咗呢四張就會喺 45 張入面自己一個樣。只補點,
+    唔補框 —— 框會冚住畫好嘅捲草角。
+    """
+    if tier <= 1:
+        return img
+    s = img.size[0]
+    rim = (208, 214, 222, 255) if tier == 2 else (240, 196, 72, 255)
+    dark = tuple(int(v * 0.55) for v in rim[:3]) + (255,)
+    light = tuple(min(255, int(v * 0.55 + 140)) for v in rim[:3]) + (255,)
+    lay = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(lay)
+    for k in range(tier):
+        px = 0.5 + (k - (tier - 1) / 2.0) * 0.13
+        d.ellipse([(px - 0.040) * s, (0.915 - 0.040) * s,
+                   (px + 0.040) * s, (0.915 + 0.040) * s], fill=dark)
+        d.ellipse([(px - 0.026) * s, (0.910 - 0.026) * s,
+                   (px + 0.026) * s, (0.910 + 0.026) * s], fill=light)
+    return Image.alpha_composite(img, lay)
+
+
+def cut_single(path, tier, size=SIZE):
+    """一張綠幕 badge -> 一張 size x size RGBA icon。回傳 (img, crop 尺寸, ✦ 記錄)"""
+    rgb = np.asarray(Image.open(path).convert("RGB")).astype(float)
+    a, _bg = chroma_alpha(rgb)
+    a, dropped = drop_islands(a)
+    ys, xs = np.nonzero(a > 0.5)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    # 剪成正方形:badge 本身就係方,但 JPEG 邊緣會差一兩 px,硬撐成方形先至
+    # 保證 KEEP_ASPECT_CENTERED 之下同其餘 41 張一樣大。
+    cy, cx = (y0 + y1) / 2.0, (x0 + x1) / 2.0
+    h = max(y1 - y0, x1 - x0) / 2.0
+    y0, y1 = int(round(cy - h)), int(round(cy + h))
+    x0, x1 = int(round(cx - h)), int(round(cx + h))
+    sub_rgb = rgb[y0:y1, x0:x1]
+    sub_a = a[y0:y1, x0:x1]
+    sub_rgb = decontaminate(sub_rgb, sub_a)
+    px = resize_rgba(sub_rgb, sub_a, size)
+    px = alpha_bleed(px)
+    img = Image.fromarray(px, "RGBA")
+    return tier_pips(img, tier), (x1 - x0, y1 - y0, x0, y0), dropped
+
+
+def install_singles(dest, report):
+    written = 0
+    for (sid, tier), fname in sorted(SINGLES.items()):
+        src = os.path.join(ROOT, "art_reference", "magic", fname)
+        if not os.path.exists(src):
+            raise SystemExit("搵唔到 %s" % src)
+        img, box, dropped = cut_single(src, tier)
+        suf = "" if tier == 1 else "_t%d" % tier
+        img.save(os.path.join(dest, "spell_%d%s.png" % (sid, suf)))
+        report["singles"]["%d_t%d" % (sid, tier)] = dict(
+            src=fname, crop=[box[2], box[3], box[0], box[1]],
+            dropped_islands=[dict(px=p, bbox=b) for p, b in dropped])
+        written += 1
+    return written
+
+
+def check_singles(dest, report):
+    """四項驗收,全部係「只會畫錯唔會報錯」嗰種,所以要逐項量:
+      (a) 出街 icon 冇殘留來源底色(綠)—— **連 alpha=0 嗰啲都要驗**,因為
+          GPU LINEAR 會採樣到佢哋;
+      (b) ✦ 浮水印:確認佢真係俾 drop_islands 剷走咗,而且剷嗰嚿係喺右下角
+          嘅細嚿(<3000px),唔係剷咗 badge 嘅一部分;
+      (c) crop bbox 唔可以掂到源圖邊界(掂到即係摳穿咗,或者仲拉住浮水印);
+      (d) alpha 邊界要收得乾淨(唔准成張圖都係半透明)。
+    """
+    bad = 0
+    for (sid, tier), fname in sorted(SINGLES.items()):
+        suf = "" if tier == 1 else "_t%d" % tier
+        key = "%d_t%d" % (sid, tier)
+        p = os.path.join(dest, "spell_%d%s.png" % (sid, suf))
+        px = np.asarray(Image.open(p).convert("RGBA")).astype(float)
+        rgb, al = px[..., :3], px[..., 3] / 255.0
+        # (a) 殘留綠 —— 全圖,唔理 alpha
+        ng = int(((rgb[..., 1] > 150) &
+                  ((rgb[..., 1] - np.maximum(rgb[..., 0], rgb[..., 2])) > 60)).sum())
+        # (b) 剷走咗嘅嚿
+        isl = report["singles"][key]["dropped_islands"]
+        big = [i for i in isl if i["px"] > 3000]
+        wm = "; ".join("%dpx @%s" % (i["px"], i["bbox"]) for i in isl) or "none"
+        # (c) crop 唔掂邊
+        cx, cy, cw, ch = report["singles"][key]["crop"]
+        edge = cx <= 1 or cy <= 1 or cx + cw >= 1023 or cy + ch >= 1023
+        # (d) 半透明比例
+        soft = float(((al > 0.05) & (al < 0.95)).mean())
+        ok = ng == 0 and not big and not edge and 0 < soft < 0.16 and len(isl) >= 1
+        bad += 0 if ok else 1
+        print("  spell_%d t%d  crop %dx%d @(%d,%d)  殘綠 %d  剷走 %s  半透明 %.1f%%  %s"
+              % (sid, tier, cw, ch, cx, cy, ng, wm, soft * 100,
+                 "OK" if ok else "<< 有問題"))
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--install", action="store_true")
@@ -220,7 +449,7 @@ def main():
         return
 
     mask = round_mask(SIZE)
-    report = {"spells": {}, "unused": {}, "missing": {}}
+    report = {"spells": {}, "unused": {}, "missing": {}, "singles": {}}
     written = 0
     for (c, r), (sid, tier) in sorted(GRID.items()):
         x0, y0, x1, y1 = rects[(c, r)]
@@ -234,6 +463,7 @@ def main():
         written += 1
         report["spells"]["%d_t%d" % (sid, tier)] = dict(
             cell=[c, r], src=[x1 - x0, y1 - y0])
+    written += install_singles(dest, report)
     for k, v in UNUSED.items():
         report["unused"]["c%d_r%d" % k] = v
     for (sid, tier), v in MISSING.items():
@@ -303,14 +533,17 @@ def main():
         if green:
             bad += 1
             print("   !! %s 最外兩圈仲有 %d 粒坑綠" % (name, green))
+    print("單張 badge(綠幕摳圖)驗收:")
+    bad += check_singles(dest, report)
     print("residue check: %d 個問題" % bad)
 
     with open(os.path.join(QA, "report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=1, ensure_ascii=False)
     print("wrote %d / 45 icons -> %s" % (written, dest))
-    print("待補 %d 格:" % len(MISSING))
+    print("待補 %d 格%s" % (len(MISSING), ":" if MISSING else " —— 清單清零"))
     for (sid, tier), v in sorted(MISSING.items()):
         print("   spell id=%d tier=%d  %s" % (sid, tier, v))
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

@@ -193,6 +193,12 @@ func _sweep() -> void:
 				print("GATE BUILD %s %d %d T%d S%d axes=%d/%d crystals=%d cum=%d"
 					% [arch, sd, lv, Meta.tower_tier(MAIN_TOWER), Meta.spell_tier(MAIN_SPELL),
 					_total_levels(), _total_axes(), Meta.crystals, c0])
+		# 每個 seed 完成一行。定版 job 嘅 runner 靠呢行認「呢個分片跑完咗」——
+		# 冇一個明確嘅完成標記,一個喺第 87 關俾人 Ctrl-C 咗嘅分片同一個跑完
+		# 嘅分片喺輸出檔上面分唔出,而斷點續跑就會由一個殘缺嘅 campaign 上面
+		# 接落去。
+		print("GATE SEEDDONE %s %d" % [arch, sd])
+	print("GATE DONE arch=%s seeds=%d seed0=%d" % [arch, seeds, seed0])
 
 # ===========================================================================
 # MODE power — 「玩家力量 vs 敵人硬度」嘅解析對照(唔使打)
@@ -428,6 +434,7 @@ func _frozen_test() -> void:
 					f15 = 1 if (await _play(lv)).win else 0
 				_restore_snapshot(keep)
 			print("GATE ROW %d %d %d %d %d" % [sd, lv, 1 if live.win else 0, f5, f15])
+	print("GATE DONE mode=frozen seeds=%d seed0=%d" % [seeds, seed0])
 
 # ===========================================================================
 # MODE contract — Gate 8
@@ -469,6 +476,7 @@ func _contract_test() -> void:
 					% [sd, lv, "contract" if is_c else "normal", strat,
 					1 if r.win else 0, Meta.crystals - c0, r.frac])
 	_contract_strategy = "safe"
+	print("GATE DONE mode=contract seeds=%d" % seeds)
 
 ## 合約關嘅自動策略。
 ##   safe   永遠揀風險最低嗰張(平手就揀晶石倍率最細)—— 一個唔想賭嘅人
@@ -1082,11 +1090,19 @@ func _coverage(b, p: Vector2, r: float) -> float:
 
 # --- save 備份 ---------------------------------------------------------------
 func _backup_save() -> void:
+	# `--nosave` 之下 Meta 由頭到尾唔掂個檔,所以冇嘢要備份 —— 而且**唔可以**
+	# 備份:定版 job 一次開十幾個分片,每個都喺自己收工嗰陣寫返一次檔,
+	# 就算內容一樣都仲係十幾個進程搶住寫同一個檔。
+	if not Meta.disk_enabled:
+		_had_save = false
+		return
 	_had_save = FileAccess.file_exists(Meta.SAVE_PATH)
 	if _had_save:
 		_save_bytes = FileAccess.get_file_as_bytes(Meta.SAVE_PATH)
 
 func _restore_save() -> void:
+	if not Meta.disk_enabled:
+		return
 	if _had_save:
 		var f := FileAccess.open(Meta.SAVE_PATH, FileAccess.WRITE)
 		if f:

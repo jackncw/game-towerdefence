@@ -425,7 +425,11 @@ func _portrait_cell(fam: String, slot: int, seen: bool) -> Control:
 	# 整數規則喺度會全部變成 ×1,boss 一張 189px 直接爆出個 140px 高嘅掣。
 	# 手繪圖唔怕分數縮放,所以改為「塞入 110px 框」。
 	var scale: float = 110.0 / maxf(base.x, base.y)
-	var tr := UI.tex_rect(tex, base * scale)
+	# smooth=true:呢兩個位同上面 :168 / :236 一樣係手繪怪物圖,而 110px /
+	# 270px 對 66-189px 源圖嚟講唔係整數倍。NEAREST 之下非整數縮放會逐格
+	# 食走一行像素,手繪線條起格。UI.tex_rect 自己會按源圖大細揀 filter
+	# (>48px 先至 LINEAR),所以剩返嘅程序像素圖唔會受影響。
+	var tr := UI.tex_rect(tex, base * scale, true)
 	tr.position = Vector2(20 + (110.0 - base.x * scale) * 0.5,
 		15 + (110.0 - base.y * scale) * 0.5)
 	if not seen:
@@ -462,7 +466,7 @@ func _detail_panel(fam: String, slot: int) -> Control:
 	# 上限 280:文字由 x=360 開始,頭像由 x=70 起,所以 290 之前都撞唔到。
 	# 新圖細節多咗,舊嗰個 176px 睇唔到裝備差異。
 	var _target: float = 270.0 if boss else float(GameData.LVL_SIZE[lvl]) * 5.5
-	var big := UI.tex_rect(tex, _tsz * (_target / maxf(_tsz.x, _tsz.y)))
+	var big := UI.tex_rect(tex, _tsz * (_target / maxf(_tsz.x, _tsz.y)), true)
 	big.position = Vector2(70, 70)
 	if not seen:
 		big.modulate = Color(0, 0, 0, 1)

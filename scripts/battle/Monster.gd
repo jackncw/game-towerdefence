@@ -90,6 +90,13 @@ var revive_count: int = 0
 ## later — can out-heal 20% of the level's expected player DPS, and no single
 ## frame can push the blood bar upward.
 var heal_pending: float = 0.0
+## 開場傷害漏桶,單位係**秒**唔係 HP —— 第 100 關會喺 setup() 之後先至乘
+## `FINAL_BOSS_HP_FRAC` 落 max_hp,存絕對 HP 額度嘅話嗰十隻 boss 個桶就會
+## 對唔上佢哋自己嘅血量。存秒數,用嗰陣先至乘現行 max_hp,點改都跟得住。
+## 見 GameData.BOSS_OPEN_DPS_SHARE。
+var open_bank_s: float = 0.0
+## 上一次被漏桶食走咗傷害之後幾耐(做「格擋」視覺回饋嘅節流,唔係機制)。
+var _absorb_fx_cd: float = 0.0
 # --- telegraphed heal cast (遠古樹妖) ---------------------------------------
 var channel_time: float = 0.0    # seconds of cast left
 var channel_total: float = 0.0   # cast length, for the progress ring
@@ -200,6 +207,9 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	# one enforcement point instead of a clamp per mechanic
 	regen_rate = (max_hp * 0.02) if mech == "regen" else 0.0
 	heal_pending = 0.0
+	# boss 一出場就係**滿桶** —— 第一炮照樣打甩四分一血條,爆發嘅手感留返。
+	open_bank_s = GameData.BOSS_OPEN_BANK_SECONDS if boss else 0.0
+	_absorb_fx_cd = 0.0
 	revive_count = 0
 	channel_time = 0.0; channel_total = 0.0; channel_heal = 0.0; channel_heal0 = 0.0
 	_heal_flash = 0.0; _heal_bank = 0.0; _heal_bank_t = 0.0
@@ -231,6 +241,11 @@ func _process(delta: float) -> void:
 		return
 	_tick_family(delta)
 	if is_boss:
+		# 用**原始 delta**,唔經 `_beat()`。時之枷鎖拖慢嘅係 boss 嘅技能節拍,
+		# 而呢個桶係一條公平下限,唔係 boss 嘅一個技能 —— 拖慢佢等於變相
+		# 令緩速隊伍更加秒得到 boss,啱啱好調轉。
+		open_bank_s = minf(open_bank_s + delta, GameData.BOSS_OPEN_BANK_SECONDS)
+		_absorb_fx_cd = maxf(0.0, _absorb_fx_cd - delta)
 		_tick_boss(delta)
 	if not alive:
 		return
@@ -563,6 +578,7 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	# wolf enrage on hit
 	if boss_mech == "enrage":
 		enrage_time = 2.0
+	d = _boss_absorb(d)
 	_spend_channel(d)
 	hp -= d
 	battle.damage_dealt += minf(d, maxf(0.0, hp + d))
@@ -583,9 +599,44 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 	Audio.play_hit(armor, mres)
 	var big := d >= max_hp * 0.18 and d >= 40.0
 	var ncol := Color(1, 0.85, 0.35) if big else Color(1, 1, 0.7)
-	battle.spawn_damage(global_position + Vector2(randf_range(-8, 8), -size * 0.5), int(round(d)), ncol, big)
+	# 開場漏桶收乾咗嘅時候 d 會係 0 —— 唔可以照印一個「0」出嚟,嗰個讀落
+	# 好似「打唔中」。格擋光環(_boss_absorb 度嗰個)先係嗰一刻應該見到嘅嘢。
+	if d >= 0.5:
+		battle.spawn_damage(global_position + Vector2(randf_range(-8, 8), -size * 0.5),
+			int(round(d)), ncol, big)
 	if hp <= 0.0:
 		_die(false)
+
+## BOSS 開場傷害上限 —— 唯一嘅執行點。
+##
+## 呢度**淨係** boss 受影響,而且淨係「一秒之內想食超過 12.5% 血」嗰種傷害
+## 受影響。一個 on-curve 玩家(16 秒打死 = 6.25%/s)由頭到尾一滴都唔會俾
+## 食走,所以佢唔係一個拖時間嘅懲罰,係一條「唔准一炮刪除」嘅下限。
+## 詳細理由同數字喺 GameData.BOSS_OPEN_DPS_SHARE 嗰段。
+##
+## 兩個呼叫點(take_hit / _deal_dot)就係全遊戲**所有**扣 boss 血嘅路 ——
+## 20 座塔、15 個魔法、DoT、真傷、按生命上限計嗰批(天雷誅殺 bosspct、
+## 龍捲風 GALE_TRUE_FRAC、地震術 bosspct)全部匯入呢兩條。狙擊塔嘅斬殺
+## (try_execute)本身已經 boss 免疫。
+func _boss_absorb(d: float) -> float:
+	if not is_boss or d <= 0.0 or not GameData.boss_floor_enabled:
+		return d
+	var rate: float = GameData.boss_open_dmg_cap_per_sec(max_hp)
+	if rate <= 0.0:
+		return d
+	var room: float = open_bank_s * rate
+	if d <= room:
+		open_bank_s -= d / rate
+		return d
+	open_bank_s = 0.0
+	# 食走咗嘅唔可以靜靜雞冇咗 —— 玩家見到一個細過預期嘅數字,一定要有
+	# 一個解釋擺喺同一個位。節流係因為一次爆發可以喺同一幀入面撞十幾下。
+	if _absorb_fx_cd <= 0.0 and battle != null:
+		_absorb_fx_cd = 0.35
+		battle.spawn_fx_ring_dur(global_position, size * 1.35,
+			Color(0.72, 0.80, 0.95), 0.30)
+	return room
+
 
 func take_true(dmg: float) -> void:
 	take_hit(dmg, "true")
@@ -604,6 +655,7 @@ func _deal_dot(amount: float, _col: Color) -> void:
 	# invuln, so letting burn/poison through made "短暫無敵" a lie.
 	if invuln_time > 0.0:
 		return
+	amount = _boss_absorb(amount)
 	_spend_channel(amount)
 	battle.damage_dealt += minf(amount, maxf(0.0, hp))
 	hp -= amount

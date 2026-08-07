@@ -17,7 +17,7 @@ func _ready() -> void:
 			  ["res://scenes/Result.tscn","result"]]:
 		await _shoot(s[0], s[1])
 	done = true
-	print("SHOTS: DONE")
+	print("SHOTS REPORT-ONLY DONE(截圖 harness,冇斷言)")
 	get_tree().quit()
 
 func _grab(name: String) -> void:

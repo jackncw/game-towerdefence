@@ -10,7 +10,7 @@ from `art_reference/`. Nearest-neighbour filtering (crisp pixels).
 |---|---|---|---|
 | `art_reference/monster/` | 2026-08-06 | 60 張怪物 sprite | `tools/monster_cutout.py` |
 | `art_reference/tower/` | 2026-08-07 | 60 張塔 sprite | `tools/tower_cutout.py` |
-| `art_reference/magic/` | 2026-08-07 | 41 張魔法 icon(45 格入面) | `tools/magic_cutout.py` |
+| `art_reference/magic/` | 2026-08-07 | **45 張魔法 icon(全套)**:`magic.jfif` 嗰張 15×3 sheet 出 41 張,四張單檔 badge(`地震術 T1/T2`、`烈焰之牆 T3`、`龍捲風 T3`,綠幕底、中文檔名連空格)出淨低四張 | `tools/magic_cutout.py`(`GRID` + `SINGLES`) |
 
 呢三批都唔係程序生成,亦都係全套資產入面**唯一**用 LINEAR filter 嗰批
 (手繪圖 + 非整數縮放)—— 其餘嘅圖照舊 NEAREST。
@@ -51,11 +51,19 @@ from `art_reference/`. Nearest-neighbour filtering (crisp pixels).
 - **新圖 64x64 正方形**,圓角 alpha(inset 3%、圓角半徑 15.6%),底色跟源圖
   (元素色),第二 / 三階疊 `gen_art.py` 嘅銀 / 金框 —— 戰鬥卡片冇位擺文字,
   階級一直都係靠嗰個框讀。
-- **四格例外:龍捲風 t3、地震術 t1、地震術 t2、烈焰之牆 t3 喺源圖度冇**,
-  仲行緊 `gen_art.py` 嘅 44x44 程序畫法(`PROCEDURAL_SPELLS`)。
-  補到圖之後三個地方要一齊改:`magic_cutout.py` 嘅 `GRID` / `MISSING`、
-  `gen_art.py` 嘅 `PROCEDURAL_SPELLS`、`test/TowerArtTest` 嘅 `STILL_PROCEDURAL`。
-- filter:64px 嗰批 LINEAR,44px 嗰四張照 NEAREST(`UI.tex_rect` 按圖嘅尺寸判)。
+- **四格例外已經清零(2026-08-07 收官輪)。** 龍捲風 t3 / 地震術 t1 / t2 /
+  烈焰之牆 t3 喺 15×3 嗰張 sheet 度冇,而家由四張單檔綠幕 badge 摳出嚟
+  (`magic_cutout.py` 嘅 `SINGLES`)。三處同步點全部清空:`MISSING` = {}、
+  `gen_art.py` 嘅 `PROCEDURAL_SPELLS` = frozenset()、`TowerArtTest` 嘅
+  `STILL_PROCEDURAL` = []。**唔好將任何一格加返落去** —— 加返一格就會用一張
+  44px 程序像素圖冚走一張 64px 手繪 icon,而唯一嘅症狀係「嗰個魔法喺升級
+  介面突然變糊」。
+- 呢四張嘅底板 + 階級框係**畫喺圖入面**(T1 淨色底 / T2 銀框 / T3 金框),
+  所以佢哋**唔疊** `tier_frame()`(疊落去會冚住畫好嘅金色捲草角,對照圖喺
+  `qa/magic_cutout/frame_ab.png`);只補底邊嗰排階級點(`tier_pips()`),
+  咁「數點」呢個 affordance 45 張都仲在。
+- filter:45 張全部 64px,一律 LINEAR(`UI.tex_rect` 按圖嘅尺寸判,
+  `_PIXEL_ART_MAX` = 48)。
 
 ## UI / world
 - `ui/coin.png` 40x40 — gold coin, yellow, highlight glint.

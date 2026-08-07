@@ -27,6 +27,7 @@ func _ready() -> void:
 			n_towers = int(a.substr(4))
 	await _run()
 	get_tree().paused = false
+	print("STRATDIAG REPORT-ONLY(擺位策略診斷,冇斷言)")
 	get_tree().quit(0)
 
 func _run() -> void:

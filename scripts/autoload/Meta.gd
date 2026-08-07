@@ -4,6 +4,16 @@ extends Node
 
 const SAVE_PATH := "user://save.json"
 
+## Harness 開關(第 21 輪)。`--nosave` 之後 Meta 完全唔掂 user://save.json:
+## 唔讀、唔寫、唔建。
+##
+## 點解要有:平衡量度(GateSim 分片)一開就係十幾個進程,每個都 reset_save()
+## 再逐關寫檔,全部指住同一個檔。分片之間唔會互相讀,所以佢哋自己冇事,
+## 但**任何同時跑嘅測試**讀到嘅存檔就係垃圾 —— 而症狀係一堆同存檔完全
+## 無關嘅假失敗。定版 job 嘅 runner 一律加呢個 flag,咁十幾個鐘嘅平衡量度
+## 就完全唔會同 Jack 自己嗰個真存檔、或者同時跑嘅 run_tests.ps1 打交。
+var disk_enabled: bool = true
+
 var crystals: int = 0
 var unlocked_towers: Array = [1, 2, 5, 13]
 var unlocked_spells: Array = [1]
@@ -60,6 +70,9 @@ var rework_refund: int = 0
 var rework_kind: String = ""
 
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a == "--nosave":
+			disk_enabled = false
 	load_game()
 	_migrate()
 	apply_audio_settings()
@@ -481,6 +494,8 @@ func to_dict() -> Dictionary:
 
 func save_game() -> void:
 	_seen_dirty = false   # every write persists `seen` too
+	if not disk_enabled:
+		return
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		push_warning("無法寫入存檔")
@@ -489,6 +504,8 @@ func save_game() -> void:
 	f.close()
 
 func load_game() -> void:
+	if not disk_enabled:
+		return
 	if not FileAccess.file_exists(SAVE_PATH):
 		save_game()
 		return

@@ -33,4 +33,10 @@ func _process(_d: float) -> void:
 			" highest=", Meta.highest_level,
 			" cleared1=", Meta.is_cleared(1),
 			" saveExists=", FileAccess.file_exists(Meta.SAVE_PATH))
-		get_tree().quit()
+		# 第 21 輪:以前淨係印一行狀態就 quit(0) —— 一場**輸咗**嘅 WinTest
+		# 同一場贏咗嘅喺套裝報告上面一模一樣。
+		var won: bool = bool(Flow.last_result.get("win", false))
+		var saved: bool = Meta.is_cleared(1) and Meta.highest_level >= 1
+		print("WINTEST %s (win=%s, 進度寫咗=%s)"
+			% ["PASS" if (won and saved) else "FAIL", str(won), str(saved)])
+		get_tree().quit(0 if (won and saved) else 1)

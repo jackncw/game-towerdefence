@@ -85,7 +85,18 @@ var _fails: Array = []
 var _rows: Array = []
 var _verbose := false
 
+## 看門狗。單獨跑係 ~90 秒,但整套跑 / 同時有第二個 job 喺度食 CPU 嘅時候
+## 實測會慢到 161 秒 —— 而呢個測試以前**冇任何時限**,所以一旦真係掛死咗,
+## 佢就會靜靜咁企喺度,而套裝報告上面睇落同「跑緊」一模一樣。
+## 第四個參數 = ignore_time_scale:呢個測試自己會將 Engine.time_scale 推到
+## 3.0,唔加嘅話個看門狗會提早三倍 fire。
+const WATCHDOG_S := 900.0
+
 func _ready() -> void:
+	get_tree().create_timer(WATCHDOG_S, true, false, true).timeout.connect(func():
+		print("TIMESCALE FAIL 看門狗 %ds 到期 —— 跑咗 %d 個組合就掛住咗"
+			% [int(WATCHDOG_S), _rows.size()])
+		get_tree().quit(1))
 	Crash.enabled = false
 	Flow.nav_enabled = false
 	for a in OS.get_cmdline_user_args():

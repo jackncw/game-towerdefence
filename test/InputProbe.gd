@@ -29,18 +29,23 @@ func _ready() -> void:
 	up.index = 0; up.pressed = false; up.position = Vector2(400, 800)
 	battle.get_viewport().push_input(up)
 	await get_tree().process_frame
+	var bad := 0
+	var r1: bool = battle._last_tap_ms != 0
+	bad += 0 if r1 else 1
 	print("PROBE[1 ROUTING] touch reached _handle_tap: %s" %
-		("OK" if battle._last_tap_ms != 0 else "FAIL"))
+		("OK" if r1 else "FAIL"))
 	battle.cancel_modes()
 
 	# 2 COORDS: on-screen pos of a world point, then invert it back
 	var ok_default := _coord_ok(Vector2(300, 500)) and _coord_ok(Vector2(760, 1200))
+	bad += 0 if ok_default else 1
 	print("PROBE[2 COORDS] default view round-trip: %s" % ("OK" if ok_default else "FAIL"))
 	battle._zoom_at(1.7, Vector2(540, 900))
 	battle.cam.position += Vector2(140, 220)
 	battle._clamp_cam()
 	await get_tree().process_frame
 	var ok_zoom := _coord_ok(Vector2(300, 500)) and _coord_ok(Vector2(760, 1200))
+	bad += 0 if ok_zoom else 1
 	print("PROBE[2 COORDS] zoom=%.2f+pan round-trip: %s" %
 		[battle.cam.zoom.x, "OK" if ok_zoom else "FAIL"])
 	battle._reset_view()
@@ -53,6 +58,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	var placed: bool = battle.towers.size() == 1 and \
 		battle.towers[0].global_position.distance_to(spot) < 60.0
+	bad += 0 if placed else 1
 	print("PROBE[3 ACTION] place tower at tapped world: %s" % ("OK" if placed else "FAIL"))
 
 	# 3b meteor lands where tapped and damages a monster
@@ -65,11 +71,15 @@ func _ready() -> void:
 	battle._handle_tap(mpos)
 	await get_tree().process_frame
 	var dmg: float = hp0 - mon.hp
+	var r5: bool = dmg > 0.0 and battle.spell_cd.get(1, 0.0) > 0.0
+	bad += 0 if r5 else 1
 	print("PROBE[3 ACTION] meteor at tapped world dmg=%.0f cd=%.1f: %s" %
-		[dmg, battle.spell_cd.get(1, 0.0),
-		"OK" if dmg > 0.0 and battle.spell_cd.get(1, 0.0) > 0.0 else "FAIL"])
+		[dmg, battle.spell_cd.get(1, 0.0), "OK" if r5 else "FAIL"])
 
-	get_tree().quit()
+	# 第 21 輪:以前無論幾多項 FAIL 都係 quit(0),而套裝只睇 exit code 同
+	# 「最後一行有冇 PASS/FAIL 字」—— 即係話呢五項全部肥佬都可以報綠。
+	print("PROBE %s fails=%d (5 項)" % ["PASS" if bad == 0 else "FAIL", bad])
+	get_tree().quit(0 if bad == 0 else 1)
 
 func _coord_ok(world: Vector2) -> bool:
 	# canvas_transform maps world -> the coordinate space that input events use

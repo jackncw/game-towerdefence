@@ -42,6 +42,7 @@ func _ready() -> void:
 	await _case_mobs_unaffected()
 	_case_constants()
 	_case_no_other_hp_path()
+	await _case_final_wave_exempt()
 	await _report_walk()
 
 	if fails.is_empty():
@@ -241,3 +242,40 @@ func _case_no_other_hp_path() -> void:
 					ok = true
 			_ok("%s.gd:%d 直接寫怪物 hp,繞過咗 _boss_absorb —— 「%s」"
 				% [fname, n, line], ok)
+
+## 第 100 關嗰十隻 boss 豁免,而**只有**佢哋豁免。
+##
+## 呢個 case 兩邊都要驗:豁免真係生效(唔係嘅話 Gate 6b 會由 16.7% 跌到 6.2%),
+## 同埋豁免冇漏去第 71-99 關(漏咗嘅話成個鎖等於冇裝,而 5a 唔會有任何變化 ——
+## 一個「乜都冇發生」嘅結果同一個「機制冇效」嘅結果喺讀數上面一模一樣)。
+func _case_final_wave_exempt() -> void:
+	# (a) 第 100 關:最終波嗰十隻要秒得死
+	Flow.selected_level = 100
+	var b = load("res://scenes/Battle.tscn").instantiate()
+	add_child(b)
+	await get_tree().process_frame
+	get_tree().paused = true
+	b.base_shield = 99999999
+	# 直接推到最終波出場(_final_wave_logic 靠 elapsed 同 _final_wave_i)
+	var guard := 0
+	while b.final_bosses.is_empty() and guard < 20000:
+		b._process(DT)
+		guard += 1
+	_ok("第 100 關要放到最終波出嚟(而家 %d 隻)" % b.final_bosses.size(),
+		not b.final_bosses.is_empty())
+	if not b.final_bosses.is_empty():
+		var fm = b.final_bosses[0]
+		_ok("最終波嗰隻要標咗豁免", bool(fm.floor_exempt))
+		fm.take_true(1.0e9)
+		_ok("最終波嗰隻要秒得死(唔係嘅話 Gate 6b 會跌穿)", not fm.alive)
+	get_tree().paused = false
+	b.queue_free()
+	await get_tree().process_frame
+
+	# (b) 普通關嘅 boss 唔可以標到豁免
+	var b2 = await _mk()
+	var m2 = _boss(b2)
+	_ok("普通關嘅 boss 唔可以有豁免", not bool(m2.floor_exempt))
+	m2.take_true(1.0e9)
+	_ok("普通關嘅 boss 照樣秒唔死", m2.alive)
+	await _kill(b2)

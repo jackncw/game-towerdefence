@@ -95,6 +95,17 @@ var heal_pending: float = 0.0
 ## 對唔上佢哋自己嘅血量。存秒數,用嗰陣先至乘現行 max_hp,點改都跟得住。
 ## 見 GameData.BOSS_OPEN_DPS_SHARE。
 var open_bank_s: float = 0.0
+## 第 100 關嗰十隻 boss 唔受開場上限管。
+##
+## 呢個唔係「調平衡」,係修一個**範圍錯誤**:個鎖嘅承諾係「一場 boss 仗
+## 唔可以縮成一個時間點」,而第 100 關嘅設計本來就唔係一場 boss 仗 ——
+## 佢係十隻同場、而且每隻血量已經按 `FINAL_BOSS_HP_FRAC` 減過
+## (Battle 嗰度嘅註:「十隻足血 boss 唔係難,係長」)。個鎖係**逐隻**計嘅,
+## 所以擺落去等於將一個已經特登縮短咗嘅收官戰再乘十。
+## 實測(48 seed,final mode):Gate 6b 由 16.7% 跌到 6.2%,跌穿 10-30% 窗口。
+## 71-99 段冇最終波,所以呢個豁免同 Gate 5a / 5b 完全無關(兩個讀數一個字冇變)。
+## 守門:test/BossFloorTest 有一條 case 驗呢個豁免真係只落喺最終波。
+var floor_exempt: bool = false
 ## 上一次被漏桶食走咗傷害之後幾耐(做「格擋」視覺回饋嘅節流,唔係機制)。
 var _absorb_fx_cd: float = 0.0
 # --- telegraphed heal cast (遠古樹妖) ---------------------------------------
@@ -209,6 +220,7 @@ func setup(b, r: PathRoute, fam_id: String, level: int, boss: bool, wave_scale: 
 	heal_pending = 0.0
 	# boss 一出場就係**滿桶** —— 第一炮照樣打甩四分一血條,爆發嘅手感留返。
 	open_bank_s = GameData.BOSS_OPEN_BANK_SECONDS if boss else 0.0
+	floor_exempt = false          # pooled node:Battle 每次要重新設
 	_absorb_fx_cd = 0.0
 	revive_count = 0
 	channel_time = 0.0; channel_total = 0.0; channel_heal = 0.0; channel_heal0 = 0.0
@@ -619,7 +631,7 @@ func take_hit(dmg: float, dtype: String, armorpen: float = 0.0) -> void:
 ## 龍捲風 GALE_TRUE_FRAC、地震術 bosspct)全部匯入呢兩條。狙擊塔嘅斬殺
 ## (try_execute)本身已經 boss 免疫。
 func _boss_absorb(d: float) -> float:
-	if not is_boss or d <= 0.0 or not GameData.boss_floor_enabled:
+	if not is_boss or d <= 0.0 or floor_exempt or not GameData.boss_floor_enabled:
 		return d
 	var rate: float = GameData.boss_open_dmg_cap_per_sec(max_hp)
 	if rate <= 0.0:

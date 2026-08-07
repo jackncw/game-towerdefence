@@ -687,6 +687,8 @@ func _final_wave_logic() -> void:
 			# 五隻半順序出場,因為佢哋嘅機制係一齊行嘅。
 			m.max_hp *= GameData.FINAL_BOSS_HP_FRAC
 			m.hp = m.max_hp
+			# 開場傷害上限唔管呢十隻 —— 理由喺 Monster.floor_exempt 嗰段。
+			m.floor_exempt = true
 			final_bosses.append(m)
 			if m.mech == "revive":
 				skeleton_boss_alive = m

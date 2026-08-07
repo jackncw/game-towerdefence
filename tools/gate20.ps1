@@ -74,6 +74,19 @@ foreach ($a in $Arches) {
   }
 }
 if (-not $NoExtras) {
+  # Gate 6b(A4 第 100 關)嘅**正確量法係 `--mode=final`,唔係 sweep 嘅第 100
+  # 關嗰行。** 第十七輪量過:第 100 關嘅勝率對初始條件混沌敏感(同一個難度
+  # 24-seed 之間 15%↔42%),而 sweep 去到第 100 關之前已經打咗九關,RNG 狀態
+  # 同 final mode 完全唔同。實測差別唔細:同一個 build,sweep-from-91 讀到
+  # 0/20,final mode 讀到 2/20 —— 兩個都係真數,但 6b 嗰個窗口(10-30%)係
+  # 用 final mode 定出嚟嘅,所以要用返同一把尺。
+  # 48 seed 分三片(final mode 收 --seed0)。
+  foreach ($s0 in @(0, 16, 32)) {
+    $units += [pscustomobject]@{
+      Name = ("final_A4_s{0:d2}" -f $s0)
+      Args = @("--mode=final", "--arch=A4", "--seeds=16", "--seed0=$s0", "--nosave") + $extraArgs
+      Done = "GATE FINAL" }
+  }
   # Gate 3b / Gate 8。呢兩個 mode 唔收 --seed0,所以一個進程包晒 20 seed。
   $units += [pscustomobject]@{
     Name = "frozen"
@@ -104,6 +117,27 @@ if ($Status) {
 
 if ($Report) {
   python tools/gate_report.py (Join-Path $out "A*.txt")
+  # Gate 6b 要用 final mode 嗰批(見上面 final_A4 嗰段嘅註)。gate_report.py
+  # 讀唔到 final mode 嘅 ROW(得 5 欄),所以喺呢度自己數。
+  $fin = @(Get-ChildItem (Join-Path $out "final_A4_*.txt") -ErrorAction SilentlyContinue |
+           Where-Object { $_.Name -notlike "*.err.txt" })
+  if ($fin.Count -gt 0) {
+    $w = 0; $n = 0
+    foreach ($f in $fin) {
+      foreach ($line in (Get-Content $f.FullName)) {
+        $p = $line -split '\s+'
+        if ($p.Count -eq 6 -and $p[0] -eq 'GATE' -and $p[1] -eq 'ROW' -and $p[2] -eq 'A4') {
+          $w += [int]$p[4]; $n++
+        }
+      }
+    }
+    if ($n -gt 0) {
+      $r = 100.0 * $w / $n
+      $ok = ($r -ge 10) -and ($r -le 30)
+      Write-Host ""
+      Write-Host ("Gate6b A4 第100關 10-30%(final mode, n={0})  {1}  {2:N1}%" -f $n, $(if ($ok) { "PASS" } else { "FAIL" }), $r)
+    }
+  }
   if (Test-Path (Join-Path $out "frozen.txt")) {
     python tools/gate_report2.py (Join-Path $out "frozen.txt") (Join-Path $out "contract.txt")
   }

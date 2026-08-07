@@ -588,7 +588,7 @@ A4           -       -      -      -      -      -      -      -      -    100  
 | 定版 Gate 1/1b/2a/2b/3a/3b/4a/4b/8a/8b | 全部 PASS | D8 |
 | G1 / G2 | G1 10.4 → 40.4(目標 10→40);G2 逐個來源 1.175/1.214/1.203、合計 1.628(目標 1.15–1.5 / ≤1.70) | D9 |
 | 定版 job 完成度 | **102 / 102 個單位,200 分鐘** | `qa/bench/gate/r21/` |
-| 全套 regression | **`TESTS: 42 run, 0 non-zero exit, 0 冇 verdict`** —— 42 個場景全部有明確 verdict(以前 6 個係空白) | `qa/bench/runlogs/r21_suite_final.txt` |
+| 全套 regression | **`TESTS: 42 run, 0 non-zero exit, 0 冇 verdict`** —— 跑咗兩次(改最終波豁免之前 / 之後)兩次都全綠;42 個場景全部有明確 verdict(以前 6 個係空白) | `qa/bench/runlogs/r21_suite_final.txt`、`r21_suite_final2.txt` |
 | TimeScale 喺整套跑 | **`TIMESCALE PASS fails=0 (60 個組合)`,118.9 秒**(定版 job 15 個分片同時跑緊,即係最壞負載)—— 穩定出 verdict | 同上 |
 | web build 真瀏覽器 | **console error 0**,起塔 / 放魔法 / 升級 / 進化四個實操全部成功 | `qa/screenshots/round-21-cleanup{,-live}/web/` |
 | Pages 部署 | 已上,`index.pck` 9,553,156 bytes 同本機一致;live URL 再跑多次實操,console error 0 | `https://jackncw.github.io/game-towerdefence/` |
@@ -640,6 +640,10 @@ TESTS: 42 run, 0 non-zero exit, 0 冇 verdict
 * **唔應該見到**:平時打 boss(冇特別爆發)嘅節奏有任何變慢。個鎖嘅上限係
   期望火力嘅**兩倍**,所以正常打法一滴傷害都唔會俾食走 —— 如果你覺得「而家
   打 boss 慢咗」,嗰個就係一單 bug,唔係設計,請話我知。
+* **第 100 關嗰十隻 boss 唔受呢個鎖管**(見 D7b:鎖落去會將 Gate 6b 由 16.7%
+  打到 6.2%)。所以收官戰嘅手感同以前**一個字都冇改**。如果你試完覺得第 100
+  關都應該有呢個下限,剷走 `Battle._spawn_final_wave` 嗰句 `m.floor_exempt = true`
+  就得,代價已經量咗俾你。
 
 ### 3. 有一個 gate 冇達標,而佢係你嘅決定
 

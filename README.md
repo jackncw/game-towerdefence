@@ -10,6 +10,10 @@
 出街版本:**<https://jackncw.github.io/game-towerdefence/>**
 (GitHub Pages,由 `main` branch 嘅 `/docs` 資料夾 serve。)
 
+Android 出貨名 **Towerbound**(`com.jatgaming.towerbound`)——
+[私隱政策](https://jackncw.github.io/game-towerdefence/privacy.html) ·
+出 aab/apk 見下面「點樣 build Android 版」。
+
 ---
 
 ## 資料夾結構
@@ -20,14 +24,15 @@
 |---|---|
 | `project.godot` | Godot 專案設定、autoload 名單、翻譯註冊 |
 | `scenes/` | 11 個畫面場景(MainMenu / Battle / Shop / Upgrade …) |
-| `scripts/autoload/` | 7 個 autoload:`Crash` `GameData` `Assets` `Meta` `Flow` `Audio` `Web` |
+| `scripts/autoload/` | 8 個 autoload:`Crash` `GameData` `Assets` `Meta` `Flow` `Audio` `Web` `Mobile` |
 | `scripts/battle/` | 戰鬥邏輯(塔、怪、子彈、魔法、波次) |
 | `scripts/ui/` | 各畫面嘅 UI 控制 |
 | `assets/generated/` | 程式生成嘅美術(452 個檔) |
 | `assets/generated_audio/` | 程式生成嘅音效(130 個檔) |
 | `assets/fonts/` | `NotoSansTC-Subset.ttf` — 由 `tools/subset_font.py` subset 出嚟 |
 | `i18n/game.csv` | 雙語字串,Godot importer 編譯做 `.translation` |
-| `default_bus_layout.tres`, `icon.svg` | audio bus、app icon |
+| `default_bus_layout.tres` | audio bus |
+| `icon.svg` | Godot 專案範本嗰隻藍色機械人,遊戲畫面從來冇用過。`export_presets.cfg` 已經隔走佢個 import(慳返 3.3 KB 嘅 `.ctex`),但 exporter 會照塞返 995 bytes 嘅原檔入 pck —— `application/config/icon` 係由 exporter 強制加,exclude_filter 攔唔到 |
 
 **平衡數值全部喺 `scripts/autoload/GameData.gd`。**
 
@@ -38,14 +43,17 @@
 | `docs/index.*` | **出街嘅 web build。呢啲檔案就係 GitHub Pages serve 緊嗰個網站,唔好手動郁。** |
 | `docs/reports/` | 歷輪更新報告(`round-05` … `round-12`) |
 | `docs/design/` | 設計文件同決策紀錄:`CONTRACT.md`(美術/資料契約)、`BALANCE_CHANGELOG.md`(每次平衡改動嘅 before/after + 理由)、各輪 design / plan |
-| `test/` | 29 個 headless 自動測試場景 |
+| `test/` | 44 個 headless 自動測試場景 |
 | `tools/` | 開發工具腳本(見下) |
 | `web/` | web build 嘅 `head_include` 原始碼(JS/CSS) |
 | `art_reference/` | Jack 提供嘅美術參考圖。**只准睇唔准抄像素**,見 `docs/design/CONTRACT.md` |
 | `qa/` | 所有 QA 產物,唔入 repo(見下) |
-| `build/` | APK 同其他 build 輸出,唔入 repo |
+| `build/` | 測試 log 同其他 build 中間產物,唔入 repo |
+| `dist/` | Android 出貨檔(aab / apk / keystore README / 真機 checklist),唔入 repo |
+| `android/` | Godot 裝落嚟嘅 gradle build template,唔入 repo |
+| `assets/android/` | launcher / adaptive icon + splash。**有 `.gdignore`** —— export 嗰陣 exporter 直接由檔案系統讀,所以入唔到 pck |
 
-`qa/`、`art_reference/`、`docs/`、`build/` 各有一個 `.gdignore`:Godot 連 import
+`qa/`、`art_reference/`、`docs/`、`build/`、`dist/`、`assets/android/` 各有一個 `.gdignore`:Godot 連 import
 都唔會 import 佢哋,所以呢啲檔案**結構上冇可能**入到遊戲 build 度。
 (第九輪試過 50 MB QA 截圖被打包入 web build,靠人手維護排除表係唔夠嘅。)
 
@@ -86,7 +94,48 @@ python tools/web_shots.py --dir docs --out qa/screenshots/round-NN-web
 `docs/index.html`** —— 寫漏就會喺 project root 掉一份 38 MB 嘅垃圾,而出街嗰個
 網站唔會更新。
 
-Android:`& $GODOT --headless --path . --export-release "Android" build/TowerFortress.apk`
+---
+
+## 點樣 build Android 版
+
+```powershell
+powershell -File tools\android_build.ps1          # 出 aab + apk
+powershell -File tools\android_build.ps1 -SkipApk # 淨係出 aab
+```
+
+出嚟嘅嘢喺 `dist\`(`.gitignore` 咗):
+
+| 檔 | 做乜 |
+|---|---|
+| `Towerbound-1.0.0.aab` | **上 Play Console 嗰個。** 部機裝唔到。 |
+| `Towerbound-1.0.0.apk` | sideload 真機測試用。同一條 key 簽。 |
+| `SHA256SUMS.txt` | 上面兩個檔嘅 SHA-256 |
+| `play-store-icon-512.png` | Play Console 上架表格要嗰張 512×512 |
+| `KEYSTORE_BACKUP_README.md` | **Jack 一定要睇。** 條 upload key 唔見咗會點、要備份去邊 |
+| `DEVICE_CHECKLIST.md` | 真機測試逐格清單 |
+
+最後兩份嘅**正本**喺 `docs/android/`(入 repo),build script 每次 copy 一份落
+`dist\` —— `dist\` 係 `.gitignore` 咗嘅,一 clone 落新機就會冇咗,而其中一份
+正正就係「條 key 唔見咗會點」嘅指引。
+
+簽名靠三個環境變數(`GODOT_ANDROID_KEYSTORE_RELEASE_PATH` / `_USER` /
+`_PASSWORD`),由 `%USERPROFILE%\keystores\towerbound-upload.credentials.env`
+讀。**`export_presets.cfg` 入面一個密碼字元都冇**,keystore 同密碼兩個檔都住喺
+repo 以外。
+
+環境要求(全部已裝,路徑寫喺 Godot 嘅 Editor Settings):
+
+| 嘢 | 版本 | 路徑 |
+|---|---|---|
+| JDK | Temurin 17.0.19 | `C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot` |
+| Android SDK | platform 36 / build-tools 36.0.0 / platform-tools 37 | `%LOCALAPPDATA%\Android\Sdk` |
+| Export templates | 4.7.1.stable | `%APPDATA%\Godot\export_templates\4.7.1.stable` |
+| Gradle build template | 4.7.1.stable | `android/build/`(`.gitignore` 咗,用 `--install-android-build-template` 重裝) |
+
+Android 專項行為(返回鍵、切背景、閃退標記)喺
+`scripts/autoload/Mobile.gd`,由 `test/MobileTest.tscn` 守住。
+Icon / splash 由 `tools/android_icons.py` 用**現有遊戲美術**砌出嚟,
+輸出落 `assets/android/`(有 `.gdignore`,所以入唔到 pck)。
 
 ---
 
@@ -113,6 +162,10 @@ Android:`& $GODOT --headless --path . --export-release "Android" build/TowerFort
 | `tools/i18n_merge.py` | 合併翻譯 CSV |
 | `tools/apply_head_include.py` | `--check` 可以淨係驗證 `.cfg` 有冇落後 |
 | `tools/pck_report.py` | 拆開 `.pck` 睇入面有咩、幾大 |
+| `tools/android_build.ps1` | 出簽好名嘅 `.aab` + `.apk` 落 `dist\`,順手出 SHA-256 |
+| `tools/layout_shots.tscn` | 喺 6 個真機解像度嘅**視窗**入面影圖(連黑邊),答「20:9 會唔會爆邊」——`art_export` 用固定 SubViewport,答唔到呢條 |
+| `tools/pkg_report.py` | 拆開 `.apk`/`.aab` 睇 `assets/` 有乜、掃開發檔案殘留、逐檔對返 web 嘅 pck |
+| `tools/android_icons.py` | 用現有遊戲美術砌 launcher / adaptive icon + splash + Play Store 512 |
 | `tools/web_heap_probe.py` | 量 web build 嘅記憶體用量 |
 | `tools/asset_sheet.py` / `mon_sheet.py` / `mon_deliverables.py` | 砌 contact sheet,一次 Read 睇晒全部 sprite |
 | `test/BalanceSim.tscn` | `& $GODOT --headless --path . res://test/BalanceSim.tscn -- --towers` — 平衡模擬 |

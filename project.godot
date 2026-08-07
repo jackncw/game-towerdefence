@@ -11,9 +11,27 @@ config_version=5
 [application]
 
 config/name="塔防要塞 Tower Fortress"
+; 作業系統層面顯示嘅 app 名(Android / iOS / macOS 專用,唔會影響視窗標題、
+; 網頁 <title>、或者遊戲入面嘅 MENU_TITLE)。兩個 locale 都係 "Towerbound"
+; —— 出街個名唔跟語言變,而 Godot 個 Android exporter 係逐個 locale 寫入
+; res/values-*/godot_project_name_string.xml,所以呢度唔寫嘅話嗰兩個 locale
+; 會留低 template 嘅佔位字串。
+config/name_localized={
+"en": "Towerbound",
+"zh_TW": "Towerbound"
+}
 run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
+; Boot splash。預設係 Godot 個 logo 襯一嚿灰,而喺 Android 上面佢會夾喺
+; 「Android 開場畫面(暖深色 + 箭塔)」同「遊戲第一幀(暖深色)」中間閃一下
+; 灰色 —— 一個由頭到尾冇人想見到嘅第三種顏色。呢度剩返一版同 UI.BG 一模一樣
+; 嘅暖深色,所以三個階段接得埋,睇落係一個畫面。
+; (唔喺度指 boot_splash/image:出街用嘅張圖住喺 assets/android/,嗰個資料夾
+;  有 .gdignore 所以入唔到 pck,runtime 載唔到。Android 個開場畫面本來就已經
+;  由 export preset 嘅 splash_screen/icon 畫住,冇少咗嘢。)
+boot_splash/bg_color=Color(0.11, 0.085, 0.065, 1)
+boot_splash/show_image=false
 
 [autoload]
 
@@ -24,6 +42,7 @@ Meta="*res://scripts/autoload/Meta.gd"
 Flow="*res://scripts/autoload/Flow.gd"
 Audio="*res://scripts/autoload/Audio.gd"
 Web="*res://scripts/autoload/Web.gd"
+Mobile="*res://scripts/autoload/Mobile.gd"
 
 [debug]
 
@@ -47,7 +66,11 @@ window/stretch/mode="canvas_items"
 ; uniformly and letterboxes the remainder with default_clear_color, which is
 ; the only setting that cannot distort at any window aspect.
 window/stretch/aspect="keep"
-window/handheld/orientation=1
+; 5 = SCREEN_SENSOR_PORTRAIT。唔用 1(SCREEN_PORTRAIT)嘅原因:1 係硬鎖一個
+; 方向,部機打側或者倒轉攞住都唔會跟;5 一樣係「淨係直版」,但兩個直版方向
+; 都接受,所以躺喺床上面倒轉攞部機仲睇得到。橫版永遠唔會出現,佈局係實牙
+; 實齒嘅 1080x1920。
+window/handheld/orientation=5
 
 [input_devices]
 
@@ -73,6 +96,12 @@ textures/canvas_textures/default_texture_filter=0
 environment/defaults/default_clear_color=Color(0.11, 0.085, 0.065, 1)
 rendering_device/driver.windows="d3d12"
 textures/vram_compression/import_etc2_astc=true
+; Android 預設會揀 Mobile(Vulkan)renderer,但呢個遊戲量過嘅嗰個 renderer 係
+; Compatibility —— 網頁版由頭到尾行 gl_compatibility,合批輪(第十四輪)嗰
+; ~900 draw call/幀 同 FxRender / MultiMesh 嗰套都係喺佢上面調出嚟。臨出貨轉去
+; 一個冇量過嘅 backend,等於將所有渲染讀數作廢。呢一行令 Android 同 Web 行同
+; 一個 backend。
+renderer/rendering_method.mobile="gl_compatibility"
 
 [audio]
 

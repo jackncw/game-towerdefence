@@ -37,6 +37,10 @@ const TAB_KEYS := {"monster": "BESTIARY_TAB_MONSTER", "tower": "BESTIARY_TAB_TOW
 const SILHOUETTE := Color(0.06, 0.05, 0.07, 1.0)
 
 func _ready() -> void:
+	# Android 返回鍵 / 桌面 Esc 統一由 Mobile 派落嚟(見 handle_back())。overlay
+	# 模式之下圖鑑掛喺 BattleHUD 之下,深過個 HUD,所以一定問得到佢先 ——
+	# 「暫停 → 開圖鑑 → 返回」要退返暫停選單,唔係一嘢彈返主選單。
+	add_to_group(Mobile.BACK_GROUP)
 	UI.fullscreen_bg(self, Color(0.11, 0.085, 0.065))
 	var title := UI.title(tr("BESTIARY_TITLE"), 52)
 	title.position = Vector2(0, 24); title.size = Vector2(1080, 70)
@@ -569,10 +573,9 @@ func _detail_panel(fam: String, slot: int) -> Control:
 
 # ---------------------------------------------------------------------------
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
-		_go_back()
-		get_viewport().set_input_as_handled()
-	elif event is InputEventScreenDrag:
+	# ui_cancel 唔喺呢度食 —— Mobile 統一收,再經 handle_back() 派返落嚟。
+	# 兩邊都接嘅話,一下 Esc 會行兩次 _go_back()。
+	if event is InputEventScreenDrag:
 		_swipe_accum += event.relative.x
 		if absf(_swipe_accum) > 120.0:
 			_turn(-1 if _swipe_accum > 0.0 else 1)
@@ -580,9 +583,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventScreenTouch and not event.pressed:
 		_swipe_accum = 0.0
 
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		_go_back()
+func handle_back() -> bool:
+	if not is_inside_tree():
+		return false
+	_go_back()
+	return true
 
 func _go_back() -> void:
 	if overlay:

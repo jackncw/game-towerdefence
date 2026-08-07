@@ -66,8 +66,16 @@ func set_idle_friendly(on: bool) -> void:
 func _ready() -> void:
 	apply_frame_cap()
 	# Global CJK-capable font so all 繁體中文 renders.
-	if OS.has_feature("web"):
-		_install_web_cjk_font()
+	#
+	# Android 行同網頁版一模一樣嗰條路,唔行 SystemFont。理由唔係方便:
+	# SystemFont 要求「部機上面搵到呢啲 family name 其中一個」,而 Android 各家
+	# 廠商嘅字型清單唔一樣(Godot 喺 Android 上面亦都冇 Windows 嗰種完整 family
+	# 查詢),搵唔到就成版中文出豆腐格 —— 而呢種失敗喺一部冇喺手嘅機上面
+	# 睇唔到,只會由玩家嚟報。打包咗嘅 subset(253 KB,本來就已經為咗網頁版
+	# 入咗 pack)係一個唔使靠部機嘅答案,而且嗰條 code path 已經喺真瀏覽器
+	# 度驗過。
+	if OS.has_feature("web") or OS.has_feature("mobile"):
+		_install_bundled_cjk_font()
 	else:
 		var sf := SystemFont.new()
 		sf.font_names = PackedStringArray([
@@ -79,13 +87,14 @@ func _ready() -> void:
 
 
 ## Browsers expose no system fonts, so the built-in Open Sans has nothing to fall
-## back on and every CJK glyph draws as a tofu box.
+## back on and every CJK glyph draws as a tofu box. Android has fonts but no
+## dependable way to ask for them by family name, so it takes the same road.
 ##
 ## Setting ThemeDB.fallback_font is NOT enough: the built-in theme assigns Open
 ## Sans to Label/Button explicitly, so the fallback_font is never consulted. The
 ## bundled subset has to be hung off those fonts' own `fallbacks` chains instead.
 ## Doing it this way keeps Latin text in Open Sans exactly as on desktop.
-func _install_web_cjk_font() -> void:
+func _install_bundled_cjk_font() -> void:
 	var theme := ThemeDB.get_default_theme()
 	for type_name in theme.get_font_type_list():
 		for font_name in theme.get_font_list(type_name):

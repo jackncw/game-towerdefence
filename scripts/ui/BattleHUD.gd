@@ -44,6 +44,8 @@ func _ready() -> void:
 	_build_tower_panel()
 	_build_pause_menu()
 	_build_contract_ui()
+	# Android 返回鍵 / 桌面 Esc 由 Mobile 統一派落嚟,見 handle_back()。
+	add_to_group(Mobile.BACK_GROUP)
 
 func _build_top() -> void:
 	var bar := Panel.new()
@@ -1020,6 +1022,27 @@ func _toggle_pause() -> void:
 	var p := not get_tree().paused
 	get_tree().paused = p
 	pause_menu.visible = p
+
+## 戰鬥中撳返回鍵**永遠**唔會直接離開戰鬥 —— 冇咗嘅係成場,而返回手勢喺
+## 全螢幕遊戲入面係最易撩錯嗰個。開住暫停選單就當收埋佢(即係「返回」返到
+## 戰鬥),冇開就開佢。要走返主選單,暫停選單入面有粒掣。
+##
+## 圖鑑 overlay 唔使喺呢度處理:佢自己都喺 BACK_GROUP 入面,而且喺 tree 度
+## 深過個 HUD,所以 Mobile 一定問佢先。
+func handle_back() -> bool:
+	if not is_inside_tree():
+		return false
+	_toggle_pause()
+	return true
+
+## 由背景返嚟嗰陣 Mobile 問呢一句:「有冇人要求繼續停住」。戰鬥要 —— 而且
+## 要停喺一個玩家見到嘅畫面上面,唔係一個靜止但冇解釋嘅戰場。
+func hold_paused() -> bool:
+	if not is_inside_tree():
+		return false
+	get_tree().paused = true
+	pause_menu.visible = true
+	return true
 
 func _toggle_mute() -> void:
 	Meta.settings["muted"] = not Meta.settings.get("muted", false)

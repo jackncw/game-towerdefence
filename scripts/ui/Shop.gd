@@ -63,8 +63,9 @@ func _unlock_card(def: Dictionary, is_tower: bool) -> Control:
 	# English name/description is roughly twice as wide as the 繁中 one, so both
 	# now get a wrapping two/three-line box instead of a single fixed line.
 	card.custom_minimum_size = Vector2(320, 226)
+	# 塔 128px / 魔法 64px 手繪源圖 -> 88px,唔係整數倍,行 LINEAR
 	var icon := UI.tex_rect(Assets.tower(def.id) if is_tower else Assets.spell(def.id),
-		Vector2(88, 88))   # 2x of 44
+		Vector2(88, 88), true)
 	icon.position = Vector2(10, 12)
 	card.add_child(icon)
 	var nm := _wrap_box(card, Vector2(104, 8), Vector2(202, 62), tr(def.name), 24, UI.TEXT)

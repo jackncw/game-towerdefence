@@ -248,7 +248,10 @@ static func cast(battle, id: int, pos: Vector2) -> bool:
 				if m.is_boss:
 					m.take_true(s.bossdmg + float(s.get("bosspct", 0.0)) * m.max_hp)
 				else:
-					m.take_true(m.max_hp * s.pct)
+					# 第二十輪:對非 boss 加咗「唔可以打穿生命上限 12%」呢個
+					# 下限 —— 地震術負責震冧同打殘,補刀交返俾塔。
+					# 見 GameData.QUAKE_MOB_FLOOR。
+					m.take_true(GameData.quake_mob_damage(m.hp, m.max_hp, s.pct))
 				if not m.alive:
 					continue
 				# T2 大地撕裂:裂縫拖慢地面單位;T3 世界崩塌:直接震暈

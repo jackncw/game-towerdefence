@@ -1,9 +1,11 @@
 # 塔防要塞 Tower Fortress
 
 直向 9:16 手機塔防遊戲,Godot 4.7(Forward+)。中文(zh_TW)/ English 雙語,
-美術同音效由 `tools/gen_art.py` 同 `tools/gen_audio.py` 程式生成 —— 唯一例外係
-60 張怪物圖,2026-08-06 起改為由 `art_reference/monster/` 嘅 sprite sheet 摳出嚟
-(`tools/monster_cutout.py`,`--install` 寫入 assets)。
+美術同音效由 `tools/gen_art.py` 同 `tools/gen_audio.py` 程式生成 —— 例外係
+**怪物 / 塔 / 魔法**三批,改為由 `art_reference/` 嘅 sprite sheet 摳出嚟:
+60 張怪物圖(2026-08-06,`tools/monster_cutout.py`)、60 張塔圖同 41 張魔法 icon
+(2026-08-07,`tools/tower_cutout.py` / `tools/magic_cutout.py`)。三個工具都係
+`--install` 先寫入 assets。
 
 出街版本:**<https://jackncw.github.io/game-towerdefence/>**
 (GitHub Pages,由 `main` branch 嘅 `/docs` 資料夾 serve。)
@@ -96,6 +98,12 @@ Android:`& $GODOT --headless --path . --export-release "Android" build/TowerFort
 | `tools/gen_art.py` | 重新生成 `assets/generated/` 美術(怪物除外)。`--atlas-only` = 淨係重出 atlas |
 | `tools/monster_cutout.py` | 由 `art_reference/monster/*.jfif` 摳出 60 張怪物 sprite(`--install` 寫入 assets) |
 | `tools/monster_qa.py` / `monster_compare.py` | 摳圖驗收:邊緣殘底色掃描 / 接觸表 / 新舊同尺寸對照 |
+| `tools/tower_cutout.py` | 由 `art_reference/tower/*.jfif` 摳出 60 張塔 sprite(`--measure` 只量度、`--install` 寫入 assets) |
+| `tools/tower_qa.py` | 塔 / 魔法摳圖驗收:`--check` 邊緣掃描、`--sheet` 接觸表、`--zoom` 放大、`--ground` 接地線對齊圖 |
+| `tools/tower_probe.py` | 開工前量 sheet 嘅底色集合 / 格線 / baked-in 文字帶 |
+| `tools/magic_cutout.py` | 由 `art_reference/magic/magic.jfif` 切出魔法 icon;對唔到嘅格留舊圖並印待補清單 |
+| `tools/tower_r20_shots.tscn` | 第 20 輪塔 / 魔法美術嘅專用截圖 harness(要開窗) |
+| `tools/web_smoke.py` | 真瀏覽器行 web build:起塔 / 升級 / 進化 / 放魔法各一次 + 收 console(先 `python -m http.server 8765 --directory docs`) |
 | `tools/gen_audio.py` | 重新生成 `assets/generated_audio/` 全部音效 |
 | `tools/art_export.tscn` | `& $GODOT --path . tools/art_export.tscn -- --out=round-NN-zh --locale=zh_TW` — 影晒每個畫面自查。輸出**永遠**落 `qa/screenshots/` 之下 |
 | `tools/heal_shots.tscn` | 治療特效專項截圖 |

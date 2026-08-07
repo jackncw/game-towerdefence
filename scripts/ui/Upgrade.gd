@@ -325,7 +325,7 @@ func _zone_showcase(def: Dictionary) -> Control:
 	plat.position = Vector2(264, 300)
 	clip.add_child(plat)
 	var tex: Texture2D = Assets.tower(sel_id) if sel_type == "tower" else Assets.spell(sel_id)
-	var render := UI.tex_rect(tex, Vector2(264, 264))   # 44px source at exactly 6x
+	var render := UI.tex_rect(tex, Vector2(264, 264), true)   # 128px(塔)/ 64px(魔法)手繪源圖,LINEAR 放大
 	# 名要跟階 —— 一座已經進化咗嘅塔喺展示區叫返個舊名,係一個直接嘅講大話。
 	render.position = Vector2(342, 118)   # sit the pad ON the stone platform
 	clip.add_child(render)
@@ -630,7 +630,7 @@ func _zone_evolve(def: Dictionary) -> Control:
 	# 下一階預覽:未夠條件就係剪影 —— 見得到形狀,見唔到細節。
 	var tex: Texture2D = (Assets.tower(sel_id, next_tier) if is_tower
 		else Assets.spell(sel_id, next_tier))
-	var pv := UI.tex_rect(tex, Vector2(176, 176))
+	var pv := UI.tex_rect(tex, Vector2(176, 176), true)
 	pv.position = Vector2(56, 96)
 	if not ready:
 		pv.modulate = EVO_SILHOUETTE

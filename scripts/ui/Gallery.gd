@@ -73,8 +73,8 @@ func _cell(tex: Texture2D, label: String) -> Control:
 	# 本來 debug gallery 想睇嘅就係呢個 —— 再加一張半尺寸做細位辨識度參考。
 	var sz := tex.get_size()
 	var k: float = minf(1.0, 120.0 / maxf(sz.x, sz.y))
-	hb.add_child(UI.tex_rect(tex, sz * k * 0.5))
-	hb.add_child(UI.tex_rect(tex, sz * k))
+	hb.add_child(UI.tex_rect(tex, sz * k * 0.5, true))
+	hb.add_child(UI.tex_rect(tex, sz * k, true))
 	vb.add_child(hb)
 	# English tower/spell names are ~2x the width of the 繁中 ones and overran the
 	# 160px cell, so the caption wraps inside the cell instead of bleeding into

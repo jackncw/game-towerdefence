@@ -293,7 +293,7 @@
 "SPELL_TORNADO_LORE","沿路捲起龍捲風,將途經的敵人一併推回後方。","Tears a whirlwind along the road, hurling everything it passes back the way it came."
 "SPELL_QUAKE_NAME","地震術","Earthquake"
 "SPELL_QUAKE_DESC","全場地面怪%HP傷害","% max-HP damage to all ground enemies"
-"SPELL_QUAKE_LORE","地震撼動全場,對地面敵人造成當前生命值百分比傷害,對 boss 造成固定重傷。","The ground heaves across the whole map, tearing a percentage of health from every enemy on foot and landing a heavy fixed blow on the boss."
+"SPELL_QUAKE_LORE","地震撼動全場,對地面敵人造成生命上限百分比傷害,但不會直接擊殺雜兵,最後一擊交由塔完成;對 boss 造成固定重傷。","The ground heaves across the whole map, tearing a percentage of MAX health from every enemy on foot - but it never lands the killing blow on a regular monster, so a tower has to finish the job. The boss still takes a heavy fixed hit."
 "SPELL_FIREWALL_NAME","烈焰之牆","Wall of Flame"
 "SPELL_FIREWALL_DESC","指定路段生成火牆","Sets a stretch of road ablaze"
 "SPELL_FIREWALL_LORE","在指定路段生成火牆,對經過的敵人持續灼燒。","Raises a curtain of fire across the road; anything that walks through it keeps burning."

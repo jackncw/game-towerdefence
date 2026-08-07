@@ -3,10 +3,17 @@
 All generated art goes to `res://assets/generated/`. Original pixel art only — no pixels copied
 from `art_reference/`. Nearest-neighbour filtering (crisp pixels).
 
-**呢兩條規則有一個例外(2026-08-06 起):`art_reference/monster/` 嗰 10 張
-sprite sheet 係 Jack 自己生成、自己擁有嘅正式遊戲素材,授權直接處理入遊戲。**
-60 張怪物 sprite 就係由嗰度摳出嚟(`tools/monster_cutout.py`),唔係程序生成;
-佢哋亦都係全套資產入面唯一用 LINEAR filter 嘅(手繪圖 + 非整數縮放)。
+**呢兩條規則有一個例外:`art_reference/` 底下呢三個資料夾係 Jack 自己生成、
+自己擁有嘅正式遊戲素材,授權直接處理入遊戲 ——**
+
+| 資料夾 | 由邊時起 | 出咩 | 工具 |
+|---|---|---|---|
+| `art_reference/monster/` | 2026-08-06 | 60 張怪物 sprite | `tools/monster_cutout.py` |
+| `art_reference/tower/` | 2026-08-07 | 60 張塔 sprite | `tools/tower_cutout.py` |
+| `art_reference/magic/` | 2026-08-07 | 41 張魔法 icon(45 格入面) | `tools/magic_cutout.py` |
+
+呢三批都唔係程序生成,亦都係全套資產入面**唯一**用 LINEAR filter 嗰批
+(手繪圖 + 非整數縮放)—— 其餘嘅圖照舊 NEAREST。
 `art_reference/` 其餘嘅圖照舊「只准睇唔准抄像素」。
 
 ## Family IDs (order 1..10)
@@ -27,11 +34,28 @@ sprite sheet 係 Jack 自己生成、自己擁有嘅正式遊戲素材,授權直
 - Level progression 由來源 sprite sheet 決定(每級加裝備、色深、boss 有王冠 /
   光環 / 衛星元素)。
 
-## Tower sprites
-- `towers/tower_{id}.png` — id 1..20, 64x64 canvas, tower art ~56px, base pad at bottom.
+## Tower sprites(2026-08-07 換成 sprite-sheet 摳圖)
+- `towers/tower_{id}.png` / `_t2` / `_t3` — id 1..20,三個進化階。
+- **高度一律 128px,闊度逐張剪到啱剪(50..174px)。** 高度冇得剪:接地線就住
+  node 落 61 畫布 px,所以每張嘅畫布半高都至少 61+3。同高呢個副作用係想要嘅
+  —— UI 用 `STRETCH_KEEP_ASPECT_CENTERED`,60 張同高先會縮到一樣大。
+- **接地線 y=125 / 128**(= 舊 44px 圖嘅 43 / 44),底座水平中心 = 畫布中線。
+  一座塔三個 tier 共用同一個縮放倍率,所以進化換圖唔會跳位。
+- 顯示尺寸(冇變):128 × `GameData.TOWER_RENDER`(**0.6875**)= 88px。
+  **呢三個數綁死** —— `tower_cutout.py` 嘅 `CANVAS` / `GROUND_Y` 同 `TOWER_RENDER`,
+  改一個冇改另外兩個,全場塔即刻大細錯或者浮起 / 陷落地面。
+- filter:LINEAR(手繪圖 + 非整數縮放)。
 
-## Spell icons
-- `spells/spell_{id}.png` — id 1..15, 64x64 canvas (rounded square frame, element-coded).
+## Spell icons(2026-08-07 換成 sprite-sheet 切格)
+- `spells/spell_{id}.png` / `_t2` / `_t3` — id 1..15,三個進化階。
+- **新圖 64x64 正方形**,圓角 alpha(inset 3%、圓角半徑 15.6%),底色跟源圖
+  (元素色),第二 / 三階疊 `gen_art.py` 嘅銀 / 金框 —— 戰鬥卡片冇位擺文字,
+  階級一直都係靠嗰個框讀。
+- **四格例外:龍捲風 t3、地震術 t1、地震術 t2、烈焰之牆 t3 喺源圖度冇**,
+  仲行緊 `gen_art.py` 嘅 44x44 程序畫法(`PROCEDURAL_SPELLS`)。
+  補到圖之後三個地方要一齊改:`magic_cutout.py` 嘅 `GRID` / `MISSING`、
+  `gen_art.py` 嘅 `PROCEDURAL_SPELLS`、`test/TowerArtTest` 嘅 `STILL_PROCEDURAL`。
+- filter:64px 嗰批 LINEAR,44px 嗰四張照 NEAREST(`UI.tex_rect` 按圖嘅尺寸判)。
 
 ## UI / world
 - `ui/coin.png` 40x40 — gold coin, yellow, highlight glint.

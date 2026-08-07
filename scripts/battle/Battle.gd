@@ -1975,6 +1975,12 @@ class _Placer extends Node2D:
 	var battle
 	var _was_idle := true
 
+	func _ready() -> void:
+		# ghost 塔用 draw_texture_rect 畫,取樣 filter 跟呢個節點。真塔喺
+		# 第二十輪轉咗 LINEAR,ghost 唔跟就會出現「預覽鋸齒、擺低即刻順滑」
+		# 呢種只會喺一個時刻見到嘅唔一致。
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+
 	func _process(_d: float) -> void:
 		# only invalidate while a build/aim mode is actually up (plus one final
 		# redraw to clear the ghost) — this ran every frame of every battle

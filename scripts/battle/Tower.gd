@@ -47,7 +47,10 @@ const TRUEDMG := ["poison", "thorn"]
 
 func _ready() -> void:
 	sprite = Sprite2D.new()
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# 第二十輪:塔圖同怪物圖一樣,已經唔係像素美術,而係由 sprite sheet 摳
+	# 出嚟嘅手繪圖,而且係**縮細**顯示(128 -> 88)。NEAREST 喺非整數縮放
+	# 之下會食走一行行像素,邊緣鋸到爛 —— 呢批要 LINEAR。
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	sprite.scale = Vector2(GameData.TOWER_RENDER, GameData.TOWER_RENDER)
 	add_child(sprite)
 	z_index = 15

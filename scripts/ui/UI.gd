@@ -150,13 +150,32 @@ static func panel_dark() -> Panel:
 	p.add_theme_stylebox_override("panel", frame_box("panel_dark9", 20, 22, 14))
 	return p
 
-static func tex_rect(tex: Texture2D, size: Vector2) -> TextureRect:
+## `smooth` = 呢張圖係咪手繪圖(唔係像素美術)。
+##
+## 全場 UI 圖示一直行 NEAREST,因為佢哋係 gen_art.py 畫嘅像素 sticker,而顯示
+## 尺寸大部分係源圖嘅整數倍。第十九 / 二十輪之後,怪物、塔、魔法三批已經換成
+## 由 sprite sheet 摳出嚟嘅手繪圖,而佢哋喺 UI 度嘅顯示尺寸(60 / 84 / 88 /
+## 128 / 176 / 264)對 128 或者 64 嚟講全部唔係整數倍 —— NEAREST 之下會逐格
+## 食走成行像素,升級介面嗰個 264px 大圖尤其明顯。所以呢批要 LINEAR。
+## 舊嘅程序像素圖就算擺喺 smooth 呼叫端都要行返 NEAREST。
+##
+## 呢個唔係潔癖:魔法 icon 有四格喺源圖度冇,仲行緊 gen_art.py 嗰套 44px
+## 像素畫法(見 tools/magic_cutout.py 嘅 MISSING)。升級介面個展示位係
+## 264px,44 x 6 啱啱好整數倍 —— NEAREST 之下佢係一張**銳利**嘅像素畫,
+## 一行 LINEAR 就變一撻糊。新圖 64 / 128px 唔係整數倍,情況啱啱相反。
+## 所以判斷唔可以淨係睇呼叫端,要睇嗰張圖本身係邊一代。
+const _PIXEL_ART_MAX := 48
+
+static func tex_rect(tex: Texture2D, size: Vector2, smooth := false) -> TextureRect:
 	var t := TextureRect.new()
 	t.texture = tex
 	t.custom_minimum_size = size
 	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	t.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var hand_drawn: bool = smooth and tex != null \
+		and maxf(tex.get_size().x, tex.get_size().y) > _PIXEL_ART_MAX
+	t.texture_filter = (CanvasItem.TEXTURE_FILTER_LINEAR if hand_drawn
+		else CanvasItem.TEXTURE_FILTER_NEAREST)
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return t
 

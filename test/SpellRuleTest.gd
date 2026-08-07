@@ -190,7 +190,10 @@ func _cast_damage(def: Dictionary, s: Dictionary, hp: float, is_boss: bool) -> f
 		"quake":
 			if is_boss:
 				return float(s.get("bossdmg", 0.0)) + float(s.get("bosspct", 0.0)) * hp
-			return hp * float(s.get("pct", 0.0))
+			# 第二十輪加咗殺傷下限。bench 打嘅係一個滿血目標,所以個下限
+			# 通常唔會綁到手,但要行返同一條式,否則有人日後調 FLOOR 上去,
+			# bench 會報一個遊戲入面唔存在嘅數。
+			return GameData.quake_mob_damage(hp, hp, float(s.get("pct", 0.0)))
 		"miasma", "firewall", "blackhole":
 			var dps: float = float(s.get("dps", 0.0)) + float(s.get("dpspct", 0.0)) * hp
 			return dps * float(s.get("dur", 0.0))

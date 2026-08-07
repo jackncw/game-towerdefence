@@ -427,7 +427,15 @@ const RENDER_SCALE := 2.0     # monster LOGICAL size scale -> lv1 64px, boss 192
 ## (血條 / 特效半徑 / 傷害數字位置)仍然行 RENDER_SCALE,一步都冇郁。
 const MON_ART_SCALE := 0.8
 const MON_ART_SCALE_BOSS := 4.0 / 3.0
-const TOWER_RENDER := 2.0     # tower sprite world scale (44px source -> 88px)
+## 第二十輪:2.0 -> 0.6875(= 88/128)。畫面上嘅塔仍然係 88px 闊,一步都冇郁
+## —— 郁咗嘅係**源圖解像度**:塔 sprite 由程序生成嘅 44px 換成由 sprite sheet
+## 摳出嚟嘅 128px 高手繪圖(見 tools/tower_cutout.py)。舊圖喺 camera zoom 2.0
+## 之下係 4 倍放大,而家係 1.4 倍縮細。
+##
+## 呢個數同 tower_cutout.py 嘅 `CANVAS`(128)/ `GROUND_Y`(125)綁死,改一個
+## 冇改另外兩個 = 全場塔即刻大細錯 / 浮起或者陷落地面。接地線 125/128 就係舊
+## 圖嘅 43/44,所以射程圈、選中光圈、ghost 預覽、詛咒符文、聖光光柱全部原位。
+const TOWER_RENDER := 0.6875  # tower sprite world scale (128px source -> 88px)
 const BASE_RENDER := 2.0      # base marker world scale (96px source -> 192px)
 const SOLDIER_RENDER := 2.0   # militia token world scale (20px source -> 40px)
 const ROAD_WIDTH_SCALE := 1.15  # road polyline width scale (holds ~1.5 lv1 side by side)
@@ -1447,6 +1455,31 @@ const RIFT_SLOW := 0.40
 const RIFT_DUR := 3.0
 const SHATTER_STUN := 1.2
 const SHATTER_GROUND_DUR := 4.0
+## 第二十輪:地震術對**非 boss** 嘅殺傷力封頂。
+##
+## 問題唔係「傷害大」,係「一炮清場」。滿級 T3 打 85% 生命上限,而場上有四十
+## 座塔喺度磨,所以隨時都有大半波怪血量低過 85% —— 一撳落去成波消失,連掉金
+## 都一次過入晒。魔法變咗一粒「贏掉呢一波」掣,而塔喺嗰半秒入面冇存在過。
+##
+## 兩個獨立成因,所以要兩步一齊改:
+##   1. 倍率本身太高            -> pct 曲線 0.42/0.62/0.85 落到 0.30/0.38/0.46
+##   2. 冇任何嘢阻止佢補刀      -> 呢個下限:地震術唔可以令一隻非 boss 小怪
+##                                跌穿生命上限嘅 12%。
+##
+## 第 2 點先係關鍵嗰步。淨係減倍率嘅話,血量低過新倍率嗰批照樣一炮死,而
+## 「有幾多隻低過」係由塔火力決定,唔係由魔法決定 —— 即係話個殺傷比率仍然
+## 會隨住玩家塔陣變強而升返上去,呢個 nerf 撐唔過三十關。有咗下限之後,
+## 「地震術唔負責殺,佢負責震冧同打殘,補刀係塔嘅事」就變成一條結構性嘅
+## 身份,唔係一個等人再調嘅數字。
+##
+## **控場完全冇郁**:RIFT_SLOW / SHATTER_STUN / SHATTER_GROUND_DUR 一個字都
+## 冇改,`stunlen` 曲線亦冇改。nerf 傷害唔 nerf 控場。
+## boss 嗰半邊(bossdmg / bosspct)亦都完全冇郁。
+const QUAKE_MOB_FLOOR := 0.12
+
+## 一次地震對一隻**非 boss** 敵人實際打幾多。
+static func quake_mob_damage(hp: float, max_hp: float, pct: float) -> float:
+	return maxf(0.0, minf(max_hp * pct, hp - max_hp * QUAKE_MOB_FLOOR))
 ## 烈焰之牆 T2 煉獄之牆 / T3 不熄業火
 const INFERNAL_ADVANCE := 55.0     # 每秒沿路推幾多路程
 const PYRE_FEED := 0.6             # 每個死喺入面嘅敵人延長幾多秒
@@ -1593,7 +1626,9 @@ func _build_spells() -> void:
 		{"pct":0.18,"bossdmg":300.0,"cd":18.0,"bosspct":0.0,"stunlen":0.0},
 		[U("UP_PCTDMG","pct",0.0,60,"add"),U("UP_BOSSFLAT","bossdmg",80.0,60,"add"),U("UP_CD","cd",0.0,60,"add")],
 		{"control":"stunlen",
-		 "curve":{"pct":[0.42,0.62,0.85],"cd":[8.0,7.0,6.5],
+		 # 第二十輪:pct 0.42/0.62/0.85 -> 0.30/0.38/0.46(見 QUAKE_MOB_FLOOR
+		 # 嗰段)。cd / bosspct / stunlen 一個字冇改。
+		 "curve":{"pct":[0.30,0.38,0.46],"cd":[8.0,7.0,6.5],
 			"bosspct":[0.04,0.06,0.09],"stunlen":[0.0,0.0,1.2]}})
 	s.call(12,"SPELL_FIREWALL_NAME","SPELL_FIREWALL_DESC","firewall",12.0,true,
 		{"dps":40.0,"dur":5.0,"length":120.0,"dpspct":0.0},

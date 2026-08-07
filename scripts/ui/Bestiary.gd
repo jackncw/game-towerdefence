@@ -165,7 +165,7 @@ func _entry_card(def: Dictionary, is_tower: bool) -> Control:
 		card.focus_mode = Control.FOCUS_NONE
 
 	var tex: Texture2D = Assets.tower(id, tier) if is_tower else Assets.spell(id, tier)
-	var icon := UI.tex_rect(tex, Vector2(128, 128))
+	var icon := UI.tex_rect(tex, Vector2(128, 128), true)
 	icon.position = Vector2(28, 26)
 	if not owned:
 		icon.modulate = SILHOUETTE
@@ -233,7 +233,7 @@ func _tier_chain(def: Dictionary, is_tower: bool, tier: int, owned: bool) -> Con
 		cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var have: bool = owned and t <= tier
 		var tex: Texture2D = Assets.tower(def.id, t) if is_tower else Assets.spell(def.id, t)
-		var ic := UI.tex_rect(tex, Vector2(84, 84))
+		var ic := UI.tex_rect(tex, Vector2(84, 84), true)
 		ic.position = Vector2(6, 6)
 		if not have:
 			ic.modulate = SILHOUETTE

@@ -85,7 +85,7 @@ func _build_grid() -> void:
 		btn.pressed.connect(_tower_pressed.bind(id))
 		add_child(btn)
 		var def := GameData.tower_by_id(id)
-		var icon := UI.tex_rect(Assets.tower(id), Vector2(88, 88))
+		var icon := UI.tex_rect(Assets.tower(id), Vector2(88, 88), true)
 		icon.position = Vector2((GRID_CELL.x - 88.0) * 0.5, 10)
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		btn.add_child(icon)
@@ -147,7 +147,7 @@ func _refresh() -> void:
 			UI.frame_box("slot9", 14, 6, 6,
 				Color(1.35, 1.25, 0.75) if chosen else Color.WHITE))
 		if id > 0:
-			var icon := UI.tex_rect(Assets.tower(id), Vector2(60, 60))
+			var icon := UI.tex_rect(Assets.tower(id), Vector2(60, 60), true)
 			icon.position = Vector2((btn.size.x - 60.0) * 0.5, 4)
 			icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			btn.add_child(icon)

@@ -259,7 +259,7 @@ func _make_spell_card(id: int, cell: float) -> Control:
 	# targeted spells and ignores presses while on cooldown.
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, true))
 	var pad := cell * 0.06
-	var icon := UI.tex_rect(Assets.spell(id), Vector2(cell - pad * 2.0, cell - pad * 2.0))
+	var icon := UI.tex_rect(Assets.spell(id), Vector2(cell - pad * 2.0, cell - pad * 2.0), true)
 	icon.position = Vector2(pad, pad)
 	btn.add_child(icon)
 	var cover := _RadialCover.new()
@@ -398,7 +398,7 @@ func _make_quick_cell(id: int, slot: int, cw: float) -> Control:
 	# 同抽屜卡行同一條手勢鏈。快捷列唔係抽屜,所以 _over_drawer 唔會否決,
 	# _set_drawer(false) 係 no-op —— 個手勢由頭到尾就係一下。
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, false))
-	var icon := UI.tex_rect(Assets.tower(id), Vector2(60, 60))
+	var icon := UI.tex_rect(Assets.tower(id), Vector2(60, 60), true)
 	icon.position = Vector2((cw - 60.0) * 0.5, 4)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(icon)
@@ -470,7 +470,7 @@ func _make_build_card(id: int, card_w: float) -> Control:
 	# two-stage tap fallback. emulate_mouse_from_touch (on) means a finger drag
 	# reaches us as mouse events with a correct global_position.
 	btn.gui_input.connect(func(e: InputEvent): _card_gui(e, id, false))
-	var icon := UI.tex_rect(Assets.tower(id), Vector2(84, 84))
+	var icon := UI.tex_rect(Assets.tower(id), Vector2(84, 84), true)
 	icon.position = Vector2(10, (DRAWER_CARD_H - 84) * 0.5)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(icon)

@@ -358,17 +358,88 @@ A0/A1/A2 三個原型係**真.敗仗**(`frac = 1.0`,50–80 秒就俾人衝到�
 
 ---
 
-## 7. 全套 regression
+## 7. 出貨 + 部署驗證
 
-見第 9 節。
+### 1.0.1 產物(`versionName 1.0.1` / `versionCode 2`,同一條 upload key)
+
+| 檔 | 大細 | SHA-256 |
+|---|---|---|
+| `dist\Towerbound-1.0.1.aab` | 32.25 MB | `dbb4790fefb9b103fc7d7535c920752f3c9e9996e59b91ce9020bb63ed23e58e` |
+| `dist\Towerbound-1.0.1.apk` | 78.00 MB | `b3e50840fa1f16bea73825b41753dc790289557a8090e43b9a8bc428f5476350` |
+
+驗過:`aapt2 dump badging` → `com.jatgaming.towerbound versionCode='2'
+versionName='1.0.1'`;`apksigner verify` → 簽名證書 SHA-256
+`bc6f8bd0…c944faf9`(即係同一條 upload key,同 1.0.0 一樣)。
+
+### Web build 已上 GitHub Pages
+
+`docs/` 四個檔逐個對過**本機 vs live**,四個 SHA-256 全部一樣:
+
+| 檔 | 判定 |
+|---|---|
+| `index.html` / `index.js` / `index.wasm` / `index.pck` | **全部 MATCH** |
+
+`index.pck` = `6a4caa96a4fc3e41e184b95e1154a7137b45888e6014a22cf5c5e0179d205b98`
+(392 個檔;`pck_report.py` 掃過,冇 test / tools / qa 漏入去)。
+
+再用**真瀏覽器**行咗一次 live 站(`tools/web_smoke.py` 指住
+`https://jackncw.github.io/game-towerdefence/index.html`):
+**console error 0**,種存檔 / 起塔 / 放魔法 / 升級 / 進化五個實操全部成功。
+
+### APK 已放上 Pages
+
+<https://jackncw.github.io/game-towerdefence/Towerbound-1.0.1.apk>
+—— HTTP 200、`Content-Type: application/vnd.android.package-archive`、
+78 MB,而且 live 嘅 SHA-256 同本機**逐 byte 一樣**。
+
+揀 Pages 而唔係 GitHub Release 嘅理由:個 repo 係 **public**(unauth API 200),
+而呢部機嘅 `gh` **未登入**,開 Release 要互動式 `gh auth login`,做唔到。
+
+---
+
+## 7b. 全套 regression
+
+`powershell -File tools/run_tests.ps1` —— **46 個場景全跑,0 個非零 exit,
+0 個「冇 verdict」。**
+
+| 重點 | 讀數 |
+|---|---|
+| `Level100CompletionTest` | PASS(46 項)**新** |
+| `PooledRefTest` | PASS(77 項)**新** |
+| `BossHealTest` | PASS(中途跪過 2 條 —— 見 5b 嗰段嘅 setter 缺陷,已修) |
+| `RegressionTest` / `BossFloorTest` / `BossSpawnTest` / `WinTest` | 全部 PASS |
+| `SoakTest` | PASS(30 轉、36 場、1948 秒) |
+| `TimeScaleTest` | PASS(60 個組合 = 20 塔 × 3 階 × 3 速度) |
+| `StatDisplayTest` | 4683 passed, 0 failed |
 
 ---
 
 ## 8. Jack 要驗乜
 
+### 點樣攞到隻 APK
+
+**手機瀏覽器直接開呢條 URL 就落載到:**
+
+<https://jackncw.github.io/game-towerdefence/Towerbound-1.0.1.apk>
+
+> ⚠️ **呢條 URL 係公開嘅。** 個 repo 係 public,所以任何人攞到條 link 都
+> 落載到隻 apk,唔止 Jack。唔想公開嘅話唯一做法係由 `docs/` 剷走再 push
+> (剷走之後條 link 即刻死,但個檔仍然留喺 git history 度)。
+> `.aab` **冇**放上去 —— 嗰個淨係 Play Console 用。
+
+**安裝之前要開「安裝未知來源 app」**:Android 預設唔准由瀏覽器裝 apk。
+落載完撳個檔會彈「基於安全理由,你的手機不允許安裝來源不明的應用程式」,
+撳「設定」→ 開返「允許來自此來源的應用程式」(Chrome / 檔案管理員嗰個)→
+返去再撳一次就裝到。裝完可以熄返。
+(路徑因廠商而異:設定 → 應用程式 → 特殊應用程式存取權 → 安裝不明應用程式。)
+
+**裝完照 `dist\DEVICE_CHECKLIST.md` 行一次**(正本喺 `docs/android/`)——
+嗰份係逐格嘅真機驗收清單(返回鍵、切背景、音量、旋轉、存檔),
+唔好只係試第 100 關就算。
+
 ### 真機(APK)
 
-1. 裝 `dist\Towerbound-1.0.1.apk`(1.0.0 要先移除 —— 同一條 key 簽,理論上
+1. 裝隻 1.0.1(1.0.0 要先移除 —— 同一條 key 簽,理論上
    蓋得過,但 versionCode 2 > 1 所以直接升級都得)。
 2. **打到第 100 關**(或者用現有存檔直入)。三潮 boss 喺 30 / 92 / 160 秒出。
 3. 用**四種殺法**各打一次,每次都要見到「十隻死晒 → 小怪即刻停 → 結算畫面」:

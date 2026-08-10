@@ -43,7 +43,7 @@ Android 出貨名 **Towerbound**(`com.jatgaming.towerbound`)——
 | `docs/index.*` | **出街嘅 web build。呢啲檔案就係 GitHub Pages serve 緊嗰個網站,唔好手動郁。** |
 | `docs/reports/` | 歷輪更新報告(`round-05` … `round-12`) |
 | `docs/design/` | 設計文件同決策紀錄:`CONTRACT.md`(美術/資料契約)、`BALANCE_CHANGELOG.md`(每次平衡改動嘅 before/after + 理由)、各輪 design / plan |
-| `test/` | 44 個 headless 自動測試場景 |
+| `test/` | 46 個 headless 自動測試場景 |
 | `tools/` | 開發工具腳本(見下) |
 | `web/` | web build 嘅 `head_include` 原始碼(JS/CSS) |
 | `art_reference/` | Jack 提供嘅美術參考圖。**只准睇唔准抄像素**,見 `docs/design/CONTRACT.md` |
@@ -107,8 +107,8 @@ powershell -File tools\android_build.ps1 -SkipApk # 淨係出 aab
 
 | 檔 | 做乜 |
 |---|---|
-| `Towerbound-1.0.0.aab` | **上 Play Console 嗰個。** 部機裝唔到。 |
-| `Towerbound-1.0.0.apk` | sideload 真機測試用。同一條 key 簽。 |
+| `Towerbound-<版本>.aab` | **上 Play Console 嗰個。** 部機裝唔到。版本號由 `export_presets.cfg` 嘅 `version/name` 讀返出嚟,唔喺 script 度寫死。 |
+| `Towerbound-<版本>.apk` | sideload 真機測試用。同一條 key 簽。 |
 | `SHA256SUMS.txt` | 上面兩個檔嘅 SHA-256 |
 | `play-store-icon-512.png` | Play Console 上架表格要嗰張 512×512 |
 | `KEYSTORE_BACKUP_README.md` | **Jack 一定要睇。** 條 upload key 唔見咗會點、要備份去邊 |

@@ -183,11 +183,16 @@ func _sweep() -> void:
 					r = one
 				if one.win:
 					break
-			print("GATE ROW %s %d %d %d %.4f %d %d %d %d %d %d %d %d %.1f %d"
+			# 最後一欄(hang)係加喺**尾**嘅 —— gate_report.py 全部用位置索引讀,
+			# 加喺尾唔會郁到任何一欄嘅意思。
+			print("GATE ROW %s %d %d %d %.4f %d %d %d %d %d %d %d %d %.1f %d %d"
 				% [arch, sd, lv, 1 if r.win else 0, r.frac, r.kills, r.towers,
 				r.income, r.gold_left, GameData.place_cost(_main_field_tower()),
 				Meta.crystals, cheap, int(GameData.level_config(lv).start_gold),
-				float(r.time), tries])
+				float(r.time), tries, 1 if r.hang else 0])
+			if r.hang:
+				print("GATE HANG %s %d lv%d —— 呢一關喺 %.0f 秒之後都冇結算過"
+					% [arch, sd, lv, ATTEMPT_TIMEOUT])
 			if lv % 10 == 0:
 				# 每十關報一次 build 狀態,pacing 曲線由呢啲行砌返出嚟
 				print("GATE BUILD %s %d %d T%d S%d axes=%d/%d crystals=%d cum=%d"
@@ -291,6 +296,7 @@ func _enemy_index(n: int) -> float:
 func _final_test() -> void:
 	print("GATE MODE=final arch=%s seeds=%d 難度=%.0f" % [arch, seeds, GameData.difficulty(100)])
 	var wins := 0
+	var hangs := 0
 	for si in seeds:
 		seed(0xF1A1 + (seed0 + si) * 7919)
 		Meta.reset_save()
@@ -303,8 +309,16 @@ func _final_test() -> void:
 			_spend(CAMPAIGN_LEVELS)
 		var r: Dictionary = await _play(CAMPAIGN_LEVELS)
 		wins += 1 if r.win else 0
-		print("GATE ROW %s %d %d %.4f" % [arch, si, 1 if r.win else 0, r.frac])
-	print("GATE FINAL %s 勝率 %.0f%% (%d/%d)" % [arch, 100.0 * wins / maxf(1, seeds), wins, seeds])
+		hangs += 1 if r.hang else 0
+		# 第六欄係掛死旗。gate20.ps1 讀第 3 欄做勝負,同時要求呢一欄係 0 ——
+		# 一個掛死嘅 seed 唔係一個「輸」,佢係一個**冇效嘅樣本**。
+		print("GATE ROW %s %d %d %.4f %d %d %.1f" % [arch, si, 1 if r.win else 0,
+			r.frac, 1 if r.hang else 0, int(r.fbd), float(r.time)])
+	print("GATE FINAL %s 勝率 %.0f%% (%d/%d) 掛死 %d"
+		% [arch, 100.0 * wins / maxf(1, seeds), wins, seeds, hangs])
+	if hangs > 0:
+		print("GATE HANG %s %d/%d —— 呢批讀數唔算數:掛死唔係輸,係關卡完成唔到"
+			% [arch, hangs, seeds])
 
 # ===========================================================================
 # MODE gate1 — 「輸一場 = 起碼升到一級」
@@ -542,6 +556,20 @@ func _play(level: int) -> Dictionary:
 		t += DT
 	var res := {
 		"win": b.ended and Flow.last_result.get("win", false),
+		# **「打輸」同「永遠打唔完」唔係同一件事。**
+		#
+		# 上面條 while 有兩個出口:`b.ended`(場結咗,贏或者輸)同 `t >= ATTEMPT_TIMEOUT`
+		# (場**冇**結)。兩個出口出嚟嘅 `win` 都係 false,於是一關永遠完成唔到
+		# 嘅 bug 喺每一份 gate 報告入面都讀成「呢個 build 打唔低呢一關」——
+		# 一個遊戲缺陷偽裝成一個平衡讀數。第 100 關嘅無限刷怪就係咁瞞足一輪:
+		# Gate 6a/6b 兩條都 PASS,而嗰啲「輸」入面大部分係掛死。
+		#
+		# 所以由呢度開始,掛死係一個**獨立**嘅信號,一路報到 ROW 行上面。
+		"hang": not b.ended,
+		# 第 100 關打死咗幾多隻 boss(其他關永遠係 0)。冇呢個數嘅話,「贏咗」
+		# 同「提早結算」喺 ROW 上面一樣睇唔出 —— 而呢一輪嘅教訓就係:第 100 關
+		# 嘅狀態流轉喺 harness 度完全冇被觀察過。
+		"fbd": int(b.final_boss_dead),
 		"time": t,
 		"kills": b.kills,
 		"towers": b.towers.size(),

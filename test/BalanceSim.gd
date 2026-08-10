@@ -1337,10 +1337,10 @@ func _bench_field(ids: Array, budget: int, boss_mode: bool) -> Dictionary:
 	var boss: Monster = null
 	if boss_mode:
 		boss = b._spawn_monster(b.cfg.boss_family, 5, true, 0.0)
-		b.boss_ref = boss
+		b.set_boss_ref(boss)
 		b.boss_spawned = true
 		if boss.mech == "revive":
-			b.skeleton_boss_alive = boss
+			b.set_skeleton_lord(boss)
 	while t < BENCH_SECONDS:
 		if not boss_mode:
 			spawn -= DT

@@ -190,7 +190,7 @@ func _case_d_revive() -> void:
 		"光環下小兵最多復活 %d 次(實際 %d)" % [GameData.AURA_REVIVE_MAX, revives])
 	_check(not minion.alive, "用晒次數之後真係死得")
 	# without the aura it is the plain one-shot revive
-	b.skeleton_boss_alive = null
+	b.set_skeleton_lord(null)
 	var solo: Monster = b._spawn_monster("skeleton", 3, false, 100.0)
 	var solo_revives := 0
 	for i in 5:
@@ -262,11 +262,15 @@ func _start(level: int):
 ## Spawn `fam`'s boss the way Battle would, minus the wave around it.
 func _spawn_boss(b, fam: String) -> Monster:
 	var m: Monster = b._spawn_monster(fam, 5, true, 0.0)
-	b.boss_ref = m
+	# 一定要用 setter,唔可以直接寫個欄位:`boss_ref` / `skeleton_boss_alive`
+	# 兩個都係「節點 + serial」一對,而漏咗 serial 嗰半係**靜音**失敗 ——
+	# 個參照由第一刻起就當自己死咗。呢個 harness 中過招(症狀係「復活光環
+	# 冇效」同「血條冇綠色回復段」)。見 Battle.set_boss_ref()。
+	b.set_boss_ref(m)
 	b.boss_spawned = true
 	b.boss_profile = GameData.boss_spawn_profile(fam)
 	if m.mech == "revive":
-		b.skeleton_boss_alive = m
+		b.set_skeleton_lord(m)
 	return m
 
 func _end(b) -> void:

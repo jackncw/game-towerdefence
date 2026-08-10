@@ -626,9 +626,14 @@ func refresh(delta: float) -> void:
 		_last_remain = -1
 		boss_timer_label.text = tr("HUD_BOSS_HERE")
 	# boss bar
-	if battle.boss_ref != null and is_instance_valid(battle.boss_ref) and battle.boss_ref.alive:
+	#
+	# 一定要經 `Pool.live()` 驗 serial:`boss_ref` 係一個跨幀揸住嘅池化節點,
+	# 而 `is_instance_valid() and .alive` 對一個俾池回收咗嘅節點兩樣都成立 ——
+	# 病徵就係一條 boss 血條靜靜咁跟住一隻普通小怪跳。
+	var bref = Pool.live(battle.boss_ref, battle.boss_ref_serial)
+	if bref != null:
 		boss_box.visible = true
-		var frac: float = clampf(battle.boss_ref.hp / battle.boss_ref.max_hp, 0, 1)
+		var frac: float = clampf(bref.hp / bref.max_hp, 0, 1)
 		if _boss_low < 0.0 or frac < _boss_low:
 			_boss_low = frac                       # damage: the band resets here
 		var band: float = frac - _boss_low

@@ -32,14 +32,46 @@ func atk(v: float) -> float:
 	return v * (1.0 + battle.holy_power_total + battle.warcry_power)
 
 # gatling / beam ramp
+#
+# `last_target` 係一個**跨幀**揸住嘅池化節點參照,所以一定要連 serial 一齊記
+# (理由見 `Pool.live()`)。淨係比節點嘅話:上一發嘅目標死咗、個節點俾池回收
+# 成一隻新怪、而呢座塔啱啱好又鎖住嗰隻 —— `tgt == last_target` 會係 true,
+# 於是機槍塔嘅熱度 / 光束塔嘅蓄能**唔會重置**,一隻啱啱出場嘅怪會即刻食到
+# 滿蓄能嘅傷害。冇 error、冇 crash,淨係數字靜靜咁錯。
 var last_target = null
+var last_target_serial: int = 0
 var heat: float = 0.0
 var beam_ramp: float = 0.0
 
+## 「而家鎖住嘅仲係唔係當初嗰隻?」—— 三個跨幀目標欄位共用同一條檢查。
+func _same_target(node, serial: int, tgt) -> bool:
+	return tgt != null and Pool.live(node, serial) == tgt
+
 # barracks
+#
+# 名冊入面裝嘅係 `[士兵節點, serial]` 對,唔係光禿禿嘅節點參照。
+#
+# 士兵一樣係池化嘅。今日 `Soldier._die()` 會喺 `pool.release()` **之前**叫
+# `on_soldier_died()` 剔走自己,所以理論上名冊唔會過期 —— 但嗰個係一條**由
+# 另一個檔案維持**嘅不變式,而漏咗嘅後果係靜音嘅:一個兵營嘅名冊裝住一個
+# 已經轉世做**第二座塔**嘅士兵,於是佢自己個名額永遠滿,永遠唔補兵。一座
+# 收咗錢但唔再出兵嘅兵營,畫面上同一座正常兵營一模一樣。
+# serial 令佢變成一條自己守自己嘅規則(見 `Pool.live()`)。
 var soldiers: Array = []
 var respawn_timer: float = 0.0
 var rally_dist: float = 0.0
+
+## 名冊入面仲生存嘅士兵,順手剷走過期嗰啲。
+func live_soldiers() -> Array:
+	var out: Array = []
+	for i in range(soldiers.size() - 1, -1, -1):
+		var e: Array = soldiers[i]
+		var sd = Pool.live(e[0], int(e[1]))
+		if sd == null:
+			soldiers.remove_at(i)
+		else:
+			out.append(sd)
+	return out
 
 # damage type per mech
 const PHYS := ["arrow", "cannon", "gatling", "sniper", "mortar", "missile", "boomerang", "magnet", "frost"]
@@ -71,6 +103,7 @@ func setup(b, tower_id: int, world_pos: Vector2) -> void:
 	heat = 0.0
 	beam_ramp = 0.0
 	_streak_target = null
+	_streak_serial = 0
 	_streak = 0
 	_shot_count = 0
 	_void_charge = 0.0
@@ -140,6 +173,7 @@ func _proc_attack(delta: float) -> void:
 		if mech == "gatling":
 			heat = maxf(0.0, heat - delta)
 			last_target = null
+			last_target_serial = 0
 		_cd = 0.0
 		return
 	var shots := 0
@@ -179,6 +213,7 @@ func _proc_interval(delta: float, cb: Callable, _need: bool) -> void:
 # --- 進化機制用嘅逐塔狀態 ----------------------------------------------------
 ## 連續命中同一目標嘅次數(鷹眼塔 / 多管火箭 / 鷹巢哨站)。
 var _streak_target = null
+var _streak_serial: int = 0
 var _streak: int = 0
 ## 開過幾多發(神射殿嘅「每第五箭」、末日發射井嘅「每第四次齊射」)。
 var _shot_count: int = 0
@@ -266,9 +301,14 @@ func _crit_dmg(base: float, chance: float, mult: float) -> Array:
 
 ## 連續命中同一目標嘅層數。鷹眼塔 (T2) 嘅新機制,亦都畀鷹巢哨站同多管火箭
 ## 共用 —— 三座都係「盯實一個目標」呢個主題嘅深化,所以佢哋數同一條數。
+##
+## 比較一定要連 serial(見 `Pool.live()`):一個俾池回收咗嘅節點會令
+## `tgt != _streak_target` 係 false,即係層數會**過繼**畀一隻從來未被盯過嘅
+## 新怪 —— 佢一出場就食滿 `STREAK_MAX` 嘅加成。
 func _bump_streak(tgt) -> int:
-	if tgt != _streak_target:
+	if not _same_target(_streak_target, _streak_serial, tgt):
 		_streak_target = tgt
+		_streak_serial = int(tgt.serial) if tgt != null else 0
 		_streak = 0
 	_streak = mini(_streak + 1, GameData.STREAK_MAX)
 	return _streak
@@ -312,13 +352,20 @@ func _fire_lightning(tgt) -> void:
 	var hit: Array = [tgt]
 	var pts := PackedVector2Array([global_position, tgt.global_position])
 	var cur = tgt
+	# 上一發標記低嘅導體,喺呢一發開頭解析**一次**。
+	#
+	# `is_instance_valid() and .alive` **唔夠** —— 一個俾池回收咗嘅節點兩樣都
+	# 成立,於是條鏈會優先跳去一隻從來未被標記過嘅怪,仲要送埋 CONDUCTOR_BONUS
+	# 增傷。要驗 serial(見 `Pool.live()`)。解析完之後成個函數都用 `cond`,
+	# 唔再掂 `_conductor` —— 一個變數兩種意思就係呢類 bug 嘅溫床。
+	var cond = Pool.live(_conductor, _conductor_serial)
 	for i in chain:
 		# T2 雷霆之柱「導電」:上一發標記咗嘅目標優先接返條鏈,而且額外增傷。
 		var nxt = null
-		if t2() and is_instance_valid(_conductor) and _conductor.alive \
-				and not hit.has(_conductor) \
-				and cur.global_position.distance_to(_conductor.global_position) <= 260.0:
-			nxt = _conductor
+		if t2() and cond != null \
+				and not hit.has(cond) \
+				and cur.global_position.distance_to(cond.global_position) <= 260.0:
+			nxt = cond
 		if nxt == null:
 			nxt = battle.nearest_other(cur.global_position, 160.0, hit)
 		if nxt == null:
@@ -331,7 +378,7 @@ func _fire_lightning(tgt) -> void:
 	for m in hit:
 		if not m.alive:
 			continue        # an earlier link in the chain already killed it
-		var bonus: float = GameData.CONDUCTOR_BONUS if (t2() and m == _conductor) else 0.0
+		var bonus: float = GameData.CONDUCTOR_BONUS if (t2() and m == cond) else 0.0
 		m.take_hit(d * (1.0 + bonus), "magic")
 		if m.alive and _roll(s.stun):
 			m.apply_stun(0.6)
@@ -340,6 +387,7 @@ func _fire_lightning(tgt) -> void:
 		d *= (1.0 - s.falloff)
 	if t2():
 		_conductor = tgt
+		_conductor_serial = int(tgt.serial)
 	# T3 天罰穹頂:鏈尾再落一道雷,範圍傷害兼必定麻痺。
 	if t3() and is_instance_valid(last) and last.alive:
 		for m in battle.monsters_in_radius(last.global_position, GameData.SKYFALL_RADIUS, true):
@@ -353,6 +401,7 @@ func _fire_lightning(tgt) -> void:
 
 ## T2 導電標記:上一發打中嘅目標,下一次連鎖優先經過佢。
 var _conductor = null
+var _conductor_serial: int = 0
 
 func _fire_fireball(tgt) -> void:
 	var burning: bool = tgt.burn_time > 0.0
@@ -430,6 +479,7 @@ func _fire_sniper(tgt) -> void:
 	_guaranteed_crit = false
 	if exec_line > 0.0 and tgt.try_execute(exec_line):
 		_streak_target = null
+		_streak_serial = 0
 		_streak = 0
 		if t3():
 			_guaranteed_crit = true
@@ -438,6 +488,7 @@ func _fire_sniper(tgt) -> void:
 	tgt.take_hit(res[0], "phys")
 	if not tgt.alive:
 		_streak_target = null
+		_streak_serial = 0
 		_streak = 0
 	# pierce: also hit next highest-hp targets
 	var pierce := int(s.pierce)
@@ -454,13 +505,14 @@ func _fire_sniper(tgt) -> void:
 var _guaranteed_crit: bool = false
 
 func _fire_gatling(tgt) -> void:
-	if tgt == last_target:
+	if _same_target(last_target, last_target_serial, tgt):
 		heat = minf(s.heatmax, heat + s.heatrate)
 	else:
 		# T3 風暴壁壘「彈鏈共鳴」:換目標唔再清零,只係跌一半 —— 一座機槍塔
 		# 最痛嘅唔係傷害係「每次目標死咗就由零開始」,呢個就係嗰個痛點。
 		heat = heat * 0.5 if t3() else 0.0
 	last_target = tgt
+	last_target_serial = int(tgt.serial)
 	# T3 熱度同時推高散射機率
 	var spread_p: float = s.spread + (heat * GameData.RESONANCE_SPREAD if t3() else 0.0)
 	var dmg: float = atk(s.dmg) * (1.0 + heat * 0.5)
@@ -743,13 +795,15 @@ func _proc_beam(delta: float) -> void:
 	if tgt == null:
 		beam_ramp = maxf(0.0, beam_ramp - delta)
 		last_target = null
+		last_target_serial = 0
 		return
-	if tgt == last_target:
+	if _same_target(last_target, last_target_serial, tgt):
 		beam_ramp = minf(s.rampmax, beam_ramp + s.ramprate * delta)
 	else:
 		beam_ramp = 0.0
 		_overload = 0.0
 	last_target = tgt
+	last_target_serial = int(tgt.serial)
 	var dps: float = atk(s.dmg) * (1.0 + beam_ramp)
 	# T3 恆星核心「聚能爆發」:蓄能撞頂就轉爆發模式,幾秒內傷害倍增,
 	# 然後重置蓄能重新黎過 —— 光束塔嘅主題本來就係「蓄」,呢個係佢嘅頂點。
@@ -798,12 +852,10 @@ func play_event_sound(mech_name: String) -> void:
 		battle.play_event_sound(mech_name)
 
 func _proc_barracks(delta: float) -> void:
-	# prune dead
-	for i in range(soldiers.size() - 1, -1, -1):
-		if not is_instance_valid(soldiers[i]) or not soldiers[i].alive:
-			soldiers.remove_at(i)
+	# live_soldiers() 順手剷走過期名額 —— 舊版嗰個 `is_instance_valid() or
+	# not .alive` 對一個俾池回收咗嘅節點兩樣都成立,即係剷唔走。
 	var want := int(s.count)
-	if soldiers.size() < want:
+	if live_soldiers().size() < want:
 		respawn_timer -= delta
 		if respawn_timer <= 0.0:
 			respawn_timer = maxf(0.5, s.respawn)
@@ -815,7 +867,7 @@ func _spawn_soldier() -> void:
 	if sd:
 		sd.formation = t2()      # T2 要塞營地「陣型」
 		sd.death_blast = (atk(s.dmg) * GameData.TEMPLAR_BLAST) if t3() else 0.0
-		soldiers.append(sd)
+		soldiers.append([sd, int(sd.serial)])
 		# 號角響喺真係出到兵嗰下,唔係響喺「想出兵」嗰下 —— spawn_soldier() 返
 		# null 就係冇兵出到,冇兵而有號角就係一個講大話嘅提示。
 		play_event_sound(mech)
@@ -833,14 +885,17 @@ func _proc_oracle(delta: float) -> void:
 			m.haste_time = 0.0
 			m.haste_amp = 0.0
 	for t in battle.towers:
-		if is_instance_valid(t) and t.mech == "barracks" and t.soldiers.size() < int(t.s.count):
+		if is_instance_valid(t) and t.mech == "barracks" and t.live_soldiers().size() < int(t.s.count):
 			t.respawn_timer = 0.0
 			t._spawn_soldier()
 			break
 	battle.spawn_fx_ring(global_position, 220, Color(1, 0.96, 0.75))
 
 func on_soldier_died(sd) -> void:
-	soldiers.erase(sd)
+	for i in soldiers.size():
+		if soldiers[i][0] == sd:
+			soldiers.remove_at(i)
+			return
 
 func sell_value() -> int:
 	return int(place_cost * 0.7)

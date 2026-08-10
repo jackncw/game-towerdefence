@@ -696,7 +696,9 @@ func _die(force: bool) -> void:
 		var limit := 0
 		if is_boss:
 			limit = 0
-		elif battle.skeleton_boss_alive and battle.skeleton_boss_alive != self:
+		# `skeleton_lord()` 而唔係 `skeleton_boss_alive` —— 個欄位係一個跨幀揸住
+		# 嘅池化節點,要驗 serial(見 `Pool.live()`)。
+		elif battle.skeleton_lord() != null and battle.skeleton_lord() != self:
 			limit = GameData.AURA_REVIVE_MAX
 		else:
 			limit = 1

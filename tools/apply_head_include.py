@@ -15,6 +15,14 @@ import pathlib
 import re
 import sys
 
+# Windows 個 console 預設係 cp950,而下面每一句訊息都有中文 —— `print` 會掟
+# UnicodeEncodeError,於是個 script **exit 1**。病徵最陰濕嘅地方:佢已經做完
+# 咗嘢先死喺最後嗰句 print,所以 `--check` 明明係「最新」都會報失敗,而
+# `git push` 之前跑呢個 check 嘅人會以為 .cfg 落後咗。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PROJECT = pathlib.Path(__file__).resolve().parent.parent
 JS = PROJECT / "web" / "head_include.js"
 CSS = PROJECT / "web" / "head_include.css"

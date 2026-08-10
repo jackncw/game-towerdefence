@@ -36,7 +36,34 @@ var curse_towers: Array = []
 ## `_refresh_holy_aura()` 上次計嗰陣 holy_towers 有幾多座。-1 = 「作廢,重算」。
 ## 見 _refresh_holy_aura 上面嗰段。
 var _holy_sig: int = -1
+## 骷髏君主(復活光環嘅來源)。跨幀揸住嘅池化節點,所以連 serial 一齊記 ——
+## 讀嗰陣一律經 `skeleton_lord()`,唔好直接掂呢兩個欄位。
 var skeleton_boss_alive = null
+var skeleton_boss_serial: int = 0
+
+## 仲生存嘅骷髏君主,冇就 null。
+##
+## 呢個 getter 存在嘅原因:`skeleton_boss_alive` 而家係喺 `on_boss_killed()`
+## 度清嘅,即係「佢一定唔會過期」係一條**由第二個檔案維持**嘅不變式。一旦有
+## 人加咗一條新嘅移除路徑而漏咗清,場上每一隻骷髏就會攞到 `AURA_REVIVE_MAX`
+## 條命 —— 而個症狀係「怪好似死唔晒」,冇人會諗到係呢度。serial 令佢變成
+## 一條自己守自己嘅規則。
+func skeleton_lord():
+	return Pool.live(skeleton_boss_alive, skeleton_boss_serial)
+
+## 「節點 + serial」一定要一齊寫。
+##
+## 呢兩個 setter 唔係包裝糖:分開兩句寫嘅話,漏咗 serial 嗰句**唔會報錯**,
+## 個參照淨係會由第一刻起就當自己已經死咗 —— 一個永遠靜音嘅失敗。實測有幾易
+## 中招:`test/BossHealTest` 自己砌狀態嗰陣就係咁,而症狀係「復活光環冇效」同
+## 「boss 血條冇綠色回復段」兩件表面上完全無關嘅事。
+func set_boss_ref(m) -> void:
+	boss_ref = m
+	boss_ref_serial = int(m.serial) if m != null else 0
+
+func set_skeleton_lord(m) -> void:
+	skeleton_boss_alive = m
+	skeleton_boss_serial = int(m.serial) if m != null else 0
 
 var gold: int = 0
 var base_shield: int = 0
@@ -93,6 +120,7 @@ var spawned_count: int = 0       # every monster ever spawned this run (SpeedSca
 var boss_time: float = 60.0
 var boss_spawned: bool = false
 var boss_ref = null
+var boss_ref_serial: int = 0
 # deepest fraction of boss HP removed this run (peaks are kept, so a boss that
 # heals back up doesn't erase the progress already earned). Feeds the loss payout.
 var boss_best_frac: float = 0.0
@@ -509,10 +537,13 @@ func _process(delta: float) -> void:
 	_tick_holy_motes(delta)
 	_tick_curse_auras()
 	_spawn_logic(delta)
-	if boss_ref != null and is_instance_valid(boss_ref):
-		var bm: float = boss_ref.max_hp
+	# 經 `Pool.live()`:一個俾池回收咗嘅 `boss_ref` 會令敗仗派彩按一隻**雜兵**
+	# 嘅血量比例計 —— 一個直接入賬到玩家魔晶度嘅錯數。
+	var _br = Pool.live(boss_ref, boss_ref_serial)
+	if _br != null:
+		var bm: float = _br.max_hp
 		if bm > 0.0:
-			boss_best_frac = maxf(boss_best_frac, 1.0 - boss_ref.hp / bm)
+			boss_best_frac = maxf(boss_best_frac, 1.0 - _br.hp / bm)
 	if hud:
 		hud.refresh(delta)
 
@@ -626,6 +657,15 @@ func _contract_mods() -> Dictionary:
 func _spawn_logic(delta: float) -> void:
 	if final_level:
 		_final_wave_logic()
+		# **安全網,唔係主路。** 勝利判定嘅主路仍然係 `on_boss_killed()` ——
+		# 同一幀結算,冇延遲。但第 100 關嘅 spawner 冇「波次耗盡」呢個終止
+		# 條件(雜兵係無限出嘅,見 GameData.FINAL_WAVES 嗰段),所以「最後一隻
+		# boss 死」呢個事件係全關唯一一個結算機會。漏咗一次 = 關卡永遠完成
+		# 唔到 = 無限刷怪。呢一行令個條件變成一個**每幀成立嘅不變式**,而唔係
+		# 一個一次過嘅事件。成本:第 100 關每幀一個 int 比較 + 一個 is_empty()。
+		if final_all_dead():
+			_win()
+			return
 	elif not boss_spawned and elapsed >= boss_time:
 		_spawn_boss()
 	if boss_spawned:
@@ -673,7 +713,21 @@ func _spawn_wave_monster() -> void:
 # ---------------------------------------------------------------------------
 var final_level: bool = false
 var _final_wave_i: int = 0
+## **仲生存嘅**最終波 boss。呢個陣列係一條不變式:入面每一個元素都一定係一隻
+## 未死嘅第 100 關 boss。一隻死咗就即刻喺 `on_boss_killed()` 度剔走。
+##
+## 點解唔可以照留低然後問 `m.alive` —— 呢個就係「第 100 關無限刷怪」嗰單嘢嘅
+## 根因。Monster 係**池化**嘅:`_remove()` 會 `Pool.release()` 個節點,而個 free
+## stack 係 LIFO,所以下一次雜兵 spawn 就 `pop_back()` 攞返啱啱死嗰隻 boss 個
+## 節點,`setup()` 再將 `alive` 設返 true。於是「boss 死晒未?」呢條問題會由一隻
+## **雜兵**答,而佢係生存嘅 —— 十隻死晒之後 `final_bosses` 仍然報住九隻「生存」
+## (實測),勝利判定永遠唔成立,而第 100 關嘅 spawner 冇任何終止條件,所以
+## 小怪一路出到天光。
+##
+## `is_instance_valid()` 擋唔到呢件事:個節點由頭到尾都係有效嘅,佢淨係換咗身份。
 var final_bosses: Array = []
+## 死咗幾多隻(報告 / 測試用)。`final_bosses.size()` 加呢個數 = 已出場總數。
+var final_boss_dead: int = 0
 
 func _final_wave_logic() -> void:
 	var waves: Array = cfg.get("final_waves", [])
@@ -691,7 +745,7 @@ func _final_wave_logic() -> void:
 			m.floor_exempt = true
 			final_bosses.append(m)
 			if m.mech == "revive":
-				skeleton_boss_alive = m
+				set_skeleton_lord(m)
 		if not boss_spawned:
 			boss_spawned = true
 			boss_profile = {"rate": GameData.BOSS_SPAWN_BASE_RATE}
@@ -702,27 +756,34 @@ func _final_wave_logic() -> void:
 		_final_pick_bar()
 
 ## 血條指向仲生存而且血最多嗰隻 boss。
+##
+## `m.is_boss` 唔係多餘嘅:個陣列一旦漏咗剔走一隻死咗嘅,佢個節點就會俾池
+## 回收成一隻雜兵,而血條會靜靜咁跟住一隻雜兵行 —— 一個「只會畫錯唔會報錯」
+## 嘅症狀。呢度做多一重,唔靠上游做啱。
 func _final_pick_bar() -> void:
 	var best = null
 	var best_hp := -1.0
 	for m in final_bosses:
-		if is_instance_valid(m) and m.alive and m.hp > best_hp:
+		if is_instance_valid(m) and m.alive and m.is_boss and m.hp > best_hp:
 			best_hp = m.hp
 			best = m
 	if best != null and best != boss_ref:
-		boss_ref = best
+		set_boss_ref(best)
 		boss_best_frac = 0.0
 		if hud:
 			hud.show_boss(best)
 
-## 終極戰嘅勝利條件:十隻全部死晒。
+## 終極戰嘅勝利條件:三潮全部放完,而且十隻全部死晒。
+##
+## 兩個條件都要 —— 淨係「場上冇 boss」嘅話,第一潮同第二潮之間嗰段空窗就會
+## 即刻結算。
+##
+## 「死晒」讀嘅係 `final_bosses` 空唔空,唔係逐個問 `m.alive`:見 `final_bosses`
+## 嗰段註解,問 `alive` 會俾一個俾池回收咗嘅節點答錯。
 func final_all_dead() -> bool:
 	if _final_wave_i < (cfg.get("final_waves", []) as Array).size():
 		return false
-	for m in final_bosses:
-		if is_instance_valid(m) and m.alive:
-			return false
-	return true
+	return final_bosses.is_empty()
 
 ## Burst-style boss profiles (wolf packs): every `interval` seconds a squad of
 ## count_min..count_max minions rushes out together from the path start.
@@ -745,9 +806,9 @@ func _spawn_boss() -> void:
 	if not burst_def.is_empty():
 		_burst_timer = float(burst_def.get("first", burst_def["interval"]))
 	var m := _spawn_monster(cfg.boss_family, 5, true, 0.0)
-	boss_ref = m
+	set_boss_ref(m)
 	if m.mech == "revive":
-		skeleton_boss_alive = m
+		set_skeleton_lord(m)
 	if hud:
 		hud.show_boss(m)
 	Audio.play("sfx_boss_warning")
@@ -845,7 +906,16 @@ func on_boss_killed(m: Monster) -> void:
 	shake(14.0, 0.5)
 	flash(Color(1, 1, 1, 0.4), 0.3)
 	if skeleton_boss_alive == m:
-		skeleton_boss_alive = null
+		set_skeleton_lord(null)
+	# **記數要喺 `_remove()` 之前做。** `_remove()` 會將個節點還俾 pool,而 pool
+	# 係 LIFO —— 下一次雜兵 spawn 就攞返同一個節點,`alive` 再變 true。喺嗰之後
+	# 先嚟問「呢個節點係咪一隻死咗嘅 boss」已經冇意思。
+	# 個 `has()` 令個計數嘅意思釘死喺「最終波嗰十隻入面死咗幾多」,而唔係
+	# 「第 100 關死咗幾多隻 boss」。今日兩者一樣(最終關唔會行 _spawn_boss),
+	# 但一個計數器嘅意思唔應該靠一個第二度嘅 if 嚟維持。十個元素嘅掃描。
+	if final_level and final_bosses.has(m):
+		final_bosses.erase(m)
+		final_boss_dead += 1
 	_remove(m)
 	# 終極戰唔係「打低一隻 boss 就贏」—— 十隻死晒先算。
 	if final_level:
@@ -924,7 +994,7 @@ func _barrier_reflect_burst(blocked) -> void:
 func _remove(m: Monster) -> void:
 	monsters.erase(m)
 	if boss_ref == m:
-		boss_ref = null
+		set_boss_ref(null)
 	monster_pool.release(m)
 
 ## `lump` = 一筆過嘅大額入賬(鍊金塔落成嗰刻嘅起始金、點金術嘅一次過派錢),
@@ -1564,12 +1634,11 @@ func sell_tower(t) -> void:
 	holy_towers.erase(t)
 	_holy_sig = -1
 	curse_towers.erase(t)
-	# duplicate() is required: Soldier._die() calls back into on_soldier_died(),
-	# which erases from this very array — iterating it live skipped every second
-	# soldier and left orphans blocking the road for free after the sale.
-	for sd in t.soldiers.duplicate():
-		if is_instance_valid(sd) and sd.alive:
-			sd._die()
+	# 一定要行一個**快照**:Soldier._die() 會回叫 on_soldier_died(),而嗰度會
+	# 由同一個名冊度剷走自己 —— 邊行邊改會跳過每隔一個士兵,賣咗塔之後留低
+	# 一堆孤兒喺條路度免費擋路。`live_soldiers()` 返嘅本身就係一個新 Array。
+	for sd in t.live_soldiers():
+		sd._die()
 	t.queue_free()
 	if selected_tower == t:
 		selected_tower = null
@@ -1914,8 +1983,8 @@ func _clear_field() -> void:
 		m.alive = false
 		monster_pool.release(m)
 	monsters.clear()
-	boss_ref = null
-	skeleton_boss_alive = null
+	set_boss_ref(null)
+	set_skeleton_lord(null)
 	# in-flight ordnance and lingering ground effects have nothing left to hit
 	for n in proj_root.get_children():
 		if n.get("alive") != null:

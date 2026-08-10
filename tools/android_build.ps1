@@ -43,12 +43,31 @@ foreach ($doc in @("KEYSTORE_BACKUP_README.md", "DEVICE_CHECKLIST.md")) {
   Copy-Item (Join-Path $root "docs\android\$doc") (Join-Path $root "dist\$doc") -Force
 }
 
-$targets = @(@{ Preset = "Android"; Out = "dist\Towerbound-1.0.0.aab" })
+# 版本號由 export_presets.cfg 讀返出嚟,唔喺呢度寫死。
+$cfgPath = Join-Path $root "export_presets.cfg"
+$ver = (Select-String -Path $cfgPath -Pattern '^version/name="(.+)"' |
+        Select-Object -First 1).Matches[0].Groups[1].Value
+if (-not $ver) { throw "export_presets.cfg 度讀唔到 version/name" }
+Write-Host ("version  : " + $ver)
+
+# **`--export-release <preset>` 唔收輸出路徑 —— Godot 寫去 preset 自己嗰個
+# `export_path`。** 即係話呢個 script 講嘅檔名同真正寫出嚟嗰個係兩件事,
+# 而佢哋一唔同步就會出一隻「版本係 1.0.1、個名叫 1.0.0」嘅檔(1.0.1 嗰輪
+# 真係中過)。所以開工前逐個對一次,對唔上即刻死,唔好等出完先發現。
+$paths = @(Select-String -Path $cfgPath -Pattern '^export_path="(dist/.+)"' |
+           ForEach-Object { $_.Matches[0].Groups[1].Value })
+foreach ($want in @("dist/Towerbound-$ver.aab", "dist/Towerbound-$ver.apk")) {
+  if ($paths -notcontains $want) {
+    throw "export_presets.cfg 嘅 export_path 冇 '$want'。而家有:$($paths -join ', ')`n(改版本號要改 version/name、version/code **同埋** export_path)"
+  }
+}
+
+$targets = @(@{ Preset = "Android"; Out = "dist\Towerbound-$ver.aab" })
 if (-not $SkipApk) {
   # preset 個名冇空格唔係美觀問題:PowerShell 5.1 嘅 `Start-Process
   # -ArgumentList` 對含空格嘅參數點加引號都靠唔住(手動加會被再包一層),
   # 結果 Godot 收到嘅 preset 名淨係得第一段。冇空格就冇呢條問題。
-  $targets += @{ Preset = "AndroidAPK"; Out = "dist\Towerbound-1.0.0.apk" }
+  $targets += @{ Preset = "AndroidAPK"; Out = "dist\Towerbound-$ver.apk" }
 }
 
 foreach ($t in $targets) {

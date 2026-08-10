@@ -52,7 +52,7 @@ func _process(delta: float) -> void:
 		b.max_hp = 1.0e12
 		b.hp = 1.0e12
 		if b.mech == "revive":
-			battle.skeleton_boss_alive = b
+			battle.set_skeleton_lord(b)
 		boss_i += 1
 		print("TEST: spawned boss %s" % fam)
 

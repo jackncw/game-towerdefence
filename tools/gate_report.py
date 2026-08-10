@@ -36,6 +36,7 @@ econ_base = collections.defaultdict(list)   # raw:  (income+start)/cost
 econ_std = collections.defaultdict(list)    # std:  (income*90/t + start)/cost
 g1_std = collections.defaultdict(list)      # (income*90/t) / REF_TOWER_COST
 tries_at = collections.defaultdict(list)    # 實際打咗幾多場先過到(封頂 = --tries)
+hangs = collections.defaultdict(int)        # 撞到 ATTEMPT_TIMEOUT 都冇結算過嘅場數
 build = []
 
 for pat in sys.argv[1:]:
@@ -49,6 +50,11 @@ for pat in sys.argv[1:]:
                 std_income = income * STD_SECONDS / max(60.0, dur)
                 if len(p) >= 17:
                     tries_at[(arch, lv)].append(int(p[16]))
+                # 第 18 欄(可選)= 掛死旗。一場「打到 ATTEMPT_TIMEOUT 都冇結算」
+                # 嘅 run 唔係一場敗仗,係一個遊戲缺陷,而佢喺勝率上面同敗仗
+                # 一模一樣 —— 第 100 關嘅無限刷怪就係咁瞞足一輪。
+                if len(p) >= 18 and int(p[17]):
+                    hangs[(arch, lv)] += 1
                 rows[(arch, lv)].append(win)
                 towers_at[(arch, lv)].append(towers)
                 econ_base[(arch, lv)].append((income + start) / max(1.0, tcost))
@@ -86,6 +92,15 @@ if arches:
 print()
 print('=== Gate 判定(第十八輪重釘)===')
 verdicts = []
+
+# 掛死要喺**評 gate 之前**講,唔係一句腳註:一份有掛死嘅報告入面,每一格
+# 勝率都係污糟嘅(掛死計咗做敗仗)。
+_tot_hang = sum(hangs.values())
+if _tot_hang:
+    worst = sorted(hangs.items(), key=lambda kv: -kv[1])[:8]
+    print('!! 掛死 %d 場(關卡打到 timeout 都冇結算過)—— 呢啲**唔係**敗仗,'
+          '下面每一格勝率都低估咗' % _tot_hang)
+    print('   最多嗰幾格: ' + ', '.join('%s lv%d x%d' % (a, lv, n) for (a, lv), n in worst))
 
 
 def chk(name, ok, detail):

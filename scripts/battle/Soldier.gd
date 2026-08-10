@@ -20,6 +20,10 @@ var armor: float = 0.0
 var block_radius: float = 48.0
 var _cd: float = 0.0
 var alive: bool = false
+## Pool generation —— 同 `Monster.serial` 一模一樣嘅嘢,理由見 `Pool.live()`。
+## 士兵一樣係池化嘅,而兵營嘅名冊(`Tower.soldiers`)係跨幀揸住佢哋嘅。
+var serial: int = 0
+static var _next_serial: int = 1
 var life_time: float = -1.0   # summon soldiers can be permanent (-1) or timed
 ## 要塞營地 (兵營 T2)「陣型」:兩個以上士兵企埋一齊,各自加甲加傷。
 var formation: bool = false
@@ -52,6 +56,8 @@ func setup(b, r: PathRoute, dist_pos: float, hpv: float, dmgv: float, arm: float
 	position = r.pos_at(dist_pos)
 	_cd = 0.0
 	alive = true
+	serial = _next_serial
+	_next_serial += 1
 	is_magic = magic
 	_age = 0.0
 	formation = false
@@ -67,8 +73,11 @@ func _formation_allies() -> int:
 	if not formation or owner_tower == null or not is_instance_valid(owner_tower):
 		return 0
 	var n := 0
-	for sd in owner_tower.soldiers:
-		if sd != self and is_instance_valid(sd) and sd.alive \
+	# `live_soldiers()` 已經驗過 serial(見 `Pool.live()`)—— 一個俾池回收咗嘅
+	# 名額會令陣型人數偏高,而陣型同時加護甲同傷害,即係兩樣數值一齊靜靜咁
+	# 講大話。
+	for sd in owner_tower.live_soldiers():
+		if sd != self \
 				and sd.global_position.distance_to(global_position) <= GameData.FORMATION_RADIUS:
 			n += 1
 	return n

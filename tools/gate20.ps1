@@ -122,20 +122,25 @@ if ($Report) {
   $fin = @(Get-ChildItem (Join-Path $out "final_A4_*.txt") -ErrorAction SilentlyContinue |
            Where-Object { $_.Name -notlike "*.err.txt" })
   if ($fin.Count -gt 0) {
-    $w = 0; $n = 0
+    $w = 0; $n = 0; $h = 0
     foreach ($f in $fin) {
       foreach ($line in (Get-Content $f.FullName)) {
         $p = $line -split '\s+'
-        if ($p.Count -eq 6 -and $p[0] -eq 'GATE' -and $p[1] -eq 'ROW' -and $p[2] -eq 'A4') {
+        # 第 7 欄(掛死旗)係後加嘅,所以用 -ge 6 而唔係 -eq 6 —— 舊檔照讀得。
+        if ($p.Count -ge 6 -and $p[0] -eq 'GATE' -and $p[1] -eq 'ROW' -and $p[2] -eq 'A4') {
           $w += [int]$p[4]; $n++
+          if ($p.Count -ge 7) { $h += [int]$p[6] }
         }
       }
     }
     if ($n -gt 0) {
       $r = 100.0 * $w / $n
-      $ok = ($r -ge 10) -and ($r -le 30)
+      # 掛死唔係輸。有掛死嘅話呢個百分比根本唔係一個勝率,所以直接判 FAIL,
+      # 唔好俾一個污糟嘅數字混過去。
+      $ok = ($r -ge 10) -and ($r -le 30) -and ($h -eq 0)
       Write-Host ""
-      Write-Host ("Gate6b A4 第100關 10-30%(final mode, n={0})  {1}  {2:N1}%" -f $n, $(if ($ok) { "PASS" } else { "FAIL" }), $r)
+      Write-Host ("Gate6b A4 第100關 10-30%(final mode, n={0})  {1}  {2:N1}%  掛死={3}" -f $n, $(if ($ok) { "PASS" } else { "FAIL" }), $r, $h)
+      if ($h -gt 0) { Write-Host "  !! 有 $h 場打到 timeout 都冇結算過 —— 呢批讀數唔算數" }
     }
   }
   if (Test-Path (Join-Path $out "frozen.txt")) {

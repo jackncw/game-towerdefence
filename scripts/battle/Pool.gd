@@ -16,6 +16,31 @@ var _idle: Dictionary = {}
 var _live: Dictionary = {}
 var _made: int = 0
 
+## 一個**跨幀持有**嘅池化節點參照,驗返佢仲係唔係當初嗰嚿嘢。
+##
+## 呢個 helper 存在嘅原因係第 23 輪嗰單「第 100 關無限刷怪」:池化節點嘅身份
+## **唔穩定**。`release()` 唔係 `queue_free()` —— 個節點會坐喺 free stack 頂,
+## 而下一次 `acquire()` 就攞返同一個節點,`setup()` 再將 `alive` 設返 true。
+## 於是一個跨幀揸住嘅參照會靜靜咁指住一隻**完全唔同**嘅嘢,而佢會答你
+## 「我仲生存」。
+##
+## `is_instance_valid()` 喺呢度一啲保護作用都冇:個節點由頭到尾都係有效嘅,
+## 佢淨係換咗身份。所以**唯一**可靠嘅檢查係 generation(`serial`)——
+## `setup()` 每次 +1,對唔上就代表個參照已經死咗。
+##
+## 用法:攞到手嗰陣連 `serial` 一齊記低,用嗰陣行呢條:
+## ```gdscript
+## var m = Pool.live(_conductor, _conductor_serial)
+## if m != null: ...
+## ```
+## 節點要有 `serial` 同 `alive` 兩個欄位(Monster / Soldier 都有)。
+static func live(n, serial: int):
+	if n == null or not is_instance_valid(n):
+		return null
+	if int(n.serial) != serial or not n.alive:
+		return null
+	return n
+
 func _init(factory: Callable, parent: Node) -> void:
 	_factory = factory
 	_parent = parent

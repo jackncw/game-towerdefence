@@ -34,9 +34,9 @@ func _ready() -> void:
 	# 今輪要喺呢一版加一粒省電掣,就冇可能唔順手擺返好個高度。
 	var plate := UI.panel_rect()
 	plate.position = Vector2(80, 240)
-	# 1000 -> 1180:第 24 輪喺「最高通關」面板下面加咗私隱政策同版本號兩行
-	# (最底一行去到 y=1414),plate 唔跟住長就會有兩粒掣浮喺框外面。
-	plate.size = Vector2(920, 1180)
+	# 1000 -> 1220:第 24 輪喺「最高通關」面板下面加咗私隱政策同版本號兩行
+	# (最底一行去到 y=1444),plate 唔跟住長就會有兩粒掣浮喺框外面。
+	plate.size = Vector2(920, 1220)
 	add_child(plate)
 
 	var vb := VBoxContainer.new()
@@ -96,8 +96,14 @@ func _ready() -> void:
 	vb.add_child(reset_btn)
 
 	var stat := UI.panel_dark()
-	# 排喺最後一行控制項下面(見上面個 plate 嘅註解),唔再壓住佢
-	stat.position = Vector2(140, 1120)
+	# 排喺最後一行控制項下面(見上面個 plate 嘅註解),唔再壓住佢。
+	#
+	# 1120 -> 1150(第 24 輪):1120 **仲係壓住緊**「重置存檔」嗰粒紅掣。
+	# 逐項數返:VBox 由 y=296 起,八行(96+60+60+60+96+96+56+96)加七個
+	# 30px 間距 = 830,即係最後一行嘅底邊喺 1126 —— 而個面板由 1120 開始,
+	# 兩個 9-patch 嘅框邊各食二十幾 px,所以睇落係壓咗成三十 px。
+	# 第 13 輪影相對比嗰陣捉到過同一個症狀,當時只係抬高咗 plate,冇郁呢個數。
+	stat.position = Vector2(140, 1150)
 	stat.size = Vector2(800, 90)
 	add_child(stat)
 	var info := UI.label(tr("SET_STATS").format({
@@ -110,7 +116,7 @@ func _ready() -> void:
 	# 上架要求。條 URL 同 Play Console 填嘅係同一條 —— 佢已經 live 咗,
 	# 所以呢度唔會出一條死 link。
 	var priv := UI.button(tr("SET_PRIVACY"), Vector2(800, 88), UI.PANEL_HI, 30)
-	priv.position = Vector2(140, 1236)
+	priv.position = Vector2(140, 1266)
 	priv.pressed.connect(func():
 		Audio.play("ui_click")
 		OS.shell_open(PRIVACY_URL))
@@ -122,7 +128,7 @@ func _ready() -> void:
 	# tools/android_build.ps1 開工前對齊(對唔上唔准出貨)。
 	_ver_btn = UI.button(tr("SET_VERSION").format({"v": app_version()}),
 		Vector2(800, 76), UI.PANEL, 26)
-	_ver_btn.position = Vector2(140, 1338)
+	_ver_btn.position = Vector2(140, 1368)
 	_ver_btn.button_down.connect(func(): _ver_pressed = true; _ver_hold = 0.0)
 	_ver_btn.button_up.connect(func(): _ver_pressed = false; _ver_hold = 0.0)
 	add_child(_ver_btn)

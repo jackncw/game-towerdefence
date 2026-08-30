@@ -825,23 +825,26 @@ func _build_tutorial() -> void:
 	tutorial_layer.add_child(dim)
 
 	var idx := _tut_page + 1
+	# 呢啲坐標係影相對出嚟嘅,唔係估:羊皮紙 9-patch 有一圈 **44px** 嘅
+	# baked border,所以任何字要離開框邊 44px 以上先唔會俾佢蓋住。
+	# 第一版擺咗 step 喺 box 頂 +36,結果「1 / 4」俾框邊切一半;body 嘅
+	# clip 左邊縮 48 唔夠,每一行嘅第一個字都缺咗一橛。
 	var box := UI.panel_parch()
-	box.position = Vector2(80, 560)
-	box.size = Vector2(920, 560)
+	box.position = Vector2(80, 620)
+	box.size = Vector2(920, 460)
 	tutorial_layer.add_child(box)
 	var step := UI.label("%d / %d" % [idx, TUTORIAL_PAGES], 26, Color(0.45, 0.33, 0.18))
-	step.position = Vector2(128, 596); step.size = Vector2(824, 34)
+	step.position = Vector2(140, 676); step.size = Vector2(800, 34)
 	step.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tutorial_layer.add_child(step)
 	var stt := UI.label(tr("TUT_%d_TITLE" % idx), 38, Color(0.35, 0.24, 0.12))
-	stt.position = Vector2(128, 638); stt.size = Vector2(824, 50)
+	stt.position = Vector2(140, 714); stt.size = Vector2(800, 52)
 	stt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tutorial_layer.add_child(stt)
-	# 羊皮紙框有一圈 baked border,字要縮 30px+ 先唔會被框邊蓋住;而一個自由
-	# Label 包中文包得唔穩,所以要放喺一個固定大細嘅 clip Control 入面。
+	# 一個自由 Label 包中文包得唔穩,所以要放喺一個固定大細嘅 clip Control 入面。
 	var clip := Control.new()
-	clip.position = Vector2(128, 706)
-	clip.size = Vector2(824, 340)
+	clip.position = Vector2(140, 782)
+	clip.size = Vector2(800, 248)
 	clip.clip_contents = true
 	tutorial_layer.add_child(clip)
 	var body := UI.label(tr("TUT_%d_BODY" % idx), 30, Color(0.30, 0.20, 0.12))
@@ -851,11 +854,11 @@ func _build_tutorial() -> void:
 	clip.add_child(body)
 
 	var nxt := UI.button(tr("TUT_NEXT"), Vector2(420, 104), UI.ACCENT, 36)
-	nxt.position = Vector2(330, 1170)
+	nxt.position = Vector2(330, 1136)
 	nxt.pressed.connect(_tut_advance)
 	tutorial_layer.add_child(nxt)
 	var skip := UI.button(tr("TUT_SKIP"), Vector2(240, 84), UI.PANEL, 30)
-	skip.position = Vector2(420, 1296)
+	skip.position = Vector2(420, 1264)
 	skip.pressed.connect(_tut_finish)
 	tutorial_layer.add_child(skip)
 

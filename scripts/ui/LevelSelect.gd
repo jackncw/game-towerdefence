@@ -57,7 +57,7 @@ func _ready() -> void:
 		var enext: int = maxi(GameData.FINAL_LEVEL + 1, Meta.highest_level + 1)
 		var elo: int = maxi(GameData.FINAL_LEVEL + 1, enext - ENDLESS_SHOWN + 1)
 		var head := UI.panel_dark()
-		head.custom_minimum_size = Vector2(980, 132)
+		head.custom_minimum_size = Vector2(980, 150)
 		col.add_child(head)
 		var htitle := UI.label(tr("ENDLESS_SECTION"), 34, UI.CRYSTAL)
 		htitle.position = Vector2(0, 16); htitle.size = Vector2(980, 44)
@@ -71,7 +71,7 @@ func _ready() -> void:
 		if elo > GameData.FINAL_LEVEL + 1:
 			var more := UI.label(tr("ENDLESS_SHOWING").format({"n": ENDLESS_SHOWN}), 22,
 				UI.TEXT_DIM.darkened(0.1))
-			more.position = Vector2(0, 100); more.size = Vector2(980, 30)
+			more.position = Vector2(0, 104); more.size = Vector2(980, 34)
 			more.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			head.add_child(more)
 		var egrid := GridContainer.new()

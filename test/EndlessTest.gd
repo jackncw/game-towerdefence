@@ -19,10 +19,10 @@ var checked := 0
 var _save_bytes := PackedByteArray()
 var _had_save := false
 
-func _ok(what: String, cond: bool) -> void:
+func _ok(what: String, cond: bool, detail := "") -> void:
 	checked += 1
 	if not cond:
-		fails.append(what)
+		fails.append(what if detail == "" else "%s — %s" % [what, detail])
 
 func _eq(what: String, got, want) -> void:
 	_ok("%s(得到 %s,應該係 %s)" % [what, str(got), str(want)], got == want)
@@ -37,6 +37,7 @@ func _ready() -> void:
 	_case_reward_freeze()
 	_case_level_kinds()
 	_case_replay_boundary()
+	await _case_unlock_moment()
 	await _case_play_three()
 
 	_restore_save()
@@ -235,6 +236,44 @@ func _case_replay_boundary() -> void:
 	for i in 5:
 		tot += int((Meta.on_level_cleared(lv) as Dictionary)["first"])
 	_eq("E4 解鎖後重玩五次都冇首通獎勵", tot, 0)
+
+# ---------------------------------------------------------------------------
+# F 解鎖嗰一刻:通關第 100 關 -> 結算畫面即刻要有「下一關 (101)」
+#
+# 呢個 case 守嘅係一個**次序**:`Battle._win()` 先叫 `Meta.on_level_cleared()`
+# 再 `Flow.goto(RESULT)`,所以結算畫面讀 `endless_unlocked()` 嗰陣個 flag
+# 一定已經 true。如果將來有人將派彩搬去結算畫面度先計,呢粒掣就會喺**通關
+# 第 100 關嗰一次**唔見咗(而下一次入返去就會有)—— 一個只喺遊戲入面最重要
+# 嗰一刻出現嘅 bug。
+# ---------------------------------------------------------------------------
+func _case_unlock_moment() -> void:
+	_fresh(99, range(1, 100))
+	_ok("F 通關第 100 關之前未解鎖", not Meta.endless_unlocked())
+	Meta.on_level_cleared(GameData.FINAL_LEVEL)
+	_ok("F 派完彩即刻解鎖", Meta.endless_unlocked())
+	_eq("F highest_level 去到 100", Meta.highest_level, GameData.FINAL_LEVEL)
+	Flow.last_result = {"win": true, "level": GameData.FINAL_LEVEL, "kills": 300,
+		"base": 100, "first": 100, "crystals": 200, "mult": 1.0, "replay": false}
+	# `var r :=` 推唔到型(instantiate() 返 Object)—— 呢個係本專案踩過好多次
+	# 嘅 GDScript 陷阱,一定要寫明型。
+	var r: Node = load("res://scenes/Result.tscn").instantiate()
+	add_child(r)
+	await get_tree().process_frame
+	var texts: Array = []
+	_collect_text(r, texts)
+	var joined := " | ".join(texts)
+	_ok("F 結算畫面要有「下一關 (101)」",
+		joined.contains(tr("RESULT_NEXT").format({"n": 101})), joined)
+	r.queue_free()
+	await get_tree().process_frame
+
+func _collect_text(node: Node, out: Array) -> void:
+	if node is Label:
+		out.append((node as Label).text)
+	elif node is Button:
+		out.append((node as Button).text)
+	for c in node.get_children():
+		_collect_text(c, out)
 
 # ---------------------------------------------------------------------------
 # D2 真開得到場:第 101/102/103 三關連續

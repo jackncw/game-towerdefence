@@ -95,6 +95,31 @@ if (-not $SkipApk) {
   $targets += @{ Preset = "AndroidAPK"; Out = "dist\Towerbound-$ver.apk" }
 }
 
+# ── entropy 修補 ────────────────────────────────────────────────────────────
+# Godot 個 Android template 入面嗰個 mbedtls 開嘅係 **`/dev/random`**,喺
+# kernel < 5.6 嘅機上面呢個裝置會阻塞。引擎啟動嗰陣 seed CTR-DRBG 就會吊死
+# 喺度:卡喺 Android splash、冇 crash、冇 ANR、logcat 一句 error 都冇。
+# (第 25 輪喺 HUAWEI STK-L22 / Android 10 / kernel 4.14.116 實測到,而
+# **sideload apk 同 Play 落嘅 aab 一樣中招** —— 兩邊個 .so 係同一份。)
+#
+# 要 patch 嘅係 **gradle build 用嗰個 aar**,唔係 export template 嘅 apk。
+# 第 22 輪 patch 錯咗層(patch 咗 `%APPDATA%\Godot\export_templates\...`),
+# 而 `gradle_build/use_gradle_build=true` 之下 Godot 根本唔會掂嗰個檔,所以
+# 個修補由 1.0.0 到 1.1.0 一直冇入過出貨 build。
+#
+# `android\build\` 係 .gitignore 咗嘅,而且 Godot 一 re-install build template
+# 就會覆蓋返晒 —— 所以呢度每次 build 都行一次。個 script 係 idempotent 嘅:
+# 已經 patch 咗就乜都唔會做。
+$patcher = Join-Path $root "tools\android_template_fix\patch_entropy.py"
+foreach ($aar in @("release\godot-lib.template_release.aar", "debug\godot-lib.template_debug.aar")) {
+  $aarPath = Join-Path $root "android\build\libs\$aar"
+  if (-not (Test-Path $aarPath)) { continue }
+  Write-Host ""
+  Write-Host ("=== entropy patch: " + $aar + " ===")
+  python $patcher $aarPath
+  if ($LASTEXITCODE -ne 0) { throw "entropy patch 失敗:$aarPath" }
+}
+
 foreach ($t in $targets) {
   Write-Host ""
   Write-Host ("=== export " + $t.Preset + " -> " + $t.Out + " ===")
@@ -116,6 +141,13 @@ foreach ($t in $targets) {
   if (-not (Test-Path $abs)) {
     throw ($t.Preset + " export 失敗:" + $t.Out + " 唔喺度 (godot exit " + $code + ")")
   }
+  # 上面 patch 咗個 aar 唔代表個修補真係入到呢一份出貨檔:gradle 有 cache、
+  # Godot 有可能揀第二個 template、將來個 build 流程都可能會變。呢一格係
+  # 直接問**出貨嗰個檔本身**——佢先係玩家部機真正會裝嘅嘢。
+  # 呢個 build 上唔上到 Play 唔會出聲,佢係卡喺 splash 嗰種死法,所以一定要
+  # 喺呢度死,唔可以等真機。
+  python $patcher $abs --verify
+  if ($LASTEXITCODE -ne 0) { throw ($t.Out + " 冇咗 entropy 修補,唔准出貨") }
   Write-Host ("   ok  (godot exit " + $code + ")")
 }
 

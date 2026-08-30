@@ -5,14 +5,16 @@
 邏輯本身(收到 notification 之後做啲乜)已經有 `test/MobileTest.gd` 守住 ——
 呢張紙唔重複嗰半,淨係問部機。
 
-**裝邊個檔:`dist\Towerbound-1.0.0.apk`**(唔係 .aab —— .aab 淨係俾 Play
-Console 食,部機裝唔到)。
+**裝邊個檔:`dist\` 底下嗰個 `Towerbound-<版本>.apk`**(唔係 .aab —— .aab
+淨係俾 Play Console 食,部機裝唔到)。版本號**唔喺呢度寫死**:呢張紙由 1.0.0
+沿用到而家,而每次改版本號都要記得返嚟改一次呢一行,實際上冇人記得 —— 由
+1.0.1 起佢就一直指住一個唔存在嘅檔。`dist\SHA256SUMS.txt` 逐個版本列晒檔名同 SHA-256 —— 揀版本號最大嗰個。
 
 ---
 
 ## 0. 安裝
 
-1. 用 USB / 雲端將 `Towerbound-1.0.0.apk` 傳落部機。
+1. 用 USB / 雲端將嗰個 `.apk` 傳落部機。
 2. 開檔案管理員撳個 apk。第一次會問「允許由呢個來源安裝」→ 允許。
 3. Play Protect 可能會彈「未知開發者」→ 揀「仍然安裝」。
    (呢個係 sideload 嘅正常提示,上咗 Play 之後唔會再有。)

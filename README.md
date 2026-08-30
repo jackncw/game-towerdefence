@@ -123,6 +123,27 @@ powershell -File tools\android_build.ps1 -SkipApk # 淨係出 aab
 讀。**`export_presets.cfg` 入面一個密碼字元都冇**,keystore 同密碼兩個檔都住喺
 repo 以外。
 
+### entropy 修補(唔可以剷)
+
+Godot 個 Android template 入面嗰個 mbedtls 讀 **`/dev/random`** 攞 entropy,
+而喺 **kernel < 5.6** 嘅 Android 機上面呢個裝置**會阻塞** —— 引擎啟動嗰陣
+seed CTR-DRBG 就吊死喺度,**卡喺 splash、冇 crash、冇 ANR、logcat 一句 error
+都冇**。(第 25 輪喺 HUAWEI STK-L22 / Android 10 / kernel 4.14.116 上面
+5 次 launch 5 次中,`.apk` 同 Play 落嘅 `.aab` 一樣壞。)
+
+`android_build.ps1` 因此夾咗兩格:
+
+1. **export 之前**,patch `android\build\libs\{release,debug}\godot-lib.template_*.aar`
+   —— gradle build 攞 native lib 就係呢度,**唔係**
+   `%APPDATA%\Godot\export_templates\` 嗰個 apk。第 7 輪 patch 錯咗後者,
+   結果由 1.0.0 到 1.1.0 個修補一次都冇入過出貨 build。
+2. **export 之後**,`--verify` 出貨嗰個 `.aab` / `.apk` **本身**。patch 咗個
+   aar 唔代表個修補入到出貨檔(gradle 有 cache、流程會變),而呢種死法喺
+   Play Console 完全冇聲出 —— 一定要喺 build 嗰刻死。
+
+`android\build\` 係 `.gitignore` 咗,而且 Godot 一 re-install build template
+就會覆蓋返晒,所以個 patch 每次 build 都會重行(idempotent,做完就 no-op)。
+
 環境要求(全部已裝,路徑寫喺 Godot 嘅 Editor Settings):
 
 | 嘢 | 版本 | 路徑 |
@@ -168,7 +189,8 @@ Icon / splash 由 `tools/android_icons.py` 用**現有遊戲美術**砌出嚟,
 | `tools/i18n_merge.py` | 合併翻譯 CSV |
 | `tools/apply_head_include.py` | `--check` 可以淨係驗證 `.cfg` 有冇落後 |
 | `tools/pck_report.py` | 拆開 `.pck` 睇入面有咩、幾大 |
-| `tools/android_build.ps1` | 出簽好名嘅 `.aab` + `.apk` 落 `dist\`,順手出 SHA-256 |
+| `tools/android_build.ps1` | 出簽好名嘅 `.aab` + `.apk` 落 `dist\`,順手出 SHA-256。export 前 patch entropy、export 後驗返出貨檔本身 |
+| `tools/android_template_fix/patch_entropy.py` | 把 Godot Android template 嗰個 mbedtls 由 `/dev/random` 改去 `/dev/urandom`。食 `.so`/`.aar`/`.apk`/`.aab`,`--verify` 淨係檢查。**唔 patch 個 build 喺 kernel < 5.6 嘅機上面會卡死喺 splash,冇 crash 冇 error** |
 | `tools/layout_shots.tscn` | 喺 6 個真機解像度嘅**視窗**入面影圖(連黑邊),答「20:9 會唔會爆邊」——`art_export` 用固定 SubViewport,答唔到呢條 |
 | `tools/pkg_report.py` | 拆開 `.apk`/`.aab` 睇 `assets/` 有乜、掃開發檔案殘留、逐檔對返 web 嘅 pck |
 | `tools/android_icons.py` | 用現有遊戲美術砌 launcher / adaptive icon + splash + Play Store 512 |

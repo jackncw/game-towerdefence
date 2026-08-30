@@ -23,6 +23,12 @@ extends Node
 
 const DT := 1.0 / 30.0
 const LEVEL := 100
+## 無盡段嘅全 boss 關(第 24 輪)。第 200 關用**同一套** FINAL_WAVES 編排同
+## 勝利判定,所以呢個 test 唔可以淨係守住第 100 關 —— 「finale 只喺第 100 關
+## 出現」呢個假設一路寫死喺幾個地方(`is_final_level`),而無盡段將佢變成
+## 「每一百關重演一次」。一個只驗第 100 關嘅測試喺嗰個改動之下會靜靜咁
+## 唔再守到嘢:池化參照嗰套陷阱喺重複 finale 之下一模一樣咁存在。
+const ENDLESS_LEVEL := 200
 ## boss 全滅之後容許幾多秒先結算。真答案係「同一幀」,但留一點餘裕俾將來
 ## 加死亡動畫之類嘅嘢。
 const WIN_GRACE := 1.0
@@ -52,6 +58,11 @@ func _ready() -> void:
 	await _case_wave_by_wave()
 	await _case_no_early_win()
 	await _case_no_stale_pool_alias()
+	# ── 無盡段嘅全 boss 關(第 200 關)——(第 24 輪)──────────────────
+	await _case_endless_config()
+	await _case_order("H 第200關 順序殺", "seq", 3.0, ENDLESS_LEVEL)
+	await _case_order("I 第200關 亂序殺", "shuffle", 3.0, ENDLESS_LEVEL)
+	await _case_no_stale_pool_alias(ENDLESS_LEVEL)
 
 	if fails.is_empty():
 		print("L100 PASS fails=0 (%d 項)" % checked)
@@ -63,8 +74,8 @@ func _ready() -> void:
 	get_tree().quit(1)
 
 # ---------------------------------------------------------------------------
-func _mk():
-	Flow.selected_level = LEVEL
+func _mk(lv: int = LEVEL):
+	Flow.selected_level = lv
 	Flow.last_result = {}
 	var b = load("res://scenes/Battle.tscn").instantiate()
 	add_child(b)
@@ -143,8 +154,8 @@ func _expect_win(b, tag: String) -> void:
 		% [tag, b.spawned_count - before], b.spawned_count == before)
 
 ## 十隻 boss 出齊之後,用 `order` 嘅次序、每隻之間隔 `gap` 秒殺。
-func _case_order(tag: String, order: String, gap: float) -> void:
-	var b = await _mk()
+func _case_order(tag: String, order: String, gap: float, lv: int = LEVEL) -> void:
+	var b = await _mk(lv)
 	var t: float = await _advance_to_all_spawned(b)
 	_ok("%s:三潮十隻要出得齊(而家 %d 隻,%.0f 秒)" % [tag, b.final_bosses.size(), t],
 		b.final_bosses.size() == 10)
@@ -218,9 +229,9 @@ func _case_no_early_win() -> void:
 
 ## 個 bug 本身嘅結構證據:一隻死咗嘅 boss 俾池回收成雜兵之後,唔可以再算入
 ## 「boss 未死晒」。呢個 case 唔靠時序運氣 —— 佢直接砌返嗰個狀態。
-func _case_no_stale_pool_alias() -> void:
-	var tag := "F 池回收別名"
-	var b = await _mk()
+func _case_no_stale_pool_alias(lv: int = LEVEL) -> void:
+	var tag := "F 池回收別名" if lv == LEVEL else "J 第%d關 池回收別名" % lv
+	var b = await _mk(lv)
 	var t: float = await _advance_to_all_spawned(b)
 	if b.final_bosses.size() != 10:
 		_ok("%s:三潮十隻要出得齊(而家 %d,%.0f 秒)" % [tag, b.final_bosses.size(), t], false)
@@ -237,3 +248,25 @@ func _case_no_stale_pool_alias() -> void:
 	if b.ended:
 		_ok("%s:結算要係勝利" % tag, bool(Flow.last_result.get("win", false)))
 	await _drop(b)
+
+## 第 200 關**係**一場 finale,而且係同第 100 關同一套編排 —— 唔係「一關普通
+## 關啱啱好編號係 200」。呢個 case 守住嗰個身份,因為佢係上面三個 case 嘅前設:
+## 如果 `is_boss_finale_level` 有朝一日又變返 `n == 100`,上面嗰三個 case 會
+## 全部靜靜咁變成「喺一關普通關度等十隻永遠唔會出現嘅 boss」,然後喺
+## `_advance_to_all_spawned` 度行足 CASE_LIMIT 秒先報一個睇落好似時序問題
+## 嘅失敗。
+func _case_endless_config() -> void:
+	var tag := "H0 第200關 = 全 boss 關"
+	_ok("%s:is_boss_finale_level(200)" % tag, GameData.is_boss_finale_level(ENDLESS_LEVEL))
+	_ok("%s:is_boss_finale_level(101) 要係 false" % tag,
+		not GameData.is_boss_finale_level(101))
+	var cfg: Dictionary = GameData.level_config(ENDLESS_LEVEL)
+	_ok("%s:cfg.is_final" % tag, bool(cfg.get("is_final", false)))
+	_ok("%s:cfg 要有 final_waves 三潮" % tag,
+		(cfg.get("final_waves", []) as Array).size() == 3)
+	_ok("%s:十族全出" % tag, (cfg.get("families", []) as Array).size() == 10)
+	# 撞合約關嗰陣全 boss 關優先(700 = 7 x 100)
+	_ok("%s:第700關唔可以係合約關(全 boss 關優先)" % tag,
+		not GameData.is_contract_level(700))
+	_ok("%s:第700關係全 boss 關" % tag, GameData.is_boss_finale_level(700))
+	_ok("%s:第707關係合約關(無盡段照逢 7)" % tag, GameData.is_contract_level(707))

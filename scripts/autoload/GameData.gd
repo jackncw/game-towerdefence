@@ -163,6 +163,9 @@ func _build_wave_cache() -> void:
 func difficulty(n: int) -> float:
 	if n <= 1:
 		return 1.0
+	## 無盡段:封頂,唔再爬。見 is_endless_level() 上面嗰段。
+	if n > FINAL_LEVEL:
+		return float(_diff_cache[endless_anchor(n)])
 	if n < _diff_cache.size():
 		return float(_diff_cache[n])
 	var last: float = float(_diff_cache[FINAL_LEVEL - 1])
@@ -274,8 +277,8 @@ func _fam_pressure(fam: String) -> float:
 ## 家族組合歸一化(第十七輪版本,只計雜兵期)。第十八輪之後**唔再直接用**
 ## —— 佢已經被 `level_wave_norm()` 包住(雜兵期 + boss 期)。留住做診斷同對照。
 func fam_mix_norm(n: int) -> float:
-	## 第 100 關嘅家族係另外指定(全部十族),平均壓力自動係 1 —— 直接返。
-	if is_final_level(n):
+	## 全 boss 關嘅家族係另外指定(全部十族),平均壓力自動係 1 —— 直接返。
+	if is_boss_finale_level(n):
 		return 1.0
 	if _fam_press_mean <= 0.0:
 		var s := 0.0
@@ -361,7 +364,7 @@ func _wave_yield(band: int, r: int) -> float:
 	return y
 
 func level_wave_norm(n: int) -> float:
-	if is_final_level(n):
+	if is_boss_finale_level(n):
 		return 1.0
 	var band: int = _band_of(n)
 	if not _lwn_cache.has(band):
@@ -400,6 +403,38 @@ func boss_scale(n: int) -> float:
 
 func is_final_level(n: int) -> bool:
 	return n == FINAL_LEVEL
+
+# ---------------------------------------------------------------------------
+# 無盡模式(第 24 輪)—— 通關第 100 關之後解鎖,101 關起無上限。
+#
+# 三條規則,全部住喺呢個檔:
+#
+#   1. **難度封頂。** 101 關之後唔再爬。天花板唔係一個數,係「第 100 關嗰一輪」:
+#      普通無盡關 = 第 99 關(全遊戲最硬嘅普通關)、全 boss 關 = 第 100 關。
+#      點解唔係「全部釘第 100 關」嘅字面做法:difficulty(100) = difficulty(99)
+#      x FINAL_SCALE,而 FINAL_SCALE < 1 —— 佢細係因為第 100 關嘅難度嚟自
+#      **十隻 boss 同場**呢個編排,唔係嚟自指數。將嗰個指數搬去一關普通關,
+#      第 101 關就會軟過第 50 關。所以「等值」要按關卡**種類**對:普通對普通、
+#      finale 對 finale。
+#   2. **獎勵同步封頂**,用同一條對應規則。難度平咗而派彩繼續爬 = 無限印鈔。
+#   3. **每 100 嘅倍數 = 全 boss 關**,用同第 100 關一模一樣嘅 FINAL_WAVES
+#      編排同勝利判定。撞正合約關(700)嘅時候全 boss 關優先。
+# ---------------------------------------------------------------------------
+## 無盡段(第 101 關起)。
+func is_endless_level(n: int) -> bool:
+	return n > FINAL_LEVEL
+
+## 全 boss 關(第 100、200、300…關)。第 100 關嘅 finale 編排喺無盡段每一百關
+## 重演一次 —— 呢個係無盡段唯一有「里程碑」感覺嘅嘢。
+func is_boss_finale_level(n: int) -> bool:
+	return n > 0 and n % FINAL_LEVEL == 0
+
+## 難度/派彩封頂之後,第 n 關對應返 1-100 入面邊一關。
+## finale 關對 finale 關(100),普通關對最後一關普通關(99)。
+func endless_anchor(n: int) -> int:
+	if n <= FINAL_LEVEL:
+		return n
+	return FINAL_LEVEL if is_boss_finale_level(n) else FINAL_LEVEL - 1
 ## 冇「基地生命值」呢樣嘢可以睇跌到幾多——一隻怪冇 Barrier 罩住走到底就係直接
 ## 輸,冧咗都冇一個「跌穿三成」嘅時刻存在。所以「危險」音效改以路程做距離代理:
 ## 一隻怪嘅路程比例(dist/route.total)第一次跨過呢個值,並且冇 Barrier 罩住
@@ -822,7 +857,7 @@ func _gold_yield(band: int, r: int) -> float:
 	return y
 
 func level_gold_norm(n: int) -> float:
-	if is_final_level(n):
+	if is_boss_finale_level(n):
 		return 1.0
 	var band: int = _band_of(n)
 	if not _lgn_cache.has(band):
@@ -2065,7 +2100,10 @@ var CONTRACTS := [
 
 func is_contract_level(n: int) -> bool:
 	## 第 100 關唔係合約關 —— 佢係終極戰,唔應該有第二套規則疊落去。
-	return n > 0 and n % CONTRACT_EVERY == 0 and n != FINAL_LEVEL
+	## 無盡段照舊逢 7 —— 合約係一個常設規則,唔係頭一百關嘅專利。
+	## 撞正全 boss 關(700 / 1400 …)嘅時候全 boss 關優先:終極戰唔應該有
+	## 第二套規則疊落去,而呢句喺第 100 關本身一路都係咁。
+	return n > 0 and n % CONTRACT_EVERY == 0 and not is_boss_finale_level(n)
 
 func contract_by_id(cid: String) -> int:
 	for i in CONTRACTS.size():
@@ -2221,7 +2259,7 @@ func level_config(n: int) -> Dictionary:
 		"spawn_interval_min": 0.45 / dens,
 		"elite_chance": elite_chance(n),
 		"is_contract": is_contract_level(n),
-		"is_final": is_final_level(n),
+		"is_final": is_boss_finale_level(n),
 		"is_wall": false,
 	}
 	if cfg["is_final"]:
@@ -2329,6 +2367,10 @@ func _build_reward_cache() -> void:
 func reward_scale(n: int) -> float:
 	if n <= 1:
 		return 1.0
+	## 無盡段:同難度用**同一條**對應規則封頂。兩邊唔用同一條就會出現
+	## 「難度平咗但派彩繼續爬」,即係一部印鈔機。
+	if n > FINAL_LEVEL:
+		return float(_reward_cache[endless_anchor(n)])
 	if n < _reward_cache.size():
 		return float(_reward_cache[n])
 	var last: float = float(_reward_cache[FINAL_LEVEL - 1])
@@ -2349,7 +2391,11 @@ func cumulative_reward(n: int) -> float:
 		return 0.0
 	if n < _cumreward_cache.size():
 		return float(_cumreward_cache[n])
+	## 無盡段嘅 reward_scale 係常數,所以唔使 loop —— 一個打到第 5000 關嘅
+	## 存檔如果行條 loop,每次問 typical_upgrade_cost() 都要行五千次。
 	var acc: float = float(_cumreward_cache[_cumreward_cache.size() - 1])
+	if n > FINAL_LEVEL:
+		return acc + float(n - FINAL_LEVEL) * (REWARD_BASE_CLEAR + REWARD_BASE_FIRST) 			* reward_scale(FINAL_LEVEL + 1) * CRYSTAL_REWARD_MULT
 	for k in range(_cumreward_cache.size(), n + 1):
 		acc += (REWARD_BASE_CLEAR + REWARD_BASE_FIRST) * reward_scale(k) * CRYSTAL_REWARD_MULT
 	return acc

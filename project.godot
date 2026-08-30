@@ -11,6 +11,10 @@ config_version=5
 [application]
 
 config/name="塔防要塞 Tower Fortress"
+; 版本號嘅**唯一真相來源**。設定頁讀佢(唔准 hardcode),而
+; tools/android_build.ps1 開工前會對佢同 export_presets.cfg 兩個 preset 嘅
+; version/name 三個數一致 —— 對唔上即刻死,唔等出完先算。
+config/version="1.1.0"
 ; 作業系統層面顯示嘅 app 名(Android / iOS / macOS 專用,唔會影響視窗標題、
 ; 網頁 <title>、或者遊戲入面嘅 MENU_TITLE)。兩個 locale 都係 "Towerbound"
 ; —— 出街個名唔跟語言變,而 Godot 個 Android exporter 係逐個 locale 寫入

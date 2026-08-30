@@ -3,6 +3,20 @@ extends Control
 var confirm_reset: bool = false
 var reset_btn: Button
 
+# ---------------------------------------------------------------------------
+# 隱藏除錯入口(第 24 輪)
+#
+# 「上次係閃退」報告畫面由主選單拆走咗(見 MainMenu.gd)。底層記錄一個字都
+# 冇拆,所以要留一條路睇得返 —— 但嗰條路唔可以係一粒掣:一粒叫「除錯記錄」
+# 嘅掣坐喺設定頁,同一版彈出嚟嘅紅字一樣,都係喺同玩家講「呢隻嘢會壞」。
+#
+# 所以入口係**長撳版本號五秒**。冇提示、冇動畫、撳唔夠唔會發生任何嘢。
+# 五秒唔係手快撳得到嘅時間,所以唔會有人「唔小心開咗」。
+const DEBUG_HOLD_SECONDS := 5.0
+var _ver_hold: float = 0.0
+var _ver_pressed: bool = false
+var _ver_btn: Button
+
 func _ready() -> void:
 	UI.menu_backdrop(self)
 	add_child(UI.banner_title(tr("NAV_SETTINGS"), 30, 520, 52))
@@ -20,7 +34,9 @@ func _ready() -> void:
 	# 今輪要喺呢一版加一粒省電掣,就冇可能唔順手擺返好個高度。
 	var plate := UI.panel_rect()
 	plate.position = Vector2(80, 240)
-	plate.size = Vector2(920, 1000)
+	# 1000 -> 1180:第 24 輪喺「最高通關」面板下面加咗私隱政策同版本號兩行
+	# (最底一行去到 y=1414),plate 唔跟住長就會有兩粒掣浮喺框外面。
+	plate.size = Vector2(920, 1180)
 	add_child(plate)
 
 	var vb := VBoxContainer.new()
@@ -89,6 +105,53 @@ func _ready() -> void:
 	info.size = Vector2(800, 90)
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	stat.add_child(info)
+
+	# ── 私隱政策 ────────────────────────────────────────────────────────
+	# 上架要求。條 URL 同 Play Console 填嘅係同一條 —— 佢已經 live 咗,
+	# 所以呢度唔會出一條死 link。
+	var priv := UI.button(tr("SET_PRIVACY"), Vector2(800, 88), UI.PANEL_HI, 30)
+	priv.position = Vector2(140, 1236)
+	priv.pressed.connect(func():
+		Audio.play("ui_click")
+		OS.shell_open(PRIVACY_URL))
+	add_child(priv)
+
+	# ── 版本號(兼隱藏除錯入口)────────────────────────────────────────
+	# **唔准 hardcode。** 讀 project.godot 嘅 application/config/version,
+	# 而嗰個數同 export_presets.cfg 兩個 preset 嘅 version/name 由
+	# tools/android_build.ps1 開工前對齊(對唔上唔准出貨)。
+	_ver_btn = UI.button(tr("SET_VERSION").format({"v": app_version()}),
+		Vector2(800, 76), UI.PANEL, 26)
+	_ver_btn.position = Vector2(140, 1338)
+	_ver_btn.button_down.connect(func(): _ver_pressed = true; _ver_hold = 0.0)
+	_ver_btn.button_up.connect(func(): _ver_pressed = false; _ver_hold = 0.0)
+	add_child(_ver_btn)
+	set_process(true)
+
+## 版本號嘅唯一來源。
+static func app_version() -> String:
+	var v := String(ProjectSettings.get_setting("application/config/version", ""))
+	return v if v != "" else "?"
+
+## 私隱政策(GitHub Pages,同 Play Console 填嗰條一樣)。
+const PRIVACY_URL := "https://jackncw.github.io/game-towerdefence/privacy.html"
+
+## 長撳版本號五秒 -> 開除錯記錄。見檔頭 DEBUG_HOLD_SECONDS 嗰段。
+func _process(delta: float) -> void:
+	if not _ver_pressed:
+		return
+	_ver_hold += delta
+	if _ver_hold < DEBUG_HOLD_SECONDS:
+		return
+	_ver_pressed = false
+	_ver_hold = 0.0
+	open_debug_log()
+
+## 抽出嚟做一個 public method:測試唔使模擬五秒長撳先驗得到個檢視器砌得出。
+func open_debug_log() -> void:
+	Audio.play("ui_click")
+	UI.toast(self, tr("SET_DEBUG_OPENED"), UI.GOLD)
+	CrashReport.present_debug(self)
 
 ## Label + one button per shipping locale. The selected one is highlighted; a
 ## tap switches immediately (Flow.set_locale reloads this scene, so the whole

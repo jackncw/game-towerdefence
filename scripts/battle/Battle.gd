@@ -282,6 +282,11 @@ func _ready() -> void:
 	# elapsed = 0,一隻怪都未出。HUD 會先彈說明窗,撳確定先攤卡。
 	if contract_level:
 		_open_contract_offer()
+	# 首戰引導(第 24 輪)。喺合約之後 —— 兩者永遠唔會同場(第 1 關唔係合約
+	# 關),但如果將來改咗逢幾多關抽卡,「兩個 modal 疊住」會係一個靜音錯誤,
+	# 所以呢度明文守住次序同互斥。
+	elif Meta.should_show_tutorial(level):
+		_open_tutorial()
 
 func _exit_tree() -> void:
 	Crash.crumb("battle", "離場 lv=%d 塔=%d 怪=%d 殺=%d" % [level, towers.size(), monsters.size(), kills])
@@ -474,6 +479,9 @@ func _process(delta: float) -> void:
 	# 「模擬入面隻怪偷咗跑,真機冇」,兩邊量出嚟嘅嘢就唔係同一隻遊戲。
 	if contract_pending:
 		return
+	# 引導卡攤住 = 時間唔准行,同合約卡一模一樣嘅理由(見上一段)。
+	if tutorial_pending:
+		return
 	# camera shake (uses cam.offset so pan/zoom clamp logic is untouched)
 	if _shake_t > 0.0:
 		_shake_t -= delta
@@ -610,6 +618,42 @@ func _open_contract_offer() -> void:
 	_set_world_paused(true)
 	if hud and hud.has_method("show_contract"):
 		hud.show_contract(offer)
+
+# ---------------------------------------------------------------------------
+# 首戰引導(第 24 輪,Part F)。四張一次性提示卡,只喺全新存檔嘅第一場出。
+# 卡本身喺 BattleHUD;呢度只管「場凍唔凍」同「幾時當佢睇完」。
+# ---------------------------------------------------------------------------
+var tutorial_pending: bool = false
+
+func _open_tutorial() -> void:
+	if ended or contract_pending:
+		return
+	## **Harness 一律唔開。** `Flow.nav_enabled == false` = 個 tree 由一個
+	## headless harness 揸住(佢自己逐個節點叫 _process)。喺嗰個世界度
+	## 一張等人撳嘅卡就係一個永遠唔會有人撳嘅卡,而 `tutorial_pending`
+	## 令 `_process` 早返 —— 即係成個 harness 靜靜咁掛喺第 1 關。
+	##
+	## 呢個唔係一個「順手加嘅保險」:同一類事已經咬過三次(逢 7 嘅合約關
+	## 坐死 BossHealTest / BossSpawnTest / SoakTest),而症狀每次都係「所有
+	## 同時間有關嘅斷言一齊靜靜咁失敗」。所以呢度用同 `_set_world_paused()`
+	## 一模一樣嗰個旗,唔靠每個 harness 記得自己關。
+	if not Flow.nav_enabled:
+		return
+	tutorial_pending = true
+	_set_world_paused(true)
+	# **睇過就當睇過,唔等佢撳完先寫。** 一個喺引導中途 force-quit 嘅新玩家
+	# 下一次開場唔應該再食一次同一疊卡 —— 而佢已經見過第一張。
+	Meta.mark_tutorial_done()
+	if hud and hud.has_method("show_tutorial"):
+		hud.show_tutorial()
+
+func close_tutorial() -> void:
+	if not tutorial_pending:
+		return
+	tutorial_pending = false
+	_set_world_paused(false)
+	if hud and hud.has_method("hide_tutorial"):
+		hud.hide_tutorial()
 
 ## 攤卡期間凍結成個場。
 ##

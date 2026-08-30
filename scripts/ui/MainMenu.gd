@@ -79,10 +79,18 @@ func _ready() -> void:
 	# 畫廊本身冇刪:tools/art_export.gd 同 SoakTest 仲會由原始碼開佢。佢淨係
 	# 唔再出貨 —— 見 export_presets.cfg 嘅 exclude_filter。
 
-	# 上次啟動係閃退嘅話,喺呢度彈報告。主選單係開機必經嘅第一個畫面,而
-	# 一份寫咗但冇人讀得到嘅閃退記錄(iOS 網頁版嘅 user:// 收喺 IndexedDB)
-	# 同冇寫係一樣嘅 —— 見 CrashReport.gd。
-	CrashReport.present(self)
+	# 「上次係閃退」報告畫面 **喺呢度拆走咗**(第 24 輪,上架前)。
+	#
+	# 點解:嗰個畫面係為咗查一單具體嘅 iOS 網頁版閃退而加嘅診斷工具,而佢
+	# 出現嘅時機係「開機第一眼」。對一個查緊 bug 嘅人嚟講咁啱;對一個買咗
+	# 隻遊戲嘅玩家嚟講,佢係一版紅字 + 一堆佢睇唔明嘅麵包屑,而且佢會喺
+	# **任何**非正常結束之後彈 —— 包括「用家自己 force-quit 咗個 app」呢種
+	# 完全正常嘅事。一個嚇親玩家嘅假警報,唔值。
+	#
+	# **底層一個字都冇拆。** Crash autoload 照樣寫 marker、麵包屑同
+	# user://logs/crash.log —— 嗰啲係查問題嘅真證物,而且成本係事件級唔係
+	# 逐幀。變嘅只係「邊個睇得到」:而家要喺設定頁長撳版本號五秒先開到
+	# (見 Settings.gd)。理由喺報告 Part B。
 
 	# one-time notice after a save migration (詛咒塔 rework refund). Shown here
 	# because the main menu is the first screen an existing save ever reaches.

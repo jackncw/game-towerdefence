@@ -7,7 +7,14 @@ func _ready() -> void:
 	var lv: int = r.get("level", 1)
 
 	add_child(UI.banner_title(tr("RESULT_TITLE"), 168, 760, 62))
-	var sub := UI.title(tr("COMMON_LEVEL_N").format({"n": lv}), 40)
+	# 無盡段嘅關卡編號本身睇唔出「呢關係無盡段」,而全 boss 關更加要認得出。
+	# 用同一行副標題加一個尾綴,唔另開一行 —— 下面塊面板釘死喺 y=382,
+	# 加一行就會頂到佢。
+	var subtxt := tr("COMMON_LEVEL_N").format({"n": lv})
+	if GameData.is_endless_level(lv):
+		subtxt += "  ·  " + tr("ENDLESS_FINALE_TAG" if GameData.is_boss_finale_level(lv)
+			else "ENDLESS_TAG")
+	var sub := UI.title(subtxt, 40)
 	sub.position = Vector2(0, 300); sub.size = Vector2(1080, 60)
 	add_child(sub)
 
@@ -49,7 +56,11 @@ func _ready() -> void:
 	hb.add_theme_constant_override("separation", 24)
 	add_child(hb)
 	var nextn := lv + 1
-	if nextn <= GameData.FINAL_LEVEL:
+	## 「下一關」喺無盡段一樣要有 —— 之前個條件係 `nextn <= FINAL_LEVEL`,即係
+	## 一過咗第 100 關,結算畫面就淨返「重玩」同「主選單」,而無盡段嘅正常
+	## 玩法就係一關接一關。條件而家係「下一關存在」:1-100 一路有,而通關咗
+	## 第 100 關之後永遠有(無盡段冇上限)。
+	if nextn <= GameData.FINAL_LEVEL or Meta.endless_unlocked():
 		var nxt := UI.button(tr("RESULT_NEXT").format({"n": nextn}), Vector2(360, 130), UI.ACCENT, 36)
 		nxt.pressed.connect(func(): Flow.play_level(nextn))
 		hb.add_child(nxt)

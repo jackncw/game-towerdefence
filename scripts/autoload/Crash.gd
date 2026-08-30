@@ -245,6 +245,24 @@ func last_crash_report() -> String:
 		lines.append(str(c))
 	return "\n".join(lines)
 
+## 今次開機到而家嘅麵包屑,砌成同 last_crash_report() 一模一樣嘅格式。
+##
+## 用喺設定頁嗰個隱藏除錯檢視器(第 24 輪):一部**冇**閃退過嘅機打開佢嗰陣,
+## 「冇嘢睇」係一個冇用嘅答案 —— 而「而家做緊乜」先係現場報告要嘅嘢。
+func live_report() -> String:
+	var lines: Array = []
+	lines.append("塔防要塞 / Tower Fortress — session log (live)")
+	lines.append("session: %s" % _session_id)
+	lines.append("now: %s" % Time.get_datetime_string_from_system())
+	lines.append("device: %s %s" % [OS.get_name(), OS.get_model_name()])
+	lines.append("engine: %s" % Engine.get_version_info().get("string", "?"))
+	lines.append("app: %s" % String(ProjectSettings.get_setting("application/config/version", "?")))
+	lines.append("--- breadcrumbs (oldest first) ---")
+	for c in _crumbs:
+		lines.append(str(c))
+	return "
+".join(lines)
+
 ## 畫趨勢嗰陣可以揀嘅數,由最有用去到最冇用。
 ##
 ## **`static` 唔喺入面,而且唔可以加返。** 佢喺每一個 release export template

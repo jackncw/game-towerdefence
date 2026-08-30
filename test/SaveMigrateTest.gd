@@ -92,8 +92,17 @@ func _ready() -> void:
 	_ok("第 42 關係合約關", GameData.is_contract_level(42), "42 唔係合約關")
 	_ok("第 40 關唔係合約關", not GameData.is_contract_level(40), "40 變咗合約關")
 	_ok("第 100 關係最終關", GameData.is_final_level(100), "100 唔係最終關")
+	## 舊檔停喺第 40 關 —— 佢**唔應該**解鎖到無盡模式,而且重玩減免要照舊
+	## 生效。呢兩句就係 Part A.5 嗰條邊界喺存檔層面嘅樣。
+	_ok("第 40 關嘅舊檔冇解鎖無盡", not Meta.endless_unlocked(), "無端端解咗鎖")
+	_ok("第 40 關嘅舊檔重玩減免照舊", Meta.replay_penalty_active(), "減免冇咗")
+	_ok("舊檔冇 tutorial_done 都唔會俾引導煩親(highest_level > 0)",
+		not Meta.should_show_tutorial(1), "舊玩家會見到新手引導")
 	_ok("舊檔冇被寫入合約欄位", not Meta.to_dict().has("contracts"),
 		"to_dict 多咗欄位")
+
+	# --- 1.0.1 舊存檔 -> 1.1.0 無盡模式(第 24 輪)---------------------------
+	_case_101_saves()
 
 	# --- 寫返出去再載入,唔准有嘢走樣 ---------------------------------------
 	Meta.save_game()
@@ -120,6 +129,61 @@ func _ready() -> void:
 			print("SAVEMIGRATE FAIL " + x)
 		print("SAVEMIGRATE FAIL fails=%d / %d" % [_fails.size(), _n])
 		get_tree().quit(1)
+
+## 一份 1.0.1(即係上一個出街版)寫低嘅存檔,喺 1.1.0 載入之後要:
+##   * 一項進度都唔走樣(存檔格式一個欄位都冇加)
+##   * 通關過第 100 關嗰份 -> 無盡模式解鎖、重玩派全額
+##   * 未通關第 100 關嗰份 -> 冇解鎖、重玩照樣減半
+##
+## 點解要兩份而唔係一份:呢一輪加咗一條**由存檔內容推導出嚟**嘅開關
+## (`endless_unlocked()` 讀 `cleared["100"]`)。一個只驗「解鎖到」嘅測試
+## 證明唔到嗰個開關真係有關住嘢 —— 而一個永遠 true 嘅開關會靜靜咁令
+## 全部 1-100 嘅平衡讀數位移。
+func _case_101_saves() -> void:
+	for tc in [{"top": 100, "unlock": true}, {"top": 88, "unlock": false}]:
+		var top: int = int(tc["top"])
+		var want: bool = bool(tc["unlock"])
+		var save: Dictionary = OLD_SAVE.duplicate(true)
+		var cl := {}
+		for n in range(1, top + 1):
+			cl[str(n)] = true
+		save["cleared"] = cl
+		save["highest_level"] = top
+		# 1.0.1 冇 tutorial_done 呢個 key —— 呢個就係佢同一份 1.1.0 存檔嘅
+		# 唯一分別,而佢要照樣載入得到。
+		(save["settings"] as Dictionary).erase("tutorial_done")
+		var fh := FileAccess.open(Meta.SAVE_PATH, FileAccess.WRITE)
+		fh.store_string(JSON.stringify(save, "	"))
+		fh.close()
+		Meta.load_game()
+		Meta._migrate()
+		var tag := "1.0.1 存檔(打到第 %d 關)" % top
+		_ok("%s:進度冇走樣" % tag, Meta.highest_level == top and Meta.crystals == 48213,
+			"highest=%d crystals=%d" % [Meta.highest_level, Meta.crystals])
+		_ok("%s:save_version 冇被重新遷移" % tag, Meta.save_version == Meta.SAVE_VERSION,
+			"version=%d" % Meta.save_version)
+		_ok("%s:冇假 rework 退款" % tag, Meta.rework_refund == 0,
+			"refund=%d" % Meta.rework_refund)
+		_ok("%s:無盡解鎖 = %s" % [tag, str(want)], Meta.endless_unlocked() == want,
+			"實際 %s" % str(Meta.endless_unlocked()))
+		_ok("%s:重玩減免 = %s" % [tag, str(not want)],
+			Meta.replay_penalty_active() == (not want),
+			"實際 %s" % str(Meta.replay_penalty_active()))
+		_ok("%s:tutorial_done 補得返個預設" % tag,
+			Meta.settings.has("tutorial_done"), "冇補到 key")
+		_ok("%s:唔會彈新手引導" % tag, not Meta.should_show_tutorial(1),
+			"舊玩家會見到新手引導")
+		# 重玩一關已通關嘅關,派彩要跟返上面嗰個邊界
+		var lv := 30
+		var full: int = GameData.level_crystal_reward(lv)
+		var got: int = int((Meta.on_level_cleared(lv) as Dictionary)["base"])
+		_ok("%s:重玩第 30 關派 %s" % [tag, "全額" if want else "半額"],
+			got == (full if want else int(full / 2)),
+			"派咗 %d,全額 %d" % [got, full])
+		if want:
+			# 解鎖之後選關介面唔再封頂喺 100
+			_ok("%s:下一關係無盡段" % tag, Meta.next_level() > GameData.FINAL_LEVEL,
+				"next=%d" % Meta.next_level())
 
 func _ok(name: String, cond: bool, detail := "") -> void:
 	_n += 1

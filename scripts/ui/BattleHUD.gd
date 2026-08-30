@@ -784,6 +784,95 @@ func _toggle_contract_summary() -> void:
 
 ## 入關流程:先彈說明窗,撳確定先攤三張卡。每次入合約關都彈 ——
 ## 呢個窗就係「合約關規則」嘅教學位,唔靠玩家記得七關之前見過一次。
+# ---------------------------------------------------------------------------
+# 首戰引導(第 24 輪,Part F)
+#
+# 四張一次性提示卡,只喺一個**全新存檔**嘅第一場戰鬥出一次(條件喺
+# Meta.should_show_tutorial())。整場凍住 —— 一個一路出緊怪嘅背景下面
+# 冇人會讀字。
+#
+# 點解係四張卡而唔係逐格高亮嘅互動教學:互動教學要 hook 住每一個真操作
+# (拖到一半、放錯位、撳錯掣),而每一個 hook 都係一條只會喺教學入面行到
+# 嘅 code path —— 呢隻遊戲嘅輸入層(卡 gui_input 搶走成個手勢)本身已經係
+# 全 project 最多陷阱嗰一忽,再疊一層狀態機落去係一個唔值得嘅風險。四張
+# 卡講嘅四件事(拖卡起塔 / 放魔法 / 速度掣 / 邊度變強)啱啱好就係新手最常
+# 問嗰四條,而且撳「跳過」一秒就走得。
+# ---------------------------------------------------------------------------
+const TUTORIAL_PAGES := 4
+var tutorial_layer: Control = null
+var _tut_page: int = 0
+
+func show_tutorial() -> void:
+	_tut_page = 0
+	_build_tutorial()
+
+func hide_tutorial() -> void:
+	if tutorial_layer != null and is_instance_valid(tutorial_layer):
+		tutorial_layer.queue_free()
+	tutorial_layer = null
+
+func _build_tutorial() -> void:
+	hide_tutorial()
+	tutorial_layer = Control.new()
+	tutorial_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tutorial_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	# 個場凍住嗰陣底下唔應該撳得到嘢
+	tutorial_layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(tutorial_layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0.05, 0.03, 0.02, 0.88)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tutorial_layer.add_child(dim)
+
+	var idx := _tut_page + 1
+	var box := UI.panel_parch()
+	box.position = Vector2(80, 560)
+	box.size = Vector2(920, 560)
+	tutorial_layer.add_child(box)
+	var step := UI.label("%d / %d" % [idx, TUTORIAL_PAGES], 26, Color(0.45, 0.33, 0.18))
+	step.position = Vector2(128, 596); step.size = Vector2(824, 34)
+	step.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tutorial_layer.add_child(step)
+	var stt := UI.label(tr("TUT_%d_TITLE" % idx), 38, Color(0.35, 0.24, 0.12))
+	stt.position = Vector2(128, 638); stt.size = Vector2(824, 50)
+	stt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tutorial_layer.add_child(stt)
+	# 羊皮紙框有一圈 baked border,字要縮 30px+ 先唔會被框邊蓋住;而一個自由
+	# Label 包中文包得唔穩,所以要放喺一個固定大細嘅 clip Control 入面。
+	var clip := Control.new()
+	clip.position = Vector2(128, 706)
+	clip.size = Vector2(824, 340)
+	clip.clip_contents = true
+	tutorial_layer.add_child(clip)
+	var body := UI.label(tr("TUT_%d_BODY" % idx), 30, Color(0.30, 0.20, 0.12))
+	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	body.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY 		if TranslationServer.get_locale().begins_with("zh") else TextServer.AUTOWRAP_WORD_SMART
+	body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	clip.add_child(body)
+
+	var nxt := UI.button(tr("TUT_NEXT"), Vector2(420, 104), UI.ACCENT, 36)
+	nxt.position = Vector2(330, 1170)
+	nxt.pressed.connect(_tut_advance)
+	tutorial_layer.add_child(nxt)
+	var skip := UI.button(tr("TUT_SKIP"), Vector2(240, 84), UI.PANEL, 30)
+	skip.position = Vector2(420, 1296)
+	skip.pressed.connect(_tut_finish)
+	tutorial_layer.add_child(skip)
+
+func _tut_advance() -> void:
+	_tut_page += 1
+	if _tut_page >= TUTORIAL_PAGES:
+		_tut_finish()
+		return
+	Audio.play("ui_click")
+	_build_tutorial()
+
+func _tut_finish() -> void:
+	Audio.play("ui_click")
+	hide_tutorial()
+	if battle != null and is_instance_valid(battle) and battle.has_method("close_tutorial"):
+		battle.close_tutorial()
+
 func show_contract(offer: Array) -> void:
 	_build_contract_intro(offer)
 

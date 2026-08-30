@@ -29,7 +29,7 @@ var cleared: Dictionary = {}          # "N": true for cleared levels
 ## power_save = 幀率上限由 60 跌到 30(見 Flow.FPS_POWER_SAVE)。預設關 ——
 ## 預設就慳電等於預設就冇咁順,而發熱唔係每部機都有嘅問題。
 var settings: Dictionary = {"volume": 0.8, "volume_bgm": 1.0, "volume_sfx": 1.0,
-	"muted": false, "locale": "", "power_save": false}
+	"muted": false, "locale": "", "power_save": false, "tutorial_done": false}
 var seen: Dictionary = {}             # bestiary: "fam_1".."fam_5","fam_boss" => true
 ## 快捷列 —— 戰鬥底欄常駐嗰 6 格。0 = 空格,位置有意義(第 i 格就係畫面第 i 格),
 ## 所以呢個 Array 唔可以用 _to_int_array() 讀:嗰個會隔走 0 又會去重,
@@ -378,6 +378,52 @@ func spell_up_cost(id: int, dir: int) -> int:
 func is_cleared(n: int) -> bool:
 	return cleared.has(str(n))
 
+# ---------------------------------------------------------------------------
+# 無盡模式(第 24 輪)
+# ---------------------------------------------------------------------------
+## 通關第 100 關 = 解鎖無盡段。呢個係一個**推導出嚟**嘅狀態,唔係一個新存檔
+## 欄位 —— `cleared["100"]` 由第一日起就已經寫落存檔,所以一個 1.0.1 嘅舊
+## 存檔一開就已經帶住正確答案,冇任何遷移步驟。加一個欄位反而會出現
+## 「打過第 100 關但個 flag 冇寫」呢種只可能係錯嘅狀態。
+func endless_unlocked() -> bool:
+	return is_cleared(GameData.FINAL_LEVEL)
+
+## 無盡段行到第幾關(0 = 未行過)。`highest_level` 本身冇封頂,所以呢個係
+## 一個純顯示用嘅換算。
+func endless_progress() -> int:
+	return maxi(0, highest_level - GameData.FINAL_LEVEL)
+
+## 重玩減免仲有冇效。
+##
+## 通關第 100 關之後**全部**重玩減免取消(通關獎勵唔再減半、敗仗獎勵唔再
+## 打 LOSE_REPLAY_FRAC)。理由:減免存在嘅意義係「推你去打新關,唔好磨舊關」,
+## 而通關咗第 100 關之後「新關」已經係無盡段 —— 嗰度難度封咗頂,磨舊關同
+## 磨新關嘅收入本來就一樣,再罰重玩就淨係喺懲罰一個已經冇得再進步嘅玩家。
+##
+## **邊界好緊要:呢條只喺通關 100 之後生效。** 1-100 進程中嘅減免規則一個字
+## 都冇改 —— Gate 1-8 全部量喺一個未通關第 100 關嘅存檔上面,所以佢哋嘅讀數
+## 唔可能受呢條影響。守門喺 test/RegressionTest 嘅 replay-boundary case。
+func replay_penalty_active() -> bool:
+	return not endless_unlocked()
+
+# ---------------------------------------------------------------------------
+# 首戰引導(第 24 輪,Part F)
+# ---------------------------------------------------------------------------
+## 只喺一個**全新存檔**嘅第一場戰鬥出一次。
+##
+## 兩個條件都要:`tutorial_done` 冇寫過,而且 `highest_level == 0`。第二個
+## 條件係專登為咗**已經喺度嘅玩家**加嘅 —— 一個 1.0.1 嘅存檔冇 tutorial_done
+## 呢個 key,如果淨係睇第一個條件,佢下次開場就會食一疊教佢點拖卡嘅提示,
+## 而佢已經打到第 80 關。舊存檔冇呢個 key = 佢從來冇需要過。
+func should_show_tutorial(level: int) -> bool:
+	return level == 1 and highest_level == 0 		and not bool(settings.get("tutorial_done", false))
+
+func mark_tutorial_done() -> void:
+	if bool(settings.get("tutorial_done", false)):
+		return
+	settings["tutorial_done"] = true
+	save_game()
+
 ## `mult` = 合約關嘅總晶石倍率(普通關永遠 1.0)。
 ##
 ## **倍率只兌現喺通關,唔兌現喺敗仗。** 呢個係量出嚟之後改嘅決定。
@@ -397,21 +443,25 @@ func on_level_cleared(n: int, mult := 1.0) -> Dictionary:
 	## `cleared` IS the first-clear record and is persisted in save.json, so a
 	## replay after a restart correctly pays no first-clear bonus.
 	var replay := is_cleared(n)   # must be read BEFORE marking the level cleared
+	## 減半同「首通獎勵」係兩件事,唔可以共用一個 bool。無盡段解鎖之後取消
+	## 嘅只係**減半**;首通獎勵永遠一關一次,唔係嘅話重玩就會變成一部印鈔機。
+	var penalty := replay and replay_penalty_active()
 	var base := int(round(GameData.level_crystal_reward(n) * mult))
-	if replay:
+	if penalty:
 		base = int(base / 2)
 	var first := 0 if replay else int(round(GameData.level_first_clear_bonus(n) * mult))
 	cleared[str(n)] = true
 	highest_level = maxi(highest_level, n)
 	add_crystals(base + first)  # also saves
-	return {"base": base, "first": first, "total": base + first, "replay": replay,
+	return {"base": base, "first": first, "total": base + first, "replay": penalty,
 		"mult": mult}
 
 func on_level_failed(n: int, kills: int, elapsed: float, boss_time_s: float,
 		boss_frac: float, mult := 1.0) -> Dictionary:
 	## 輸咗都有魔晶: pays out by progress, capped at GameData.LOSE_REWARD_CAP_FRAC
 	## of the clear reward, and nothing at all inside the anti-farm window.
-	var replay := is_cleared(n)   # a loss on an already-cleared level pays less
+	## 同 on_level_cleared 一樣:通關第 100 關之後冇重玩減免。
+	var replay := is_cleared(n) and replay_penalty_active()
 	# 注意:呢度**冇**乘 mult —— 見 on_level_cleared() 上面嗰段。
 	var reward := GameData.level_lose_reward(n, kills, elapsed, boss_time_s, boss_frac, replay)
 	if reward > 0:
@@ -556,6 +606,10 @@ func load_game() -> void:
 	# 效能輪加嘅。舊存檔冇呢個 key,false 就係佢哋一直以嚟嘅行為。
 	if not settings.has("power_save"):
 		settings["power_save"] = false
+	# 第 24 輪加嘅首戰引導。舊存檔冇呢個 key —— 佢哋唔會見到引導,因為
+	# should_show_tutorial() 仲要求 highest_level == 0(見嗰度嘅註)。
+	if not settings.has("tutorial_done"):
+		settings["tutorial_done"] = false
 	# 一定要喺 unlocked_towers 讀完之後 —— 清洗嘅規則要用到「呢座塔解鎖咗未」
 	_sanitize_quick_slots()
 

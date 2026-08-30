@@ -102,6 +102,13 @@ def main() -> int:
         pg.on("pageerror", lambda e: errors.append("pageerror: %s" % e))
 
         w, h = 520, 924
+        # 主選單每粒掣嘅畫面 y(見上面第 2 步嘅註)
+        _K = 924.0 / 1920.0
+        MENU_Y = {
+            "play": (620 + 60) * _K,                      # 開始遊戲
+            "select": (620 + 120 + 26 + 55) * _K,         # 選擇關卡
+            "settings": (620 + 120 + 26 + 5 * 136 + 55) * _K,  # 設定
+        }
 
         def shot(name: str) -> None:
             pg.screenshot(path=os.path.join(SHOTS, name + ".png"))
@@ -150,7 +157,13 @@ def main() -> int:
         print("IDBFS keys:", [k for k in keys if "logs" in k or "save" in k][:8])
 
         # ── 2. 主選單 -> 選關介面(要見到無盡段)────────────────────
-        tap(w * 0.5, h * 0.531)          # 「選擇關卡」
+        # **坐標要由 MainMenu.gd 算返出嚟,唔可以由第二個工具抄。**
+        # VBox 由 y=620 起,separation 26,第一粒高 120 其餘 110,
+        # 而 1080x1920 落 520x924 係啱啱好同一個比例(冇黑邊),
+        # 所以 screen_y = design_y * 924/1920。第一版由 web_smoke.py 抄咗
+        # 一組舊坐標過嚟,結果「開始遊戲」嗰下撳咗落「選擇關卡」——
+        # 而個 script 照樣一路行落去,冇任何一步報錯。
+        tap(w * 0.5, MENU_Y["select"])   # 「選擇關卡」
         pg.wait_for_timeout(2500)
         shot("02_levelselect_top")
         # 捲到最底 —— 無盡段排喺 1-100 格仔陣之後
@@ -164,7 +177,7 @@ def main() -> int:
         # ── 3. 由主選單直入第 101 關 ────────────────────────────────
         pg.goto(args.url)
         pg.wait_for_timeout(args.boot)
-        tap(w * 0.5, h * 0.42)           # 「開始遊戲(第 101 關)」
+        tap(w * 0.5, MENU_Y["play"])     # 「開始遊戲(第 101 關)」
         pg.wait_for_timeout(4000)
         shot("04_battle_101")
         # 起一座塔證明真係入咗場(唔係卡喺主選單)
@@ -183,7 +196,7 @@ def main() -> int:
         ls = pg.evaluate("() => { try { return localStorage.getItem('tf_session_open') || ''; } catch(e) { return 'ERR'; } }")
         # 個報告係一個蓋住成版嘅 modal。撳「開始遊戲」再確認真係入到場 ——
         # 如果報告喺度,呢一下就會撳中個 modal,而我哋會停喺主選單。
-        tap(w * 0.5, h * 0.42)
+        tap(w * 0.5, MENU_Y["play"])
         pg.wait_for_timeout(4000)
         shot("07_no_crash_screen")
         moved = pg.evaluate(
@@ -198,7 +211,7 @@ def main() -> int:
         # ── 5. 設定頁:版本號 + 私隱政策 ────────────────────────────
         pg.goto(args.url)
         pg.wait_for_timeout(args.boot)
-        tap(w * 0.5, h * 0.792)          # 「設定」
+        tap(w * 0.5, MENU_Y["settings"]) # 「設定」
         pg.wait_for_timeout(2500)
         shot("08_settings")
         pg.mouse.move(w * 0.5, h * 0.6)

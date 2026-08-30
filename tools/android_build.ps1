@@ -106,6 +106,11 @@ foreach ($t in $targets) {
   # (tools\run_tests.ps1 因為同一個原因用同一個做法。)
   $p = Start-Process -FilePath $Godot -NoNewWindow -PassThru -Wait `
        -ArgumentList @('--headless', '--path', '.', '--export-release', $t.Preset)
+  # 讀一次 .Handle 逼 PowerShell cache 住個 process handle,.ExitCode 先讀得返
+  # (run_tests.ps1 有同一句同同一段解釋)。-Wait 之下佢唔會好似嗰邊咁報
+  # 全部肥佬,但一個讀唔到嘅 ExitCode 會令下面嗰句錯誤訊息印一個空白數字
+  # —— 而嗰個訊息係出貨失敗嗰陣唯一嘅線索。
+  $null = $p.Handle
   $code = $p.ExitCode
   $abs = Join-Path $root $t.Out
   if (-not (Test-Path $abs)) {

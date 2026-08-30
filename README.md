@@ -43,7 +43,7 @@ Android 出貨名 **Towerbound**(`com.jatgaming.towerbound`)——
 | `docs/index.*` | **出街嘅 web build。呢啲檔案就係 GitHub Pages serve 緊嗰個網站,唔好手動郁。** |
 | `docs/reports/` | 歷輪更新報告(`round-05` … `round-12`) |
 | `docs/design/` | 設計文件同決策紀錄:`CONTRACT.md`(美術/資料契約)、`BALANCE_CHANGELOG.md`(每次平衡改動嘅 before/after + 理由)、各輪 design / plan |
-| `test/` | 46 個 headless 自動測試場景 |
+| `test/` | 48 個 headless 自動測試場景 |
 | `tools/` | 開發工具腳本(見下) |
 | `web/` | web build 嘅 `head_include` 原始碼(JS/CSS) |
 | `art_reference/` | Jack 提供嘅美術參考圖。**只准睇唔准抄像素**,見 `docs/design/CONTRACT.md` |
@@ -152,6 +152,12 @@ Icon / splash 由 `tools/android_icons.py` 用**現有遊戲美術**砌出嚟,
 | `tools/tower_probe.py` | 開工前量 sheet 嘅底色集合 / 格線 / baked-in 文字帶 |
 | `tools/magic_cutout.py` | 由 `art_reference/magic/magic.jfif` 切出魔法 icon;對唔到嘅格留舊圖並印待補清單 |
 | `tools/tower_r20_shots.tscn` | 第 20 輪塔 / 魔法美術嘅專用截圖 harness(要開窗) |
+| `tools/web_r24_verify.py` | 真瀏覽器驗第 24 輪嘅嘢:無盡模式三步、閃退報告頁確認冇咗、設定頁版本號/私隱政策(先 `python -m http.server 8765 --directory docs`) |
+| `tools/sweep.ps1` | 平行跑一份 sweep 定義(`qa/sweeps/*.txt`,一行一個 GateSim 單位)。**讀單位檔一定要 `-Encoding UTF8`**,見檔內註 |
+| `tools/sweep_report.py` | `--mode=final` sweep 嘅總結表(勝率 / 掛死 / 用時 / 殺咗幾多隻 boss) |
+| `tools/seg_report.py` | 幾組 campaign 讀數嘅分段勝率對照 + 成對翻轉 + 逐關表 |
+| `tools/ab_compare.py` | 逐欄對兩組 campaign 讀數(證明一個改動「一個字都冇郁」) |
+| `tools/r24_shots.gd` | 第 24 輪新畫面嘅中英截圖(要 GPU,開窗跑) |
 | `tools/web_smoke.py` | 真瀏覽器行 web build:起塔 / 升級 / 進化 / 放魔法各一次 + 收 console(先 `python -m http.server 8765 --directory docs`) |
 | `tools/gen_audio.py` | 重新生成 `assets/generated_audio/` 全部音效 |
 | `tools/art_export.tscn` | `& $GODOT --path . tools/art_export.tscn -- --out=round-NN-zh --locale=zh_TW` — 影晒每個畫面自查。輸出**永遠**落 `qa/screenshots/` 之下 |

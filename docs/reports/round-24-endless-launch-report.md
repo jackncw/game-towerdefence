@@ -560,6 +560,35 @@ VBox 幾何算返出嚟,唔再係量出嚟嘅百分比。
 `docs/index.*` 重出。`index.pck` = **392 個檔 / 9,316 KB payload**,
 `tools/pck_report.py` 掃過冇 `test/` `tools/` `qa/` 漏入去。
 
+### 部署驗證(push 之後對住 live 站量)
+
+`docs/` 四個檔逐個對過**本機 vs live**,四個 SHA-256 全部一樣:
+
+| 檔 | SHA-256 | 判定 |
+|---|---|---|
+| `index.html` | `cd584efe285957a302af94747127b2a7e6c10ffa7fe449013cc6fa6d3016bd13` | **MATCH** |
+| `index.js` | `68586d6daafc93c6e697b3fb258976874aa7459b8931165ebb1dc3c9614cc42c` | **MATCH** |
+| `index.wasm` | `35116f68540ac41acf7d71ea457added91b5e960a9cca3e2acc72918eaf01277` | **MATCH** |
+| `index.pck` | `0e511ec11b3e0279cc109cf9c0d6224b52ae475123242b32873797ad54d85903` | **MATCH** |
+
+APK / 連結:
+
+| URL | 結果 |
+|---|---|
+| `…/Towerbound-1.1.0.apk` | **HTTP 200**、`application/vnd.android.package-archive`、81,807,605 bytes、SHA-256 同本機**逐 byte 一樣** |
+| `…/Towerbound-1.0.1.apk` | **HTTP 404**(舊檔已剷) |
+| `…/privacy.html` | HTTP 200 |
+
+再用**真瀏覽器**對住 **live 站**行多一次
+(`tools/web_r24_verify.py --url https://jackncw.github.io/game-towerdefence/index.html`):
+**console error 0**,無盡模式三步、閃退報告頁確認冇咗、設定頁見到
+「版本 1.1.0」同「私隱政策」全部 PASS。
+
+> 一個量到嘅小陷阱:push 完之後 Pages **唔係即刻**換版 —— 頭一次對 SHA 嗰陣
+> `index.pck` 仲係第 23 輪嗰個 `6a4caa96…`,而 `index.js` / `index.wasm` 就已經
+> 「match」(佢哋根本冇改過)。即係話**只對冇改過嘅檔係量唔到部署有冇生效嘅**,
+> 一定要對一個今輪真係改咗嘅檔(`index.pck`)先算數。
+
 ### Pages 上嘅 APK
 
 `docs/Towerbound-1.0.1.apk` **剷咗**,換成 `docs/Towerbound-1.1.0.apk`

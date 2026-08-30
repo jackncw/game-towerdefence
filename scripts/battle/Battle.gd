@@ -119,6 +119,10 @@ var spawn_timer: float = 0.0
 var spawned_count: int = 0       # every monster ever spawned this run (SpeedScaleTest B)
 var boss_time: float = 60.0
 var boss_spawned: bool = false
+## boss 出場嗰刻嘅 `elapsed`。圍城斜坡(GameData.boss_siege_ramp)量嘅係
+## 「boss 出場之後拖咗幾耐」,唔係「成場打咗幾耐」—— 兩者喺一場拖得好耐嘅
+## 雜兵期之後會差好遠,而斜坡要罰嘅係前者。
+var boss_since: float = 0.0
 var boss_ref = null
 var boss_ref_serial: int = 0
 # deepest fraction of boss HP removed this run (peaks are kept, so a boss that
@@ -730,7 +734,10 @@ func _spawn_logic(delta: float) -> void:
 				# burst-only profile: no ambient spawns, keep the timer ticking
 				spawn_timer += interval
 				return
-			interval /= rate
+			# 圍城斜坡:拖得越耐,圍城越密(第 24 輪 Part E,見
+			# GameData.boss_siege_ramp 嗰段)。boss 啱啱出場嗰刻 = 1.0,
+			# 所以「殺得快」嘅打法一分錢都唔使俾。
+			interval /= rate * GameData.boss_siege_ramp(elapsed - boss_since)
 		_spawn_wave_monster()
 		spawn_timer += interval
 
@@ -792,6 +799,7 @@ func _final_wave_logic() -> void:
 				set_skeleton_lord(m)
 		if not boss_spawned:
 			boss_spawned = true
+			boss_since = elapsed
 			boss_profile = {"rate": GameData.BOSS_SPAWN_BASE_RATE}
 			burst_def = {}
 			Audio.play("sfx_boss_warning")
@@ -845,6 +853,7 @@ func _burst_logic(delta: float) -> void:
 
 func _spawn_boss() -> void:
 	boss_spawned = true
+	boss_since = elapsed
 	boss_profile = GameData.boss_spawn_profile(cfg.boss_family)
 	burst_def = boss_profile.get("burst", {})
 	if not burst_def.is_empty():

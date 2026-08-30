@@ -102,8 +102,31 @@ const WAVE_BANDS := [
 	## 1.054 → 1.0605 → 1.075 → 1.0637 → **1.0466**。入口每抬高一分,段內
 	## 斜率就除返同一分 —— 難度(99) 由頭到尾冇郁過(所以 FINAL_SCALE 亦都
 	## 唔使跟住改),郁嘅淨係「段入口 vs 段尾」嘅分佈。
-	{"to": 99, "g": 1.0466},   # 逼你雙階段 3
+	##
+	## **第 24 輪:71-99 由一段變兩段(71-80 一個門檻坡 + 81-99 平段)。**
+	## 兩個數住喺下面 WAVE_G_71_80 / WAVE_G_81_99,可以由 CLI override。
+	## 點解要拆:Gate 5a(A2 71-99 ≤12%)實測 18-19%,而剩返嘅勝場**唔係**
+	## 平均分佈 —— 71-80 佔 35%、81-90 佔 15%、91-99 佔 2.8%。即係話呢一段
+	## 嘅入口對 A2 嚟講太軟,而段尾已經硬到冇嘢好加。一個一段式嘅斜率
+	## 郁唔到呢個分佈(斜率加得多,段尾就一齊變成 A3 都過唔到)。
+	## 呢個形狀同 11-16 / 41-46 / 57-62 三個「門檻坡」完全一樣 —— 段入口
+	## 陡、段內平 —— 只不過 71-99 段一直以嚟冇一個。
 ]
+
+## 71-80(門檻坡)同 81-99(平段)嘅斜率。拆做兩個變數而唔係直接寫入
+## WAVE_BANDS,係為咗**校準嗰陣可以由 CLI 掃**(見 _apply_cli_overrides):
+## 一次 A2+A3 嘅 4-seed campaign 對照要 50 分鐘,而唔開呢個掣就要開幾個
+## git worktree 先並行到。
+var WAVE_G_71_80 := 1.0466
+var WAVE_G_81_99 := 1.0466
+
+## WAVE_BANDS 加埋尾兩段。**唔可以喺 const 度砌** —— 尾兩段要俾 CLI override,
+## 而 override 喺 _ready() 先發生。
+func _wave_bands() -> Array:
+	var out: Array = WAVE_BANDS.duplicate(true)
+	out.append({"to": 80, "g": WAVE_G_71_80})
+	out.append({"to": 99, "g": WAVE_G_81_99})
+	return out
 ## 第 100 關嘅**難度指數**倍率(相對第 99 關)。
 ##
 ## 佢細過 1,而嗰個唔係手民之誤:第 100 關嘅難度唔係嚟自指數,係嚟自**編排**
@@ -134,7 +157,37 @@ const WAVE_BANDS := [
 ## 三成二,呢度乘返同一個數,第 100 關嘅**相對**難度先至冇被順手改掉。
 ## 之後 63-70 個坡再 ×1.40 令難度(99) 一齊升,而第 100 關嘅絕對難度唔應該
 ## 順手跟住升 —— 0.073 ÷ 1.40 = 0.052。)
-const FINAL_SCALE := 0.052
+## 0.052 -> **0.55**(第 24 輪,Part D)。**呢個係第一次真校準。**
+##
+## 0.052 係第十八輪用「A4 實測 0/16」定出嚟嘅,而第 23 輪查到嗰個 0/16 全部
+## 係**掛死**唔係敗仗(第 100 關嘅勝利判定壞咗,關卡永遠完成唔到)。修好之後
+## 同一把尺量到 A3 100% / A4 100% —— 即係話呢個數由頭到尾冇量度過任何嘢。
+##
+## 而家有一把量到嘢嘅尺(`--mode=final` + 掛死獨立計數),所以呢個值係由
+## Gate 6a(A3 ≤5%)反解返出嚟嘅。掃描過程同逐格讀數喺
+## docs/reports/round-24-endless-launch-report.md 嘅 Part D。
+##
+## **點解係 0.55:佢係 32 seed 之下最細嘅「A3 過唔到」嘅值。** 實測 A3 喺
+## 第 100 關嘅勝率:100%(≤0.12)→ 81%(0.20)→ 37.5%(0.32)→ 12.5%(0.50)
+## → **0%(0.55 / 0.62 / 0.70 / 0.80,每個 32 seed)**。0.50 同 0.55 之間有
+## 一道好斜嘅崖。揀崖邊上面第一格而唔係揀 0.80,係因為 Gate 6a 要嘅只係
+## 「A3 過唔到」,而喺滿足佢嘅前提下**越軟越好** —— 一個真人玩家嘅強度
+## 低過 harness 嘅 A3(佢用 strong 策略),所以每一分多餘嘅難度都係直接
+## 由玩家嗰邊找數。
+##
+## **Gate 6b(A4 10-30%)量到係做唔到嘅,而且唔係差少少。** 同一把尺:
+## FINAL_SCALE 由 0.052 掃到 **300**(5,769 倍)之下 A4 **每一格都係 16/16 全勝**,
+## 平均用時只由 166.6 秒郁到 174.4 秒,場上最深嗰隻怪只由路程 9% 行到 44%。
+## finale 雜兵全部精英化(`--finalelite=1.0`)、三潮壓縮到 56 秒內出齊
+## (`--finaloverlap=0.35`)兩個掣一樣係 16/16。即係話 A4 呢個**授予**嘅
+## build(箭塔 tier 3 六軸滿級 + 三個滿級 tier 3 魔法 + 場上 45 座塔)同
+## finale 之間差咗兩三個數量級,而 finale 冇任何一個掣夠長去接得返。
+## 詳細掃描表同結論喺報告 Part D。
+##
+## **`--finalscale=` 可以喺 harness 度 override**(同 `--nobossfloor` 一樣係
+## 一個量度用嘅掣,唔影響出街版):一次校準要掃五六個值 x 三十幾個 seed,
+## 而唔開呢個掣就要開五六個 worktree 先做得到並行。
+var FINAL_SCALE := 0.55
 
 var _diff_cache: Array = []
 
@@ -142,7 +195,7 @@ func _build_wave_cache() -> void:
 	_diff_cache = [0.0, 1.0]          # index = 關數;第 1 關 = 1.0
 	var cur := 1.0
 	var n := 2
-	for band in WAVE_BANDS:
+	for band in _wave_bands():
 		while n <= int(band["to"]):
 			cur *= float(band["g"])
 			_diff_cache.append(cur)
@@ -169,7 +222,7 @@ func difficulty(n: int) -> float:
 	if n < _diff_cache.size():
 		return float(_diff_cache[n])
 	var last: float = float(_diff_cache[FINAL_LEVEL - 1])
-	return last * pow(float(WAVE_BANDS[WAVE_BANDS.size() - 1]["g"]), n - (FINAL_LEVEL - 1))
+	return last * pow(WAVE_G_81_99, n - (FINAL_LEVEL - 1))
 
 ## 該關怪物等級帶嘅平均血量倍率,以第 1 關做 1。
 func _lvl_hp_norm(n: int) -> float:
@@ -543,6 +596,40 @@ var BOSS_SPAWN := {
 	"cultist": {"rate":0.4, "pool":["cultist"]},                  # 大祭司:信徒受全場群療
 	"slime":   {"rate":0.10},                                     # 史萊姆之母自己分裂產怪
 }
+
+# ---------------------------------------------------------------------------
+# 圍城斜坡(第 24 輪,Part E)
+#
+# boss 期嘅雜兵出怪率本來係**常數**。後果:一隻殺唔到人嘅慢 boss
+# (哥布林王 / 岩石巨像 / 甲蟲皇)等於一個冇時限嘅磨血位 —— 而 71-99 段
+# 剩返俾 A2 嘅勝場,實測 14.5 / 19.3 點全部落喺呢三族嘅關。
+#
+# 第十七輪試過直接抬高嗰三族嘅 `rate`,唔夠殺。第 24 輪查到點解:第十八輪
+# 加咗 `level_wave_norm()`,而佢會將「boss 期出怪多」讀成「呢關本身好毒」,
+# 於是**同一關嘅雜兵血量被除返軟咗** —— 一個 rate 加成有一半係自己抵銷自己。
+#
+# 呢個掣繞開嗰個抵銷,而且更啱靶:佢唔係「呢一關更毒」,係「**你拖得越耐
+# 越毒**」。level_wave_norm 用一個 30 秒嘅靜態模型估 boss 期,所以一個
+# 只喺 30 秒之後先咬人嘅斜坡由結構上就唔會被佢補償走。
+#
+# 而且佢係**全關卡一致**嘅(唔係逐關系數),所以佢唔會製造新嘅難度孤島 ——
+# 佢係一條劃一嘅「拖延稅」。殺得快嘅 build(A3 雙 tier-3)基本上唔覺,
+# 磨得耐嘅 build(A2 喺自己前沿之後)就要俾。
+# ---------------------------------------------------------------------------
+## boss 出場之後幾多秒到達最高圍城強度。
+var BOSS_SIEGE_RAMP_SECONDS := 90.0
+## 最高幾多倍。1.0 = 完全冇斜坡(即係第 23 輪之前嘅行為)。
+var BOSS_SIEGE_RAMP_MAX := 1.0
+
+## boss 出場咗 `t` 秒之後,雜兵出怪率嘅倍率。
+##
+## 線性,而且由 1.0 起 —— boss 啱啱出場嗰刻同以前一模一樣,所以「殺得快」
+## 呢個打法一分錢都唔使俾。
+func boss_siege_ramp(t: float) -> float:
+	if BOSS_SIEGE_RAMP_MAX <= 1.0:
+		return 1.0
+	return lerpf(1.0, BOSS_SIEGE_RAMP_MAX,
+		clampf(t / maxf(1.0, BOSS_SIEGE_RAMP_SECONDS), 0.0, 1.0))
 
 func boss_spawn_profile(fam: String) -> Dictionary:
 	return BOSS_SPAWN.get(fam, {"rate": BOSS_SPAWN_BASE_RATE})
@@ -2203,6 +2290,14 @@ func contract_mult_text(idx: int) -> String:
 # 潮與潮之間唔等清場:下一潮嘅計時由上一潮出場嗰刻起計,所以拖得耐就一定
 # 會撞到重疊 —— 「多試幾場先過到」嘅壓力來源就係呢個,唔係一個更大嘅血條。
 # ===========================================================================
+## 三潮之間嘅間距倍率(第 24 輪,Part D 嘅其中一個掣)。
+## 1.0 = 原本嘅 30 / 92 / 160 秒。細過 1 = 潮同潮之間更快疊埋,即係
+## 「同場幾多隻」上升 —— 呢個係 finale 難度嘅**編排**軸,同血量軸分開。
+var FINAL_WAVE_GAP_SCALE := 1.0
+## finale 雜兵嘅精英率。普通關嘅 elite_chance(100) = 0.20,而 finale 一路
+## 都係跟返關卡值。呢個掣令 finale 嘅雜兵獨立加硬(Part D 嘅第四個掣)。
+## < 0 = 跟返關卡值。
+var FINAL_ELITE_CHANCE := -1.0
 const FINAL_WAVES := [
 	{"at":  30.0, "fams": ["goblin", "wolf", "skeleton"]},
 	{"at":  92.0, "fams": ["golem", "ghost", "bat", "treant"]},
@@ -2211,7 +2306,8 @@ const FINAL_WAVES := [
 ## 終極戰嘅 boss 血量相對一隻普通 boss。十隻疊埋唔可以每隻都係足血,唔係
 ## 佢就唔係「難」而係「長」。0.55 之下十隻加埋 = 5.5 隻 boss 嘅血,而佢哋
 ## 係同場嘅,所以實際壓力遠高過 5.5 隻順序出場。
-const FINAL_BOSS_HP_FRAC := 0.55
+## `--finalhp=` 可以喺 harness 度 override(見 FINAL_SCALE 嗰段嘅理由)。
+var FINAL_BOSS_HP_FRAC := 0.55
 
 # ---------------------------------------------------------------------------
 # LEVEL generation. Infinite levels. Returns config for level N (1-based).
@@ -2267,8 +2363,19 @@ func level_config(n: int) -> Dictionary:
 		cfg["families"] = FAMILY_ORDER.duplicate()
 		cfg["lvl_min"] = 4
 		cfg["lvl_max"] = 5
-		cfg["boss_time"] = FINAL_WAVES[0]["at"]
-		cfg["final_waves"] = FINAL_WAVES
+		## 三潮嘅間距食 FINAL_WAVE_GAP_SCALE(Part D 嘅編排軸)。細過 1 =
+		## 潮同潮之間更快疊埋,即係「同場幾多隻 boss」上升。呢度砌一份新
+		## Array 而唔係就地改 FINAL_WAVES —— 後者係一個 const-by-convention
+		## 嘅表,就地改會令第二次叫 level_config() 攞到一個已經縮過嘅表,
+		## 而症狀係「每次入關都難啲」。
+		var waves: Array = []
+		for w in FINAL_WAVES:
+			waves.append({"at": float(w["at"]) * FINAL_WAVE_GAP_SCALE,
+				"fams": (w["fams"] as Array).duplicate()})
+		cfg["boss_time"] = float(waves[0]["at"])
+		cfg["final_waves"] = waves
+		if FINAL_ELITE_CHANCE >= 0.0:
+			cfg["elite_chance"] = FINAL_ELITE_CHANCE
 	# 難度牆疊喺程序生成之上。Battle.gd 完全唔知道有「牆」呢回事 —— 佢照讀
 	# families / spawn_interval_min,所以牆嘅每一個改動都留喺呢個檔案入面。
 	var w: Dictionary = wall_def(n)
@@ -2569,10 +2676,51 @@ func level_lose_reward(n: int, kills: int, elapsed: float, boss_time_s: float,
 	# any real attempt past the anti-farm window pays at least 1
 	return maxi(1, int(round(amount)))
 
-func _ready() -> void:
+# ---------------------------------------------------------------------------
+# 量度用嘅 override(第 24 輪)
+#
+# 呢幾個掣**只**由 `OS.get_cmdline_user_args()` 讀,即係只有 `godot ... -- --xxx=`
+# 呢條路先掂得到 —— 出街版嘅玩家冇任何方法傳到參數入去。點解要有:一次
+# 校準(Part D 掃 FINAL_SCALE、Part E 掃圍城斜坡)要同一時間跑五六個唔同
+# 配置,而唔開呢個掣就要開五六個 git worktree 先並行得到,而每個 worktree
+# 都要自己 re-import 一次成個專案。
+#
+# 危險喺邊:一個「量度用嘅掣」如果順手影響到預設值,咁全部讀數就係量緊
+# 一隻冇人玩到嘅遊戲。所以呢度嘅規矩係 —— **預設值一定寫喺常數/欄位嘅
+# 宣告度,呢度只做 override**,而且每個掣都會喺 stdout 印一行,咁一份
+# 報告入面就永遠睇得返嗰次係用乜配置量嘅。
+# ---------------------------------------------------------------------------
+func _apply_cli_overrides() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a == "--nobossfloor":
 			boss_floor_enabled = false
+		elif a.begins_with("--finalscale="):
+			FINAL_SCALE = float(a.substr(13))
+			print("GAMEDATA OVERRIDE final_scale=%.5f" % FINAL_SCALE)
+		elif a.begins_with("--finalhp="):
+			FINAL_BOSS_HP_FRAC = float(a.substr(10))
+			print("GAMEDATA OVERRIDE final_boss_hp_frac=%.3f" % FINAL_BOSS_HP_FRAC)
+		elif a.begins_with("--finaloverlap="):
+			FINAL_WAVE_GAP_SCALE = float(a.substr(15))
+			print("GAMEDATA OVERRIDE final_wave_gap=%.3f" % FINAL_WAVE_GAP_SCALE)
+		elif a.begins_with("--finalelite="):
+			FINAL_ELITE_CHANCE = float(a.substr(13))
+			print("GAMEDATA OVERRIDE final_elite=%.3f" % FINAL_ELITE_CHANCE)
+		elif a.begins_with("--siegeramp="):
+			BOSS_SIEGE_RAMP_MAX = float(a.substr(12))
+			print("GAMEDATA OVERRIDE siege_ramp_max=%.3f" % BOSS_SIEGE_RAMP_MAX)
+		elif a.begins_with("--siegeramps="):
+			BOSS_SIEGE_RAMP_SECONDS = float(a.substr(13))
+			print("GAMEDATA OVERRIDE siege_ramp_seconds=%.1f" % BOSS_SIEGE_RAMP_SECONDS)
+		elif a.begins_with("--wave71="):
+			WAVE_G_71_80 = float(a.substr(9))
+			print("GAMEDATA OVERRIDE wave_g_71_80=%.5f" % WAVE_G_71_80)
+		elif a.begins_with("--wave81="):
+			WAVE_G_81_99 = float(a.substr(9))
+			print("GAMEDATA OVERRIDE wave_g_81_99=%.5f" % WAVE_G_81_99)
+
+func _ready() -> void:
+	_apply_cli_overrides()
 	_build_wave_cache()
 	_build_gold_cache()
 	_build_reward_cache()

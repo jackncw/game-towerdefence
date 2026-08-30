@@ -50,6 +50,31 @@ $ver = (Select-String -Path $cfgPath -Pattern '^version/name="(.+)"' |
 if (-not $ver) { throw "export_presets.cfg 度讀唔到 version/name" }
 Write-Host ("version  : " + $ver)
 
+# 第 24 輪加咗**第三個**版本號來源:project.godot 嘅 application/config/version。
+# 設定頁讀嗰個(唔准 hardcode),而佢同兩個 preset 嘅 version/name 一旦飄開,
+# 玩家就會喺一隻 1.1.0 嘅 build 入面見到「版本 1.0.1」——「只會做錯唔會報錯」
+# 嘅一等公民:冇 error、冇 crash,而且淨係喺一部真機上面睇得出。
+# 所以三個數喺呢度對齊,對唔上即刻死。
+$projPath = Join-Path $root "project.godot"
+$projVerM = Select-String -Path $projPath -Pattern '^config/version="(.+)"' | Select-Object -First 1
+if (-not $projVerM) { throw "project.godot 度讀唔到 application/config/version" }
+$projVer = $projVerM.Matches[0].Groups[1].Value
+if ($projVer -ne $ver) {
+  throw "版本號對唔上:project.godot config/version = '$projVer',export_presets.cfg version/name = '$ver'"
+}
+# 兩個 preset 嘅 version/name 都要係同一個(唔係淨係第一個)
+$allVer = @(Select-String -Path $cfgPath -Pattern '^version/name="(.+)"' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value })
+foreach ($v in $allVer) {
+  if ($v -ne $ver) { throw "export_presets.cfg 兩個 preset 嘅 version/name 唔一致:$($allVer -join ', ')" }
+}
+$allCode = @(Select-String -Path $cfgPath -Pattern '^version/code=(\d+)' |
+             ForEach-Object { [int]$_.Matches[0].Groups[1].Value })
+foreach ($c in $allCode) {
+  if ($c -ne $allCode[0]) { throw "export_presets.cfg 兩個 preset 嘅 version/code 唔一致:$($allCode -join ', ')" }
+}
+Write-Host ("code     : " + $allCode[0] + "   (project.godot / 兩個 preset 三處對齊)")
+
 # **`--export-release <preset>` 唔收輸出路徑 —— Godot 寫去 preset 自己嗰個
 # `export_path`。** 即係話呢個 script 講嘅檔名同真正寫出嚟嗰個係兩件事,
 # 而佢哋一唔同步就會出一隻「版本係 1.0.1、個名叫 1.0.0」嘅檔(1.0.1 嗰輪

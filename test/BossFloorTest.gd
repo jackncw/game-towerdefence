@@ -266,8 +266,14 @@ func _case_final_wave_exempt() -> void:
 	if not b.final_bosses.is_empty():
 		var fm = b.final_bosses[0]
 		_ok("最終波嗰隻要標咗豁免", bool(fm.floor_exempt))
-		fm.take_true(1.0e9)
-		_ok("最終波嗰隻要秒得死(唔係嘅話 Gate 6b 會跌穿)", not fm.alive)
+		## **傷害要按佢自己嘅血量計,唔可以寫死一個絕對數。**
+		## 呢一句本來寫住 `take_true(1.0e9)`,而第 24 輪 `FINAL_SCALE` 由 0.052
+		## 校準到 0.55(×10.6)之後,第 100 關嘅 boss 血量升穿咗 1e9 —— 於是
+		## 一個**平衡常數**令一條**機制斷言**跪低。呢個測試問嘅係「呢隻有冇
+		## 被漏桶擋住」,唔係「1e9 夠唔夠殺」,所以個數要跟住佢自己嘅血量行。
+		fm.take_true(fm.max_hp * 10.0)
+		_ok("最終波嗰隻要秒得死(唔係嘅話 Gate 6b 會跌穿)—— 血量 %.0f" % fm.max_hp,
+			not fm.alive)
 	get_tree().paused = false
 	b.queue_free()
 	await get_tree().process_frame

@@ -139,12 +139,43 @@ func _case_f1_tutorial_ui() -> void:
 	Meta.highest_level = 0
 	Meta.settings["tutorial_done"] = false
 
-	# ── harness 保險:nav_enabled = false 之下**一定唔可以**開引導 ──────
+	# ── 保險一:`Flow.tutorial_armed` —— 唔經 play_level() 就唔會有引導 ──
+	# 呢個先係主力,因為佢唔使 harness 記得任何嘢。實測 InputProbe 冇關
+	# nav_enabled,而張引導卡(MOUSE_FILTER_STOP)食晒佢 push 入去嘅 touch,
+	# 報咗一個同輸入層完全無關嘅 routing 失敗。
+	Flow.tutorial_armed = false
+	Meta.highest_level = 0
+	Meta.settings["tutorial_done"] = false
+	var keep_nav2 := Flow.nav_enabled
+	Flow.nav_enabled = true          # 專登開返,證明個 arm 旗自己擋得住
+	Flow.selected_level = 1
+	Flow.last_result = {}
+	var b0 = load("res://scenes/Battle.tscn").instantiate()
+	add_child(b0)
+	await get_tree().process_frame
+	_ok("F1 直接 instantiate Battle(冇經 play_level)唔可以開引導",
+		not b0.tutorial_pending)
+	b0.queue_free()
+	await get_tree().process_frame
+	# 而 arm 咗就要開得到 —— 唔驗呢邊嘅話,個引導可以由頭到尾都冇出現過
+	# 而測試照樣綠。
+	Flow.tutorial_armed = true
+	var b1 = load("res://scenes/Battle.tscn").instantiate()
+	add_child(b1)
+	await get_tree().process_frame
+	_ok("F1 arm 咗就要開到引導", b1.tutorial_pending)
+	_ok("F1 個 arm 旗讀完即清", not Flow.tutorial_armed)
+	b1.queue_free()
+	await get_tree().process_frame
+	Flow.nav_enabled = keep_nav2
+
+	# ── 保險二:nav_enabled = false 之下**一定唔可以**開引導 ──────────
 	# 一張等人撳嘅卡喺一個 headless harness 度就係一個永遠唔會有人撳嘅卡,
 	# 而 tutorial_pending 令 Battle._process 早返 = 成個 harness 靜靜咁掛死。
 	# 同一類事已經咬過三次(逢 7 嘅合約關坐死三個測試)。
 	Flow.selected_level = 1
 	Flow.last_result = {}
+	Flow.tutorial_armed = true       # arm 咗都唔准開 —— 呢層先係喺度驗緊嘅嘢
 	var b = load("res://scenes/Battle.tscn").instantiate()
 	add_child(b)
 	await get_tree().process_frame

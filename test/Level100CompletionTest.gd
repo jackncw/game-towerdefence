@@ -109,7 +109,11 @@ func _kill_boss(b, m) -> bool:
 	var guard := 0
 	while is_instance_valid(m) and m.alive and guard < 200:
 		m.invuln_time = 0.0
-		m.take_true(1.0e9)
+		# 按佢自己嘅血量打,唔好寫死一個絕對數 —— `FINAL_SCALE` 一校準
+		# (第 24 輪 0.052 → 0.55)boss 血量就會升穿任何寫死嘅數。
+		# 呢度本來有個 200 次嘅 guard loop 兜得住,但兜住嘅係一個
+		# 「慢慢磨死」而唔係「一炮打死」,而下一次校準就未必兜得返。
+		m.take_true(maxf(1.0e9, m.max_hp * 10.0))
 		guard += 1
 		if is_instance_valid(m) and m.alive:
 			_step(b)

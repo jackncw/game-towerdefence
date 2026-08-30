@@ -289,7 +289,11 @@ func _ready() -> void:
 	# 首戰引導(第 24 輪)。喺合約之後 —— 兩者永遠唔會同場(第 1 關唔係合約
 	# 關),但如果將來改咗逢幾多關抽卡,「兩個 modal 疊住」會係一個靜音錯誤,
 	# 所以呢度明文守住次序同互斥。
-	elif Meta.should_show_tutorial(level):
+	## `consume_tutorial_armed()` 一定要**無條件**叫(唔可以擺喺 `and` 右邊
+	## 俾短路跳過)—— 佢係一個「讀完即清」嘅旗,漏咗清就會喺下一場戰鬥
+	## 補彈出嚟。
+	var armed := Flow.consume_tutorial_armed()
+	if armed and Meta.should_show_tutorial(level):
 		_open_tutorial()
 
 func _exit_tree() -> void:
@@ -639,8 +643,11 @@ func _open_tutorial() -> void:
 	##
 	## 呢個唔係一個「順手加嘅保險」:同一類事已經咬過三次(逢 7 嘅合約關
 	## 坐死 BossHealTest / BossSpawnTest / SoakTest),而症狀每次都係「所有
-	## 同時間有關嘅斷言一齊靜靜咁失敗」。所以呢度用同 `_set_world_paused()`
-	## 一模一樣嗰個旗,唔靠每個 harness 記得自己關。
+	## 同時間有關嘅斷言一齊靜靜咁失敗」。
+	##
+	## **第二層**(主力係 `Flow.tutorial_armed`,見嗰度):`nav_enabled` 要
+	## 每個 harness 自己記得關,而實測 `InputProbe` 就係冇關 —— 佢報咗一個
+	## 同輸入層完全無關嘅 routing 失敗,因為張引導卡食晒佢 push 入去嘅 touch。
 	if not Flow.nav_enabled:
 		return
 	tutorial_pending = true

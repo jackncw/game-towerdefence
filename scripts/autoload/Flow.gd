@@ -128,8 +128,27 @@ func goto(path: String) -> void:
 	apply_frame_cap()
 	get_tree().change_scene_to_file(path)
 
+## 首戰引導只可以喺**玩家由介面入場**嗰條路出現(第 24 輪)。
+##
+## 點解要一個旗而唔係靠 `nav_enabled`:`nav_enabled` 要每一個 harness 自己
+## 記得關,而實測有 harness 冇關(`InputProbe` 就係)—— 佢直接 instantiate
+## 一個 Battle,於是嗰張等人撳嘅引導卡(MOUSE_FILTER_STOP)食晒佢 push 入去
+## 嘅 touch,而個測試報一個同輸入層完全無關嘅 routing 失敗。
+##
+## 呢個旗反過嚟:**只有 `play_level()` 會 arm 佢**,而 `Battle._ready()` 一讀
+## 就即刻清走。任何直接 instantiate Battle 嘅 code(全部 harness、art_export、
+## 截圖工具)由結構上就見唔到引導,唔使佢哋記得任何嘢。
+var tutorial_armed: bool = false
+
+## 讀完即清 —— 一次入場只 arm 一次。
+func consume_tutorial_armed() -> bool:
+	var v := tutorial_armed
+	tutorial_armed = false
+	return v
+
 func play_level(n: int) -> void:
 	selected_level = n
+	tutorial_armed = true
 	goto(BATTLE)
 
 ## Switch language and make it visible immediately, including on the screen the

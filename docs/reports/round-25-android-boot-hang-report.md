@@ -441,6 +441,14 @@ hardcode),所以一齊出:
 Pages 上嗰隻可落載 apk 由 `Towerbound-1.1.0.apk` 換做 `Towerbound-1.1.1.apk`
 (`.gitignore` 嗰條逐檔名嘅例外一齊改)。
 
+### 部署讀數(push 之後實測)
+
+| 對象 | 讀數 |
+|---|---|
+| `…/index.pck` | push 後頭 ~3 分鐘仲係舊嗰個 `0e511ec1…`,第 ~4 分鐘轉做 `b1e811b7…` = 本機。**Pages 唔係即刻換版** |
+| `…/Towerbound-1.1.1.apk` | **HTTP 200**、`application/vnd.android.package-archive`、81,807,609 bytes、SHA-256 `26315c7f…` 同本機**逐 byte 一樣** |
+| `…/Towerbound-1.1.0.apk` | **HTTP 404**(舊嗰隻真係落咗架,冇兩隻版本同時掛住) |
+
 ---
 
 ## Jack 下一步
